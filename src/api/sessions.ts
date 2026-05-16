@@ -4,7 +4,7 @@ import { streamSSE } from "hono/streaming";
 import { loadConfig, resolveScanRoots } from "../config.js";
 import { RelayDB } from "../db/client.js";
 import { getSession, getSessionPath } from "../sessions/index.js";
-import type { SessionRow, SessionType } from "../types.js";
+import type { SessionRow, SessionStatus, SessionType } from "../types.js";
 
 // `SessionType` includes "cursor" (Phase A) but the live-fs readers only
 // know about claude/codex/gemini. The detail + SSE endpoints reject
@@ -54,6 +54,9 @@ interface SessionListItem {
   parent_session_id?: string;
   agent_id?: string;
   subagent_count?: number;
+  // Surfaced so the list view can highlight rows waiting on the user.
+  // Sourced from `sessions.status` — refreshed on every sync.
+  status?: SessionStatus;
 }
 
 export function createSessionsApi() {
@@ -343,6 +346,7 @@ function rowToListItem(
     last_active: row.last_active,
     message_count: row.message_count,
     todos_count: 0,
+    status: row.status,
   };
   if (isSubagent && row.parent_session_id) {
     item.parent_session_id = row.parent_session_id;

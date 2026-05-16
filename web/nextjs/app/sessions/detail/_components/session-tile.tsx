@@ -1,6 +1,6 @@
 "use client";
 
-import type { SessionType } from "@/lib/api";
+import type { SessionStatus, SessionType } from "@/lib/api";
 import { c } from "@/lib/copy";
 import { cn } from "@/lib/utils";
 import { useSessionStream } from "../_hooks/use-session-stream";
@@ -54,6 +54,39 @@ export function SessionTile({
         />
       )}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// WaitingForUserBadge — shown when the session detector classifies the
+// underlying JSONL as `waiting_for_user` (an unanswered foreground tool_use
+// that has been idle past the detector's threshold). Distinct from the
+// StreamStatusBadge (which only reflects the SSE connection state) because
+// a session can be `live` AND `waiting_for_user` simultaneously — the file
+// has new bytes appearing, but the user is being asked to approve a tool.
+// ---------------------------------------------------------------------------
+export function WaitingForUserBadge({
+  status,
+  compact = false,
+}: {
+  status: SessionStatus | undefined;
+  compact?: boolean;
+}) {
+  if (status !== "waiting_for_user") return null;
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1 font-mono uppercase tracking-wider rounded-[var(--radius-sm)] border",
+        compact ? "px-1 py-0 text-[10px]" : "px-1.5 py-0.5 text-[10.5px]",
+      )}
+      style={{ borderColor: "var(--color-warm)", color: "var(--color-warm)" }}
+      role="status"
+      aria-live="polite"
+      title="This session is waiting on a user decision (permission prompt or unanswered tool_use)"
+    >
+      <span className="relay-attention w-1.5 h-1.5 rounded-full" />
+      {compact ? "wait" : "waiting for user"}
+    </span>
   );
 }
 

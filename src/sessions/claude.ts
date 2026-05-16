@@ -3,6 +3,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { resolveRepoForCwd } from "../lib/repo-from-cwd.js";
+import { detectClaudeSessionStatus } from "../lib/session-status.js";
 import type {
   SessionDetail,
   SessionMessage,
@@ -162,6 +163,11 @@ async function readClaudeSummary(
 
   const repo = cwd ? resolveRepoForCwd(cwd, roots) : legacyProjectToRepo(projectDir);
 
+  // Live detection: the SSE stream re-runs this on every file change so the
+  // UI flips to "waiting_for_user" in real time, well before the next sync
+  // tick would update the DB-backed list view's status field.
+  const status = detectClaudeSessionStatus(text);
+
   return {
     type: "claude",
     id: sessionId,
@@ -172,6 +178,7 @@ async function readClaudeSummary(
     last_active: lastTs || firstUser?.ts || new Date().toISOString(),
     message_count: messageCount,
     todos_count: todoIds.size,
+    status,
   };
 }
 

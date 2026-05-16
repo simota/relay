@@ -7,8 +7,8 @@
 // readers in this directory currently handle three of the four members
 // (claude / codex / gemini); cursor sessions exist only as DB rows and
 // are filtered out by the API layer before reaching the fs readers.
-import type { SessionType } from "../types.js";
-export type { SessionType };
+import type { SessionStatus, SessionType } from "../types.js";
+export type { SessionStatus, SessionType };
 
 export interface SessionSummary {
   type: SessionType;
@@ -26,6 +26,14 @@ export interface SessionSummary {
   agent_id?: string;
   /** Number of subagent sessions under this parent. Omitted when 0. */
   subagent_count?: number;
+  /**
+   * Lifecycle state observed by the detector. The list endpoint sources this
+   * from the `sessions` table (refreshed on sync). The detail endpoint /
+   * SSE stream re-computes it on every file change, so live sessions update
+   * the indicator without waiting for the next sync. Omitted for sources
+   * whose adapter has not implemented detection yet (codex/gemini/cursor).
+   */
+  status?: SessionStatus;
 }
 
 export interface SessionMessage {

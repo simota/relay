@@ -31,6 +31,16 @@ export function runColumnMigrations(db: Database): void {
   if (!taskCols.some((c) => c.name === "wait_on")) {
     db.exec(`ALTER TABLE tasks ADD COLUMN wait_on TEXT NOT NULL DEFAULT 'self'`);
   }
+
+  // schema_version 4: sessions.status. Pre-v4 DBs already have the sessions
+  // table from v3 but no status column; backfill defaults all existing rows
+  // to 'idle' so we never falsely advertise an unobserved state.
+  const sessionCols = db
+    .prepare(`PRAGMA table_info(sessions)`)
+    .all() as Array<{ name: string }>;
+  if (sessionCols.length > 0 && !sessionCols.some((c) => c.name === "status")) {
+    db.exec(`ALTER TABLE sessions ADD COLUMN status TEXT NOT NULL DEFAULT 'idle'`);
+  }
 }
 
 export function ensureQueueSchema(db: Database): void {

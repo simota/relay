@@ -37,6 +37,28 @@ export const SESSION_TYPES = ["claude", "codex", "gemini", "cursor"] as const;
 export const SessionType = z.enum(SESSION_TYPES);
 export type SessionType = (typeof SESSION_TYPES)[number];
 
+// Lifecycle state of a CLI session as observed by the ingest pipeline.
+// - "active"            → the CLI is currently producing output (tool_use /
+//                         assistant turns flowing).
+// - "waiting_for_user"  → the CLI is blocked on a user decision (permission
+//                         prompt, AskUserQuestion, unresolved tool_use whose
+//                         tool_result has not arrived past the idle window).
+// - "interrupted"       → the user interrupted the last turn (the JSONL
+//                         contains an explicit `[Request interrupted by
+//                         user...]` marker).
+// - "idle"              → no signal; the session is at rest (turn ended
+//                         cleanly, or the adapter has not classified it).
+//                         Default for newly ingested rows so we never
+//                         pre-classify state we have not actually observed.
+export const SESSION_STATUSES = [
+  "active",
+  "waiting_for_user",
+  "interrupted",
+  "idle",
+] as const;
+export const SessionStatus = z.enum(SESSION_STATUSES);
+export type SessionStatus = (typeof SESSION_STATUSES)[number];
+
 /**
  * Row shape for the `sessions` table. UNIQUE(type, id) keyed; adapters
  * UPSERT one row per CLI session and the DB becomes the single source of
@@ -55,6 +77,7 @@ export const SessionRow = z.object({
   parent_session_id: z.string().nullable().default(null),
   source_path: z.string().min(1),
   sha: z.string().nullable().default(null),
+  status: SessionStatus.default("idle"),
 });
 export type SessionRow = z.infer<typeof SessionRow>;
 

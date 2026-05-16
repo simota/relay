@@ -116,6 +116,7 @@ export function toSessionRow(args: {
   parentSessionId?: string | null;
   sourcePath: string;
   sha?: string | null;
+  status?: SessionRow["status"];
 }): SessionRow {
   return {
     id: args.id,
@@ -128,5 +129,6 @@ export function toSessionRow(args: {
     parent_session_id: args.parentSessionId ?? null,
     source_path: args.sourcePath,
     sha: args.sha ?? null,
+    status: args.status ?? "idle",
   };
 }

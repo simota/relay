@@ -424,8 +424,8 @@ export function upsertSession(db: Database, row: SessionRow): void {
     .prepare(
       `INSERT INTO sessions (
          id, type, repo, cwd, started_at, last_active, message_count,
-         parent_session_id, source_path, sha
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         parent_session_id, source_path, sha, status
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(type, id) DO UPDATE SET
          repo              = excluded.repo,
          cwd               = excluded.cwd,
@@ -433,7 +433,8 @@ export function upsertSession(db: Database, row: SessionRow): void {
          message_count     = excluded.message_count,
          parent_session_id = excluded.parent_session_id,
          source_path       = excluded.source_path,
-         sha               = excluded.sha`,
+         sha               = excluded.sha,
+         status            = excluded.status`,
     )
     .run(
       row.id,
@@ -446,6 +447,7 @@ export function upsertSession(db: Database, row: SessionRow): void {
       row.parent_session_id,
       row.source_path,
       row.sha,
+      row.status,
     );
 }
 
@@ -485,7 +487,7 @@ export function getSessions(
   const rows = db
     .prepare(
       `SELECT id, type, repo, cwd, started_at, last_active, message_count,
-              parent_session_id, source_path, sha
+              parent_session_id, source_path, sha, status
          FROM sessions
          ${whereSql}
          ORDER BY last_active DESC
@@ -502,6 +504,7 @@ export function getSessions(
     parent_session_id: string | null;
     source_path: string;
     sha: string | null;
+    status: string;
   }>;
   return rows.map((r) => ({
     id: r.id,
@@ -514,6 +517,7 @@ export function getSessions(
     parent_session_id: r.parent_session_id,
     source_path: r.source_path,
     sha: r.sha,
+    status: r.status as SessionRow["status"],
   }));
 }
 
@@ -525,7 +529,7 @@ export function getSessionByTypeId(
   const row = db
     .prepare(
       `SELECT id, type, repo, cwd, started_at, last_active, message_count,
-              parent_session_id, source_path, sha
+              parent_session_id, source_path, sha, status
          FROM sessions
          WHERE type = ? AND id = ?
          LIMIT 1`,
@@ -542,6 +546,7 @@ export function getSessionByTypeId(
         parent_session_id: string | null;
         source_path: string;
         sha: string | null;
+        status: string;
       }
     | undefined;
   if (!row) return null;
@@ -556,6 +561,7 @@ export function getSessionByTypeId(
     parent_session_id: row.parent_session_id,
     source_path: row.source_path,
     sha: row.sha,
+    status: row.status as SessionRow["status"],
   };
 }
 
