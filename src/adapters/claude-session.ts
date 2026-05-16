@@ -4,7 +4,8 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { resolveRepoForCwd } from "../lib/repo-from-cwd.js";
 import { compileExcludePatterns, toSessionRow } from "../lib/session-helpers.js";
-import type { Adapter, AdapterContext, TaskInput } from "../types.js";
+import { detectClaudeSessionStatus } from "../lib/session-status.js";
+import type { Adapter, AdapterContext, SessionStatus, TaskInput } from "../types.js";
 
 /**
  * Scans ~/.claude/projects/<project-hash>/<session-uuid>.jsonl for the latest
@@ -125,7 +126,7 @@ export const claudeSessionAdapter: Adapter = {
             ctx.log?.(`  ✓ would read: ${fullPath}`);
           }
 
-          const { cwd, sessionTasks, messageCount } = await parseSession(fullPath);
+          const { cwd, sessionTasks, messageCount, status } = await parseSession(fullPath);
           const repo = resolveRepoForCwd(cwd, ctx.roots) ?? legacyProjectToRepo(project);
 
           if (sessionTasks.length > 0 && repo) {
@@ -169,6 +170,7 @@ export const claudeSessionAdapter: Adapter = {
                   lastActive: iso,
                   messageCount,
                   sourcePath: fullPath,
+                  status,
                 }),
               );
             } catch (err) {
@@ -212,7 +214,7 @@ export const claudeSessionAdapter: Adapter = {
           // beats cursor — so a stat failure conservatively re-processes.
           if (cursorMs !== null && subStat && subMtimeMs <= cursorMs) continue;
 
-          const { cwd, sessionTasks, messageCount } = await parseSession(fullPath);
+          const { cwd, sessionTasks, messageCount, status } = await parseSession(fullPath);
           const repo = resolveRepoForCwd(cwd, ctx.roots) ?? legacyProjectToRepo(project);
 
           if (sessionTasks.length > 0 && repo) {
@@ -256,6 +258,7 @@ export const claudeSessionAdapter: Adapter = {
                   messageCount,
                   parentSessionId: subdir,
                   sourcePath: fullPath,
+                  status,
                 }),
               );
             } catch (err) {
@@ -410,7 +413,12 @@ function reduceEvents(events: ToolEvent[]): SessionTask[] {
 
 async function parseSession(
   path: string,
-): Promise<{ cwd: string | null; sessionTasks: SessionTask[]; messageCount: number }> {
+): Promise<{
+  cwd: string | null;
+  sessionTasks: SessionTask[];
+  messageCount: number;
+  status: SessionStatus;
+}> {
   const text = await readFile(path, "utf8");
   const { cwd, events } = extractToolEvents(text);
   // Each non-empty line in a Claude JSONL is one event (user prompt, assistant
@@ -420,7 +428,10 @@ async function parseSession(
   for (const line of text.split("\n")) {
     if (line.trim()) messageCount += 1;
   }
-  return { cwd, sessionTasks: reduceEvents(events), messageCount };
+  // Status detection runs on the same text we just parsed — reusing the
+  // string keeps this cheap (one extra tail walk, no second readFile).
+  const status = detectClaudeSessionStatus(text);
+  return { cwd, sessionTasks: reduceEvents(events), messageCount, status };
 }
 
 function getToolUseBlocks(evt: Record<string, unknown>): ToolUse[] {
