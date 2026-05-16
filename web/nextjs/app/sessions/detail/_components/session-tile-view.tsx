@@ -17,7 +17,7 @@ import type { RoleFilter, StreamStatus, TileSpec } from "../_types";
 import { RelativeTime, TypeBadge } from "./badges";
 import { MessagesList } from "./messages-list";
 import { SessionTasksPanel } from "./session-tasks-panel";
-import { StreamStatusBadge } from "./session-tile";
+import { StreamStatusBadge, WaitingForUserBadge } from "./session-tile";
 import { TabButton } from "./tab-button";
 import { TodosList } from "./todos-list";
 import { ToolCallsList } from "./tool-calls-list";
@@ -142,6 +142,11 @@ export function SessionTileView({
               <StreamStatusBadge status={streamStatus} />
             </>
           )}
+          {/* Waiting badge is non-null only when the SSE-delivered detail
+              classifies this session as needing user action. Placed before
+              the spacer so it sits next to the stream/type chips and
+              dominates the user's attention. */}
+          <WaitingForUserBadge status={data.status} compact={compact} />
           <div className="flex-1" />
           {compact && <StreamStatusBadge status={streamStatus} />}
           {onClose && (

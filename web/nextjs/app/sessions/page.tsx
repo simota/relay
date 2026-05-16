@@ -80,9 +80,16 @@ export default function SessionsPage() {
     [sessions, nowMs],
   );
 
+  const waitingCount = useMemo(
+    () => sessions.filter((s) => s.status === "waiting_for_user").length,
+    [sessions],
+  );
+  const [waitingOnly, setWaitingOnly] = useState(false);
+
   const filtered = useMemo(() => {
     let rows = sessions;
     if (activeOnly) rows = rows.filter((s) => isActiveSession(s.last_active, nowMs));
+    if (waitingOnly) rows = rows.filter((s) => s.status === "waiting_for_user");
     if (filter.trim()) {
       const q = filter.toLowerCase();
       rows = rows.filter(
@@ -125,7 +132,7 @@ export default function SessionsPage() {
     }
 
     return rows;
-  }, [sessions, filter, activeOnly, nowMs, showSubagents]);
+  }, [sessions, filter, activeOnly, waitingOnly, nowMs, showSubagents]);
 
   // Build a lookup map from key → SessionSummary for the "Open as tiles" button.
   const sessionByKey = useMemo(() => {
@@ -187,6 +194,23 @@ export default function SessionsPage() {
                 >
                   <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-accent)] animate-pulse" />
                   {formatNumber(activeCount)} active
+                </button>
+              )}
+              {waitingCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setWaitingOnly((v) => !v)}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 px-1.5 py-0.5 rounded-[var(--radius-sm)] border text-[11px] transition-colors",
+                    waitingOnly
+                      ? "border-[var(--color-warm)] text-[var(--color-warm)]"
+                      : "border-[var(--color-border)] text-[var(--color-fg-muted)] hover:text-[var(--color-fg)]",
+                  )}
+                  aria-pressed={waitingOnly}
+                  title="Sessions waiting on a user decision (permission prompt, AskUserQuestion, unanswered tool_use)"
+                >
+                  <span className="relay-attention w-1.5 h-1.5 rounded-full" />
+                  {formatNumber(waitingCount)} waiting
                 </button>
               )}
             </p>
@@ -343,11 +367,15 @@ function SessionRow({
   isSubagent: boolean;
 }) {
   const active = isActiveSession(s.last_active, nowMs);
+  const waiting = s.status === "waiting_for_user";
   return (
     <tr
       className={cn(
         "border-t border-[var(--color-border)] hover:bg-[var(--color-bg-elev)] transition-colors",
         active && "bg-[var(--color-bg-elev)]/40",
+        // Waiting wins over active for row tint — the user needs to spot
+        // these even when scanning a long list.
+        waiting && "bg-[color-mix(in_oklch,var(--color-warm)_8%,transparent)]",
         checked && "bg-[var(--color-accent)]/5",
         isSubagent && "opacity-90",
       )}
@@ -362,7 +390,16 @@ function SessionRow({
         />
       </td>
       <td className="px-3 py-2">
-        {active ? (
+        {waiting ? (
+          // Waiting takes priority over active — both can be true (the
+          // file is fresh AND a tool_use is pending), but the user needs
+          // to act on this one, so we surface the warmer signal.
+          <span
+            className="relay-attention inline-block w-2 h-2 rounded-full"
+            title="waiting for user input (permission prompt or unanswered tool_use)"
+            aria-label="waiting for user input"
+          />
+        ) : active ? (
           <span
             className="inline-block w-2 h-2 rounded-full bg-[var(--color-accent)] animate-pulse"
             title="active (writes within 2 min)"

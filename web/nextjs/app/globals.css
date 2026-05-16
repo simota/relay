@@ -585,6 +585,34 @@ mark.fuzz {
   }
 }
 
+/* Session status — "waiting for user" attention cue.
+   Used by the sessions list dot and the detail tile badge. Base rule keeps
+   the warm color visible so the signal survives prefers-reduced-motion
+   (WCAG 2.3.3 — no flashing for vestibular sensitivity). The keyframe just
+   amplifies it for people who do not opt out of motion. */
+.relay-attention {
+  background-color: var(--color-warm);
+  color: var(--color-warm);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .relay-attention {
+    animation: relay-attention-blink 1.1s var(--ease-out) infinite;
+  }
+}
+
+@keyframes relay-attention-blink {
+  0%, 100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 color-mix(in oklch, var(--color-warm) 60%, transparent);
+  }
+
+  50% {
+    opacity: 0.45;
+    box-shadow: 0 0 0 3px color-mix(in oklch, var(--color-warm) 0%, transparent);
+  }
+}
+
 /* Focus rings (Tailwind-friendly) */
 .ring-focus:focus-visible {
   outline: none;

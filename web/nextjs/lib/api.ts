@@ -93,6 +93,10 @@ export interface UndoLogItem {
 
 export type SessionType = "claude" | "codex" | "gemini";
 
+// Mirror of the canonical enum in src/types.ts. Kept inline rather than
+// generated so the web bundle does not pull in the server-side zod schema.
+export type SessionStatus = "active" | "waiting_for_user" | "interrupted" | "idle";
+
 export interface SessionSummary {
   type: SessionType;
   id: string;
@@ -109,6 +113,13 @@ export interface SessionSummary {
   agent_id?: string;
   /** Number of subagent sessions under this parent. Omitted when 0. */
   subagent_count?: number;
+  /**
+   * Lifecycle state from the detector. The list endpoint reads this from the
+   * DB (refreshed on sync); the detail endpoint / SSE stream recomputes it
+   * on every JSONL change so the UI updates in real time. Omitted for
+   * sources whose adapter has no detection yet (currently codex/gemini).
+   */
+  status?: SessionStatus;
 }
 
 export interface SessionMessage {
