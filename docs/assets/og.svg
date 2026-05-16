@@ -1,0 +1,97 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
+  <!-- Background -->
+  <rect width="1200" height="630" fill="#0d0f12"/>
+
+  <!-- Subtle grid pattern -->
+  <defs>
+    <pattern id="grid" width="56" height="56" patternUnits="userSpaceOnUse">
+      <path d="M 56 0 L 0 0 0 56" fill="none" stroke="rgba(255,255,255,0.03)" stroke-width="1"/>
+    </pattern>
+    <radialGradient id="glow" cx="50%" cy="45%" r="55%">
+      <stop offset="0%" stop-color="#e2ff6b" stop-opacity="0.12"/>
+      <stop offset="100%" stop-color="#e2ff6b" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#grid)"/>
+  <rect width="1200" height="630" fill="url(#glow)"/>
+
+  <!-- Border frame -->
+  <rect x="40" y="40" width="1120" height="550" rx="20" fill="none" stroke="#2a2f37" stroke-width="1"/>
+
+  <!-- Logo mark -->
+  <g transform="translate(80, 80)">
+    <rect width="72" height="72" rx="16" fill="#14171c"/>
+    <path
+      d="M21.4 52V22h12.9a9 9 0 0 1 0 18H31l10 12h-8l-10-12V52Zm9-18h4a4 4 0 0 0 0-8H30Z"
+      fill="#e2ff6b"
+    />
+  </g>
+
+  <!-- Brand name -->
+  <text
+    x="172" y="128"
+    font-family="'Geist Mono', 'JetBrains Mono', 'SF Mono', monospace"
+    font-size="52" font-weight="600" letter-spacing="-1"
+    fill="#e6ebf0"
+  >relay</text>
+
+  <!-- Separator line -->
+  <line x1="80" y1="192" x2="1120" y2="192" stroke="#2a2f37" stroke-width="1"/>
+
+  <!-- Main headline -->
+  <text
+    x="80" y="286"
+    font-family="'Geist', 'SF Pro Text', system-ui, sans-serif"
+    font-size="64" font-weight="700" letter-spacing="-2"
+    fill="#e6ebf0"
+  >AI が止まっても、</text>
+
+  <text
+    x="80" y="362"
+    font-family="'Geist', 'SF Pro Text', system-ui, sans-serif"
+    font-size="64" font-weight="700" letter-spacing="-2"
+    fill="#e2ff6b"
+  >作業は消えない。</text>
+
+  <!-- Tagline row -->
+  <text
+    x="80" y="440"
+    font-family="'Geist Mono', 'SF Mono', monospace"
+    font-size="22" font-weight="400" letter-spacing="0"
+    fill="#98a0aa"
+  >SQLite ローカル完結 · relay run &lt;id&gt; → Claude / Codex / Gemini</text>
+
+  <!-- Bottom badges -->
+  <!-- MIT badge -->
+  <g transform="translate(80, 484)">
+    <rect width="90" height="30" rx="6" fill="#1b1f25"/>
+    <rect width="90" height="30" rx="6" fill="none" stroke="#2a2f37"/>
+    <text x="14" y="20" font-family="monospace" font-size="13" fill="#7a828d">license</text>
+    <text x="68" y="20" font-family="monospace" font-size="13" fill="#e2ff6b" text-anchor="middle">MIT</text>
+    <!-- divider -->
+    <line x1="52" y1="4" x2="52" y2="26" stroke="#2a2f37" stroke-width="1"/>
+  </g>
+
+  <!-- local-first badge -->
+  <g transform="translate(188, 484)">
+    <rect width="108" height="30" rx="6" fill="#1b1f25"/>
+    <rect width="108" height="30" rx="6" fill="none" stroke="#2a2f37"/>
+    <text x="10" y="20" font-family="monospace" font-size="13" fill="#e2ff6b">local-first</text>
+  </g>
+
+  <!-- Bun badge -->
+  <g transform="translate(314, 484)">
+    <rect width="120" height="30" rx="6" fill="#1b1f25"/>
+    <rect width="120" height="30" rx="6" fill="none" stroke="#2a2f37"/>
+    <text x="14" y="20" font-family="monospace" font-size="13" fill="#7a828d">runtime</text>
+    <text x="75" y="20" font-family="monospace" font-size="13" fill="#e2ff6b" text-anchor="middle">Bun ≥ 1.1</text>
+    <line x1="54" y1="4" x2="54" y2="26" stroke="#2a2f37" stroke-width="1"/>
+  </g>
+
+  <!-- URL -->
+  <text
+    x="1120" y="514"
+    font-family="'Geist Mono', monospace"
+    font-size="16" fill="#7a828d" text-anchor="end"
+  >simota.github.io/relay</text>
+</svg>

@@ -1,0 +1,1164 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark light" />
+    <title>relay — AI セッションが落ちても作業を SQLite から復元するローカルタスクハブ</title>
+    <meta
+      name="description"
+      content="セッションが落ちても、relay run &lt;id&gt; で context が SQLite から戻る。Claude Code / Codex / Gemini を 40+ リポで横断起動。ローカル完結・外部送信ゼロ・MIT ライセンス。Bun ≥ 1.1 と gh CLI があれば即導入。"
+    />
+    <meta name="theme-color" content="#0d0f12" />
+    <meta name="author" content="simota" />
+    <meta name="robots" content="index, follow" />
+    <meta name="keywords" content="relay, task hub, AI agent, Claude Code, Codex, Gemini, local-first, SQLite, CLI, Bun, GitHub issues, ripgrep" />
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="relay — AI が止まっても、作業は消えない。" />
+    <meta
+      property="og:description"
+      content="セッションが落ちても、relay run &lt;id&gt; で context が SQLite から戻る。Claude Code / Codex / Gemini を、正しい repo で起動。ローカル完結、外部送信ゼロ。"
+    />
+    <meta property="og:url" content="https://simota.github.io/relay/" />
+    <meta property="og:site_name" content="relay" />
+    <meta property="og:image" content="https://simota.github.io/relay/assets/og.svg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:type" content="image/svg+xml" />
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="relay — AI が止まっても、作業は消えない。" />
+    <meta
+      name="twitter:description"
+      content="セッションが落ちても、relay run &lt;id&gt; で context が SQLite から戻る。Claude Code / Codex / Gemini を、正しい repo で起動。ローカル完結、外部送信ゼロ。"
+    />
+    <meta name="twitter:image" content="https://simota.github.io/relay/assets/og.svg" />
+    <meta name="twitter:url" content="https://simota.github.io/relay/" />
+
+    <!-- Canonical -->
+    <link rel="canonical" href="https://simota.github.io/relay/" />
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+
+    <!-- JSON-LD: SoftwareApplication -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      "name": "relay",
+      "description": "セッションが落ちても、relay run <id> で context が SQLite から戻る。Claude Code / Codex / Gemini を、正しい repo で起動。ローカル完結、外部送信ゼロ。",
+      "url": "https://simota.github.io/relay/",
+      "downloadUrl": "https://github.com/simota/relay",
+      "applicationCategory": "DeveloperApplication",
+      "operatingSystem": "macOS, Linux",
+      "softwareVersion": "0.1",
+      "license": "https://opensource.org/licenses/MIT",
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "USD"
+      },
+      "datePublished": "2026-05-16",
+      "dateModified": "2026-05-16",
+      "author": {
+        "@type": "Person",
+        "name": "Shingo Imota",
+        "alternateName": "simota",
+        "jobTitle": "Software Developer",
+        "url": "https://github.com/simota",
+        "sameAs": ["https://github.com/simota"]
+      },
+      "sameAs": "https://github.com/simota/relay"
+    }
+    </script>
+
+    <!-- JSON-LD: BreadcrumbList + Organization -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@graph": [
+        {
+          "@type": "BreadcrumbList",
+          "itemListElement": [
+            {
+              "@type": "ListItem",
+              "position": 1,
+              "name": "relay",
+              "item": "https://simota.github.io/relay/"
+            }
+          ]
+        },
+        {
+          "@type": "Organization",
+          "name": "simota",
+          "url": "https://github.com/simota",
+          "sameAs": "https://github.com/simota"
+        }
+      ]
+    }
+    </script>
+
+    <!-- FAQ JSON-LD -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "FAQPage",
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "データはどこに保存されますか?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "すべて ~/.relay/db.sqlite (環境変数 RELAY_HOME で上書き可) に保存されます。外部 SaaS への送信はなく、認証も不要。バックアップが必要なら relay export --json で JSON スナップショットを取得できます。"
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Codex CLI / Gemini CLI との関係は?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "relay は agent の置き換えではなく起動装置です。タスクの assignee に応じて claude / codex / gemini バイナリを該当 repo の cwd で spawn し、prompt と context summary を渡します。各 CLI 自体の挙動には介入しません。"
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Claude Code の TodoWrite と何が違う?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "TodoWrite はセッション内のチェックリストで、session が閉じれば消えます。relay は Stop hook で TodoWrite を claude_session_todo タスクとして SQLite に退避し、後日 relay run で同じ session を resume できるようにします。さらに 40+ リポを横断した俯瞰ビューも提供します。"
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "チームで使えますか?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "v0.1 は個人多事業主向けのローカルファースト設計です。マルチユーザーや共有は明示的に non-goal。ただし、仕事 Mac / 個人 Mac の往復用に relay export --json ↔ relay import --json の JSON スナップショット同期 (last-writer-wins) は対応しています。"
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "どの OS で動きますか?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Bun が動く環境 — macOS / Linux / WSL を想定しています。実測ベンチは macOS (MacBook Air) で取得。Windows ネイティブは現状未検証です。gh CLI と rg (ripgrep) が PATH にあれば追加依存はありません。"
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Screen reader / 低視力環境では使えますか?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Web UI (relay web) が主要な操作インタフェースです。semantic HTML、status / priority 信号への role=\"img\" + aria-label、focus-visible リング、prefers-contrast: more 対応を備え、screen reader (NVDA / JAWS / VoiceOver) でも操作可能です。キーボードのみでも全操作をカバーします。"
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "マルチマシン間で同期できますか?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "クラウド同期は意図的に non-goal ですが、仕事 Mac ↔ 個人 Mac の往復には relay export --json で JSON スナップショットを出力し、別マシンで relay import --json で取り込む方法が使えます (last-writer-wins)。"
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "テーマを変更できますか?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Web UI には 13 種のテーマプリセット (dark / light / sunset / matrix / ocean / notebook / blueprint / washi / sketch / midnight / mist / solar / paper) があり、theme picker で即切替できます。prefers-color-scheme にも連動します。"
+          }
+        }
+      ]
+    }
+    </script>
+
+    <!-- Preconnect for Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600&family=Geist:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main">本文へスキップ</a>
+
+    <!-- ───── Header ───── -->
+    <header class="site-header" role="banner">
+      <div class="container header-inner">
+        <a class="brand" href="#top" aria-label="relay — トップへ">
+          <svg
+            class="brand-mark"
+            viewBox="0 0 64 64"
+            width="28"
+            height="28"
+            aria-hidden="true"
+          >
+            <rect width="64" height="64" rx="14" fill="currentColor" opacity="0.08" />
+            <path
+              d="M19 46V20h11.5a8 8 0 0 1 0 16H27l9 10h-7l-9-10V46Zm8-16h3.5a3.5 3.5 0 0 0 0-7H27Z"
+              fill="currentColor"
+            />
+          </svg>
+          <span class="brand-name">relay</span>
+          <span class="brand-tag" aria-hidden="true">v0.1</span>
+        </a>
+        <nav class="site-nav" aria-label="主要セクション">
+          <a href="#features">Features</a>
+          <a href="#how">How it works</a>
+          <a href="#compare">Compare</a>
+          <a href="#quickstart">Quickstart</a>
+          <a href="#faq">FAQ</a>
+        </nav>
+        <div class="header-cta">
+          <a
+            class="btn btn-ghost"
+            href="https://github.com/simota/relay"
+            target="_blank"
+            rel="noopener"
+          >GitHub</a>
+        </div>
+      </div>
+    </header>
+
+    <main id="main">
+      <!-- ───── Hero ───── -->
+      <section class="hero" id="top" aria-labelledby="hero-headline">
+        <div class="container hero-inner">
+          <div class="hero-copy">
+            <div class="hero-badges" aria-hidden="true">
+              <span class="static-badge"><span class="badge-label">license</span><span class="badge-value">MIT</span></span>
+              <span class="static-badge"><span class="badge-label">runtime</span><span class="badge-value">Bun ≥ 1.1</span></span>
+            </div>
+            <p class="eyebrow">
+              <span class="dot" aria-hidden="true"></span>
+              local-first · MIT
+            </p>
+            <h1 id="hero-headline" class="hero-title reveal-text">AI が止まっても、<br /><span class="accent">作業は消えない。</span></h1>
+            <p class="hero-sub">セッションが落ちても、<code>relay run &lt;id&gt;</code> 一発で context が SQLite から戻る。Claude Code / Codex / Gemini を、正しい repo で起動。データはあなたのマシンの中だけ。</p>
+            <div class="hero-actions">
+              <a
+                class="btn btn-primary"
+                href="https://github.com/simota/relay"
+                target="_blank"
+                rel="noopener"
+              >
+                <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+                  <path
+                    fill="currentColor"
+                    d="M12 .5C5.7.5.5 5.7.5 12c0 5.1 3.3 9.4 7.9 10.9.6.1.8-.3.8-.6v-2.1c-3.2.7-3.9-1.5-3.9-1.5-.5-1.3-1.3-1.7-1.3-1.7-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.8-1.6-2.6-.3-5.3-1.3-5.3-5.8 0-1.3.5-2.3 1.2-3.1-.1-.3-.5-1.5.1-3.1 0 0 1-.3 3.3 1.2 1-.3 2-.4 3-.4s2 .1 3 .4c2.3-1.5 3.3-1.2 3.3-1.2.6 1.6.2 2.8.1 3.1.8.8 1.2 1.9 1.2 3.1 0 4.5-2.7 5.5-5.3 5.8.4.4.8 1.1.8 2.2v3.3c0 .3.2.7.8.6 4.6-1.5 7.9-5.8 7.9-10.9C23.5 5.7 18.3.5 12 .5Z"
+                  />
+                </svg>
+                GitHub でコードを見る
+              </a>
+              <a class="btn btn-secondary" href="#quickstart">今すぐ試す → Quickstart</a>
+            </div>
+            <ul class="hero-meta" aria-label="プロダクト概要">
+              <li>
+                <span class="hero-meta-k">Scale</span><span class="hero-meta-v">40+ repos / 898 tasks</span>
+              </li>
+              <li>
+                <span class="hero-meta-k">Full sync</span><span class="hero-meta-v">2.4s p50</span>
+              </li>
+              <li>
+                <span class="hero-meta-k">Today view</span><span class="hero-meta-v">64ms p50</span>
+              </li>
+            </ul>
+          </div>
+
+          <!-- Web UI mockup -->
+          <aside class="ui-mockup" aria-label="relay Web UI のイメージ">
+            <div class="mockup-chrome">
+              <header class="mockup-bar" aria-hidden="true">
+                <span class="term-dot d-r"></span>
+                <span class="term-dot d-y"></span>
+                <span class="term-dot d-g"></span>
+                <span class="mockup-url">127.0.0.1:7340</span>
+              </header>
+              <div class="mockup-body">
+                <nav class="mockup-sidebar" aria-hidden="true">
+                  <div class="ms-brand">
+                    <svg viewBox="0 0 64 64" width="16" height="16">
+                      <rect width="64" height="64" rx="14" fill="#e2ff6b" opacity="0.15"/>
+                      <path d="M19 46V20h11.5a8 8 0 0 1 0 16H27l9 10h-7l-9-10V46Zm8-16h3.5a3.5 3.5 0 0 0 0-7H27Z" fill="#e2ff6b"/>
+                    </svg>
+                    <span>relay</span>
+                  </div>
+                  <ul class="ms-nav">
+                    <li class="ms-active">Today</li>
+                    <li>All Tasks</li>
+                    <li>Sessions</li>
+                    <li>/insights</li>
+                  </ul>
+                  <div class="ms-footer">
+                    <span class="ms-badge">15 sources</span>
+                  </div>
+                </nav>
+                <div class="mockup-main" aria-hidden="true">
+                  <div class="mm-header">
+                    <span class="mm-title">Today</span>
+                    <span class="mm-count">6 tasks</span>
+                  </div>
+                  <ul class="mm-tasks">
+                    <li class="mm-task">
+                      <span class="mm-prio p-hi"></span>
+                      <span class="mm-repo">acme-app</span>
+                      <span class="mm-desc">critical: auth bug</span>
+                      <span class="mm-agent">claude</span>
+                    </li>
+                    <li class="mm-task">
+                      <span class="mm-prio p-md"></span>
+                      <span class="mm-repo">internal-cli</span>
+                      <span class="mm-desc">feat: add filter view</span>
+                      <span class="mm-agent">claude</span>
+                    </li>
+                    <li class="mm-task">
+                      <span class="mm-prio p-md"></span>
+                      <span class="mm-repo">data-crawler</span>
+                      <span class="mm-desc">scrape new sources</span>
+                      <span class="mm-agent">codex</span>
+                    </li>
+                    <li class="mm-task">
+                      <span class="mm-prio p-lo"></span>
+                      <span class="mm-repo">docs-site</span>
+                      <span class="mm-desc">update README</span>
+                      <span class="mm-agent">self</span>
+                    </li>
+                  </ul>
+                  <div class="mm-run-bar">
+                    <code class="mm-cmd">relay run 1</code>
+                    <span class="mm-ok">✓ context restored</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </aside>
+        </div>
+
+        <!-- ambient grid -->
+        <div class="hero-grid" aria-hidden="true"></div>
+      </section>
+
+      <!-- ───── TL;DR ───── -->
+      <aside class="tldr-block" aria-label="要約">
+        relay は、Claude Code・Codex・Gemini のセッションを SQLite に永続化し、
+        <code>relay run &lt;id&gt;</code> 一発で中断作業を再開できる、
+        個人 × 多リポ向けローカルタスクハブ (MIT、外部送信ゼロ)。
+      </aside>
+
+      <!-- ───── Problem ───── -->
+      <section class="section section-problem" id="problem" aria-labelledby="problem-h">
+        <div class="container narrow">
+          <p class="kicker">Problem</p>
+          <h2 id="problem-h">既存ツールは、<span class="phrase">個人 × 多リポ × AI 実行可能</span> を満たさない</h2>
+
+          <div class="problem-cards">
+            <div class="prob-card">
+              <span class="prob-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M3 7h18M3 12h18M3 17h12"/>
+                  <circle cx="19" cy="17" r="2"/>
+                </svg>
+              </span>
+              <h3>作業の散在</h3>
+              <p>コード TODO、GitHub issue、セッション、ノート — 横断ビューが存在しない</p>
+            </div>
+            <div class="prob-card">
+              <span class="prob-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 3v9l5 3"/>
+                  <circle cx="12" cy="12" r="9"/>
+                </svg>
+              </span>
+              <h3>context 復元コスト</h3>
+              <p>数日後に再開するたびに、repo の状態把握に数分を失う</p>
+            </div>
+            <div class="prob-card">
+              <span class="prob-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2"/>
+                  <rect x="3" y="3" width="18" height="18" rx="3"/>
+                </svg>
+              </span>
+              <h3>AI タスク蒸発</h3>
+              <p>Claude Code の TodoWrite は session 終了で消える。git にも残らない</p>
+            </div>
+            <div class="prob-card">
+              <span class="prob-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="9"/>
+                  <path d="M12 8v4M12 16h.01"/>
+                </svg>
+              </span>
+              <h3>象限の不在</h3>
+              <p>Linear はチーム前提、Things は AI 非対応。個人 × 多リポ × AI 実行可能の象限を埋めるツールがなかった</p>
+            </div>
+          </div>
+
+          <p class="lead">
+            40+リポを持つ個人にとって、タスクの置き場所は常に分散している。code TODO、GitHub issue / PR、Claude Code セッションの TodoWrite、<code>.agents/*.md</code> ノート — それぞれ別の場所に、横断ビューは存在しない。
+          </p>
+          <p>
+            AI コーディング固有の問題もある。Claude Code の TodoWrite は session が閉じれば消える。数日後に同じ repo を再開するたびに、コンテキスト復元で数分を失う。
+          </p>
+          <p>
+            Linear・GitHub Projects はチーム共有前提。Things は AI 実行に踏み込まない。TodoWrite はセッション内に閉じる。<strong>個人 × 多リポ × AI 実行可能</strong> — その象限を埋めるツールは、これまでなかった。
+          </p>
+        </div>
+      </section>
+
+      <!-- ───── Features ───── -->
+      <section class="section section-features-strong" id="features" aria-labelledby="features-h">
+        <div class="container">
+          <p class="kicker">Key Features</p>
+          <h2 id="features-h">タスクは「実行可能ユニット」になる</h2>
+          <p class="section-lead">
+            relay は単なるタスクリストではない。各タスクが
+            <code>(repo, agent, prompt, files, context)</code> を持ち、
+            一発で該当 repo に Claude Code / Codex / Gemini を起動できる。
+          </p>
+
+          <ul class="feature-grid" role="list">
+            <!-- 1 -->
+            <li class="feature">
+              <span class="feature-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M3 7h18M3 12h18M3 17h12"/>
+                  <circle cx="19" cy="17" r="2"/>
+                </svg>
+              </span>
+              <h3>15 ソースを横断インデックス化</h3>
+              <p>
+                code-todo / github-issue / github-pr / gh-notification / gh-run-failure /
+                gh-project-card / git-interrupted / git-stash / orphan-branch /
+                claude / codex / gemini / cursor セッション / agents-note / manual。
+                <code>UNIQUE(source_type, source_id)</code> で重複なく ingest。
+              </p>
+            </li>
+
+            <!-- 2 -->
+            <li class="feature">
+              <span class="feature-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M5 12h14M12 5l7 7-7 7"/>
+                </svg>
+              </span>
+              <h3>relay run — AI agent を正しい repo で即起動</h3>
+              <p>
+                <code>relay run &lt;id&gt;</code> でタスクの assignee に応じた agent を
+                該当 repo の cwd で起動。Codex は <code>--resume</code> パリティ対応 (F-2)、
+                prompt と files も自動で渡す。
+              </p>
+            </li>
+
+            <!-- 3 -->
+            <li class="feature">
+              <span class="feature-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 3v9l5 3"/>
+                  <circle cx="12" cy="12" r="9"/>
+                </svg>
+              </span>
+              <h3>中断した作業を、そのまま再開できる</h3>
+              <p>
+                Claude Code Stop hook が自動で <code>relay context save</code> を呼び、
+                branch・HEAD SHA・dirty files・TodoWrite summary を退避。後日
+                <code>relay run</code> で同じセッションを resume できる。
+              </p>
+            </li>
+
+            <!-- 4 NEW: sessions -->
+            <li class="feature feature-new">
+              <span class="feature-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="3" y="3" width="8" height="8" rx="1"/>
+                  <rect x="13" y="3" width="8" height="8" rx="1"/>
+                  <rect x="3" y="13" width="8" height="8" rx="1"/>
+                  <rect x="13" y="13" width="8" height="8" rx="1"/>
+                </svg>
+              </span>
+              <h3>セッションが SQLite に残る</h3>
+              <p>
+                Claude / Codex / Gemini / Cursor のセッション履歴を
+                <code>sessions</code> テーブルで保持。タスク → session、
+                session → タスクへの双方向ナビ。メッセージ単位の rendered/raw markdown トグル付き。
+              </p>
+            </li>
+
+            <!-- 5 NEW: insights -->
+            <li class="feature feature-new">
+              <span class="feature-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M3 17l4-8 4 4 4-6 4 5"/>
+                  <rect x="3" y="3" width="18" height="18" rx="2"/>
+                </svg>
+              </span>
+              <h3>/insights — ローカルで動く分析ダッシュボード</h3>
+              <p>
+                WFR (Work-in-Flow Rate) / throughput / stale tasks / repo activity /
+                sync reliability を <code>/insights</code> でグラフ可視化。
+                外部送信ゼロ、すべてローカル完結で集計。
+              </p>
+            </li>
+
+            <!-- 6 NEW: themes -->
+            <li class="feature feature-new">
+              <span class="feature-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="9"/>
+                  <path d="M12 3a9 9 0 0 1 9 9"/>
+                  <circle cx="12" cy="12" r="3"/>
+                </svg>
+              </span>
+              <h3>13 種のテーマプリセット</h3>
+              <p>
+                dark / light / sunset / matrix / ocean / notebook / blueprint /
+                washi / sketch / midnight / mist / solar / paper。
+                <code>prefers-color-scheme</code> 連動、テーマ picker で即切替。
+              </p>
+            </li>
+
+            <!-- 7 -->
+            <li class="feature">
+              <span class="feature-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="2" y="3" width="20" height="14" rx="2"/>
+                  <path d="M8 21h8M12 17v4"/>
+                </svg>
+              </span>
+              <h3>CLI と Web UI — 同じ SQLite を共有</h3>
+              <p>
+                <code>relay today</code> / <code>relay ls</code> の CLI と
+                <code>http://127.0.0.1:7340</code> の Web UI は同一 SQLite を直接参照。
+                どちらから操作しても矛盾しない。
+              </p>
+            </li>
+
+            <!-- 8 -->
+            <li class="feature">
+              <span class="feature-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 2 4 6v6c0 5 3.5 8.5 8 10 4.5-1.5 8-5 8-10V6l-8-4Z"/>
+                </svg>
+              </span>
+              <h3>データはすべてローカル、外部送信ゼロ</h3>
+              <p>
+                <code>~/.relay/db.sqlite</code> に保存。外部依存は
+                <code>gh</code> / <code>git</code> / <code>rg</code> のみ。
+                認証不要。クラウド同期は意図的に範囲外。
+              </p>
+            </li>
+
+            <!-- 9 -->
+            <li class="feature">
+              <span class="feature-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M3 17 9 11l4 4 8-8"/>
+                  <path d="M14 7h7v7"/>
+                </svg>
+              </span>
+              <h3>40+ リポ・900 タスクで sync 3 秒以内</h3>
+              <p>
+                <code>relay sync</code> 全件 ~2.4–2.8s、<code>relay today</code> ~64ms
+                (MacBook Air 実測)。SSE ストリームでアダプタ単位の進捗を表示。
+              </p>
+            </li>
+          </ul>
+
+          <!-- Theme swatches -->
+          <div class="theme-swatches" aria-label="13 種のテーマプリセット">
+            <p class="swatches-label">13 themes</p>
+            <div class="swatches-row" aria-hidden="true">
+              <!-- dark -->
+              <span class="swatch" style="--s1:#0d0f12;--s2:#e2ff6b;--s3:#14171c;--s4:#e6ebf0" title="dark"></span>
+              <!-- light -->
+              <span class="swatch" style="--s1:#fcfcfd;--s2:#4d7c0f;--s3:#f4f5f7;--s4:#16181d" title="light"></span>
+              <!-- sunset -->
+              <span class="swatch" style="--s1:#1a0f0a;--s2:#f97316;--s3:#2a1810;--s4:#fde8d8" title="sunset"></span>
+              <!-- matrix -->
+              <span class="swatch" style="--s1:#000d00;--s2:#00ff41;--s3:#001a00;--s4:#b3ffb3" title="matrix"></span>
+              <!-- ocean -->
+              <span class="swatch" style="--s1:#060b14;--s2:#38bdf8;--s3:#0d1626;--s4:#daf1fd" title="ocean"></span>
+              <!-- notebook -->
+              <span class="swatch" style="--s1:#fef9f0;--s2:#2563eb;--s3:#fdf4e7;--s4:#1e3a5f" title="notebook"></span>
+              <!-- blueprint -->
+              <span class="swatch" style="--s1:#001a3a;--s2:#60a5fa;--s3:#002651;--s4:#e0f0ff" title="blueprint"></span>
+              <!-- washi -->
+              <span class="swatch" style="--s1:#f7f3ec;--s2:#8b4513;--s3:#f0ebe1;--s4:#2d1a0e" title="washi"></span>
+              <!-- sketch -->
+              <span class="swatch" style="--s1:#fefefe;--s2:#222222;--s3:#f5f5f5;--s4:#111111" title="sketch"></span>
+              <!-- midnight -->
+              <span class="swatch" style="--s1:#0a0a1a;--s2:#818cf8;--s3:#111128;--s4:#e0e7ff" title="midnight"></span>
+              <!-- mist -->
+              <span class="swatch" style="--s1:#f0f2f5;--s2:#6366f1;--s3:#e4e7ec;--s4:#1e1e2e" title="mist"></span>
+              <!-- solar -->
+              <span class="swatch" style="--s1:#002b36;--s2:#b58900;--s3:#073642;--s4:#fdf6e3" title="solar"></span>
+              <!-- paper -->
+              <span class="swatch" style="--s1:#f8f6f1;--s2:#5c4a1e;--s3:#eee9df;--s4:#2c2316" title="paper"></span>
+            </div>
+          </div>
+
+          <p class="local-first-creed">あなたのデータは、あなたのマシンの中にある。<span class="accent">forever.</span><span class="creed-en">Your data stays on your machine. Forever.</span></p>
+        </div>
+      </section>
+
+      <!-- ───── How it works ───── -->
+      <section class="section section-how" id="how" aria-labelledby="how-h">
+        <div class="container">
+          <p class="kicker">How it works</p>
+          <h2 id="how-h">15 のアダプタが、1 つの SQLite に流れ込む</h2>
+          <p class="section-lead">
+            各アダプタは <code>fetch()</code> で TaskInput[] を返すシンプルなインタフェース。
+            <code>UNIQUE(source_type, source_id)</code> により再 ingest は重複なし。
+          </p>
+
+          <div class="adapters-grid">
+            <!-- Code -->
+            <div class="adapter-cat">
+              <h3 class="cat-label">
+                <span class="cat-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+                    <path d="M8 6l-6 6 6 6M16 6l6 6-6 6"/>
+                  </svg>
+                </span>
+                Code
+                <span class="cat-count">1</span>
+              </h3>
+              <ul class="adapter-list">
+                <li><span class="src-tag">code-todo</span><span class="src-desc"><code>rg</code> で TODO / FIXME / HACK / XXX を全スキャン</span></li>
+              </ul>
+            </div>
+
+            <!-- GitHub -->
+            <div class="adapter-cat">
+              <h3 class="cat-label">
+                <span class="cat-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+                    <path d="M12 .5C5.7.5.5 5.7.5 12c0 5.1 3.3 9.4 7.9 10.9.6.1.8-.3.8-.6v-2.1c-3.2.7-3.9-1.5-3.9-1.5-.5-1.3-1.3-1.7-1.3-1.7-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.8-1.6-2.6-.3-5.3-1.3-5.3-5.8 0-1.3.5-2.3 1.2-3.1-.1-.3-.5-1.5.1-3.1 0 0 1-.3 3.3 1.2 1-.3 2-.4 3-.4s2 .1 3 .4c2.3-1.5 3.3-1.2 3.3-1.2.6 1.6.2 2.8.1 3.1.8.8 1.2 1.9 1.2 3.1 0 4.5-2.7 5.5-5.3 5.8.4.4.8 1.1.8 2.2v3.3c0 .3.2.7.8.6 4.6-1.5 7.9-5.8 7.9-10.9C23.5 5.7 18.3.5 12 .5Z"/>
+                  </svg>
+                </span>
+                GitHub
+                <span class="cat-count">5</span>
+              </h3>
+              <ul class="adapter-list">
+                <li><span class="src-tag">github-issue</span><span class="src-desc">gh CLI 経由で owned repo の issue</span></li>
+                <li><span class="src-tag">github-pr</span><span class="src-desc">PR (レビュー待ち含む)</span></li>
+                <li><span class="src-tag">gh-notification</span><span class="src-desc">未読通知をタスク化</span></li>
+                <li><span class="src-tag">gh-run-failure</span><span class="src-desc">Actions 失敗を検知</span></li>
+                <li><span class="src-tag">gh-project-card</span><span class="src-desc">Project v2 カード</span></li>
+              </ul>
+            </div>
+
+            <!-- Git states -->
+            <div class="adapter-cat">
+              <h3 class="cat-label">
+                <span class="cat-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+                    <circle cx="6" cy="6" r="2"/><circle cx="18" cy="6" r="2"/><circle cx="12" cy="18" r="2"/>
+                    <path d="M8 6h8M6 8v8M18 8v2M12 16V8"/>
+                  </svg>
+                </span>
+                Git states
+                <span class="cat-count">3</span>
+              </h3>
+              <ul class="adapter-list">
+                <li><span class="src-tag">git-interrupted</span><span class="src-desc">rebase / merge / cherry-pick の中断</span></li>
+                <li><span class="src-tag">git-stash</span><span class="src-desc">stash されたままの変更</span></li>
+                <li><span class="src-tag">orphan-branch</span><span class="src-desc">PR の付いていない放置ブランチ</span></li>
+              </ul>
+            </div>
+
+            <!-- AI sessions -->
+            <div class="adapter-cat">
+              <h3 class="cat-label">
+                <span class="cat-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M9 3H5a2 2 0 0 0-2 2v4M9 3h6M9 3v18m6-18H19a2 2 0 0 1 2 2v4M15 3v18M9 21H5a2 2 0 0 1-2-2v-4M15 21h4a2 2 0 0 0 2-2v-4"/>
+                  </svg>
+                </span>
+                AI sessions
+                <span class="cat-count">4</span>
+              </h3>
+              <ul class="adapter-list">
+                <li><span class="src-tag">claude</span><span class="src-desc"><code>~/.claude/projects/**/*.jsonl</code> の TodoWrite</span></li>
+                <li><span class="src-tag">codex</span><span class="src-desc">Codex セッションの plan・chat</span></li>
+                <li><span class="src-tag">gemini</span><span class="src-desc">Gemini セッションのタスク</span></li>
+                <li><span class="src-tag">cursor</span><span class="src-desc">Cursor セッションの TODO</span></li>
+              </ul>
+            </div>
+
+            <!-- Notes + Manual -->
+            <div class="adapter-cat">
+              <h3 class="cat-label">
+                <span class="cat-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5Z"/>
+                  </svg>
+                </span>
+                Notes &amp; Manual
+                <span class="cat-count">2</span>
+              </h3>
+              <ul class="adapter-list">
+                <li><span class="src-tag">agents-note</span><span class="src-desc"><code>.agents/*.md</code> の <code>- [ ]</code> チェックボックス</span></li>
+                <li><span class="src-tag">manual</span><span class="src-desc"><code>relay add</code> による手動入力</span></li>
+              </ul>
+            </div>
+
+            <!-- Output -->
+            <div class="adapter-cat adapter-cat-output">
+              <h3 class="cat-label cat-label-out">
+                <span class="cat-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M5 12h14M12 5l7 7-7 7"/>
+                  </svg>
+                </span>
+                Agents
+              </h3>
+              <ul class="adapter-list">
+                <li><span class="src-tag">claude-code</span><span class="src-desc"><code>claude --resume &lt;sid&gt;</code></span></li>
+                <li><span class="src-tag">codex</span><span class="src-desc"><code>codex --resume '&lt;prompt&gt;'</code></span></li>
+                <li><span class="src-tag">gemini</span><span class="src-desc"><code>gemini '&lt;prompt&gt;'</code></span></li>
+                <li><span class="src-tag">self</span><span class="src-desc"><code>$EDITOR &lt;repo&gt;</code></span></li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="how-flow-center" aria-hidden="true">
+            <div class="flow-db">
+              <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <ellipse cx="12" cy="5" rx="8" ry="2.5"/>
+                <path d="M4 5v14c0 1.4 3.6 2.5 8 2.5s8-1.1 8-2.5V5"/>
+                <path d="M4 12c0 1.4 3.6 2.5 8 2.5s8-1.1 8-2.5"/>
+              </svg>
+              <span>~/.relay/db.sqlite</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ───── Comparison ───── -->
+      <section class="section section-compare" id="compare" aria-labelledby="compare-h">
+        <div class="container">
+          <p class="kicker">Compare</p>
+          <h2 id="compare-h">他のツールとの位置づけ</h2>
+          <p class="section-lead">
+            relay は Linear / GitHub Projects の置き換えではなく、補完関係。
+            両者がカバーしない「個人 × 多リポ × AI 実行可能」を埋める。
+          </p>
+
+          <div class="compare-wrap" role="region" aria-label="比較表" tabindex="0">
+            <table class="compare-table">
+              <caption class="sr-only">Linear / GitHub Projects / Claude Code TodoWrite / relay の比較</caption>
+              <thead>
+                <tr>
+                  <th scope="col">観点</th>
+                  <th scope="col">Linear</th>
+                  <th scope="col">GitHub Projects</th>
+                  <th scope="col">TodoWrite</th>
+                  <th scope="col" class="th-self">relay</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <th scope="row">横断リポ</th>
+                  <td class="c-mid" aria-label="一部対応"><span aria-hidden="true">△</span></td>
+                  <td class="c-no" aria-label="非対応"><span aria-hidden="true">×</span></td>
+                  <td class="c-no" aria-label="非対応"><span aria-hidden="true">×</span></td>
+                  <td class="c-best" aria-label="最適"><span aria-hidden="true">◎</span></td>
+                </tr>
+                <tr>
+                  <th scope="row">AI 実行可能</th>
+                  <td class="c-no" aria-label="非対応"><span aria-hidden="true">×</span></td>
+                  <td class="c-no" aria-label="非対応"><span aria-hidden="true">×</span></td>
+                  <td class="c-mid" aria-label="一部対応"><span aria-hidden="true">△</span> session 内のみ</td>
+                  <td class="c-best" aria-label="最適"><span aria-hidden="true">◎</span></td>
+                </tr>
+                <tr>
+                  <th scope="row">コンテキスト復元</th>
+                  <td class="c-no" aria-label="非対応"><span aria-hidden="true">×</span></td>
+                  <td class="c-no" aria-label="非対応"><span aria-hidden="true">×</span></td>
+                  <td class="c-no" aria-label="非対応"><span aria-hidden="true">×</span></td>
+                  <td class="c-best" aria-label="最適"><span aria-hidden="true">◎</span></td>
+                </tr>
+                <tr>
+                  <th scope="row">ローカルファースト</th>
+                  <td class="c-no" aria-label="非対応"><span aria-hidden="true">×</span></td>
+                  <td class="c-no" aria-label="非対応"><span aria-hidden="true">×</span></td>
+                  <td class="c-mid" aria-label="一部対応"><span aria-hidden="true">△</span></td>
+                  <td class="c-best" aria-label="最適"><span aria-hidden="true">◎</span></td>
+                </tr>
+                <tr>
+                  <th scope="row">セッション resume</th>
+                  <td class="c-no" aria-label="非対応"><span aria-hidden="true">×</span></td>
+                  <td class="c-no" aria-label="非対応"><span aria-hidden="true">×</span></td>
+                  <td class="c-no" aria-label="非対応"><span aria-hidden="true">×</span></td>
+                  <td class="c-best" aria-label="最適"><span aria-hidden="true">◎</span> Codex/Claude</td>
+                </tr>
+                <tr>
+                  <th scope="row">ローカル分析ダッシュボード</th>
+                  <td class="c-no" aria-label="非対応"><span aria-hidden="true">×</span></td>
+                  <td class="c-mid" aria-label="一部対応"><span aria-hidden="true">△</span></td>
+                  <td class="c-no" aria-label="非対応"><span aria-hidden="true">×</span></td>
+                  <td class="c-best" aria-label="最適"><span aria-hidden="true">◎</span> /insights</td>
+                </tr>
+                <tr>
+                  <th scope="row">個人多事業主の量に耐える</th>
+                  <td class="c-mid" aria-label="一部対応"><span aria-hidden="true">△</span></td>
+                  <td class="c-mid" aria-label="一部対応"><span aria-hidden="true">△</span></td>
+                  <td class="c-mid" aria-label="一部対応"><span aria-hidden="true">△</span></td>
+                  <td class="c-best" aria-label="最適"><span aria-hidden="true">◎</span></td>
+                </tr>
+                <tr>
+                  <th scope="row">マルチエージェント中立</th>
+                  <td class="c-no" aria-label="非対応"><span aria-hidden="true">×</span></td>
+                  <td class="c-no" aria-label="非対応"><span aria-hidden="true">×</span></td>
+                  <td class="c-no" aria-label="非対応"><span aria-hidden="true">×</span> Claude のみ</td>
+                  <td class="c-best" aria-label="最適"><span aria-hidden="true">◎</span> Claude / Codex / Gemini</td>
+                </tr>
+                <tr>
+                  <th scope="row">データがマシンの外に出ない</th>
+                  <td class="c-no" aria-label="非対応"><span aria-hidden="true">×</span> SaaS 必須</td>
+                  <td class="c-no" aria-label="非対応"><span aria-hidden="true">×</span> GitHub 必須</td>
+                  <td class="c-mid" aria-label="一部対応"><span aria-hidden="true">△</span> session 経由</td>
+                  <td class="c-best" aria-label="最適"><span aria-hidden="true">◎</span> SQLite ローカル</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="compare-note">
+            ※ 比較表は README ベース。Linear / GitHub Projects はチーム共有・プロジェクト管理で引き続き有用。relay は個人の横断ハブとして共存する設計。
+          </p>
+        </div>
+      </section>
+
+      <!-- ───── Quickstart ───── -->
+      <section class="section section-quickstart" id="quickstart" aria-labelledby="qs-h">
+        <div class="container">
+          <p class="kicker">Quickstart</p>
+          <h2 id="qs-h">数分でローカルに立ち上がる</h2>
+          <p class="section-lead">
+            Bun ≥ 1.1 と <code>gh</code> CLI があれば導入完了。
+            <a href="https://bun.sh" target="_blank" rel="noopener">→ Bun のインストール</a>
+          </p>
+
+          <!-- TL;DR one-liner -->
+          <div class="qs-tldr">
+            <span class="qs-tldr-label">TL;DR</span>
+            <div class="codeblock codeblock-inline" aria-label="一発 quickstart コマンド">
+              <div class="codeblock-bar">
+                <span class="codeblock-lang">bash</span>
+                <button
+                  type="button"
+                  class="copy-btn"
+                  data-copy-target="qs-tldr-code"
+                  aria-label="コマンドをコピー"
+                >
+                  <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+                    <path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" d="M8 8h11v13H8z M5 5h11v3 M5 5v13h3"/>
+                  </svg>
+                  <span class="copy-label">Copy</span>
+                </button>
+              </div>
+              <pre id="qs-tldr-code"><code>relay quickstart</code></pre>
+            </div>
+            <p class="qs-tldr-note">初回 sync + today view まで一気通貫</p>
+          </div>
+
+          <!-- Full steps (collapsible) -->
+          <details class="qs-details">
+            <summary>詳細手順を表示</summary>
+            <div class="codeblock" aria-label="インストールと起動コマンド">
+              <div class="codeblock-bar">
+                <span class="codeblock-lang">bash</span>
+                <button
+                  type="button"
+                  class="copy-btn"
+                  data-copy-target="qs-code"
+                  aria-label="コードブロックをコピー"
+                >
+                  <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+                    <path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" d="M8 8h11v13H8z M5 5h11v3 M5 5v13h3"/>
+                  </svg>
+                  <span class="copy-label">Copy</span>
+                </button>
+              </div>
+              <pre id="qs-code"><code><span class="c-cmt"># 1. install dependencies</span>
+bun install
+
+<span class="c-cmt"># 2. build the Web UI once (served by `relay web`)</span>
+cd web/nextjs &amp;&amp; bun install &amp;&amp; bun run build &amp;&amp; cd ../..
+
+<span class="c-cmt"># 3. initialize ~/.relay/ (config + SQLite schema)</span>
+relay init
+
+<span class="c-cmt"># 4. first sync + today view (one-shot)</span>
+relay quickstart
+
+<span class="c-cmt"># 5. daily use</span>
+relay today                         <span class="c-cmt"># N picks for today</span>
+relay web                           <span class="c-cmt"># http://127.0.0.1:7340</span>
+relay run &lt;task-id&gt;                 <span class="c-cmt"># launch agent in the right repo</span>
+
+<span class="c-cmt"># 6. (optional) wire Claude Code Stop hook for context save</span>
+relay hook install</code></pre>
+            </div>
+          </details>
+
+          <p class="qs-foot">
+            さらに詳しいコマンド (manual add / snooze / context save / daemon) は
+            <a href="https://github.com/simota/relay/blob/main/SPEC.md" target="_blank" rel="noopener">SPEC.md</a>
+            を参照。
+          </p>
+        </div>
+      </section>
+
+      <!-- ───── Architecture highlights ───── -->
+      <section class="section section-arch" id="architecture" aria-labelledby="arch-h">
+        <div class="container">
+          <p class="kicker">Architecture</p>
+          <h2 id="arch-h">薄く速く、依存を持たない</h2>
+          <p class="section-lead">
+            外部 SaaS への送信ゼロ。CLI と Web は同じ SQLite を直接共有し、
+            HTTP ラウンドトリップは Web からの mutation のみ。
+          </p>
+          <ul class="stack-grid" role="list">
+            <li class="stack-card">
+              <h3>Bun ≥ 1.1 — ビルドステップ不要、即起動</h3>
+              <p><code>bun:sqlite</code> による同期 IO。ビルドステップ不要で <code>bun run src/cli.ts</code> がそのまま動く。</p>
+            </li>
+            <li class="stack-card">
+              <h3>Hono on Bun — 単一プロセスで低メモリ</h3>
+              <p>Web バックエンドは Hono の単一プロセス。<code>/api/sync/stream</code> は SSE でアダプタ単位の進捗を流す。</p>
+            </li>
+            <li class="stack-card">
+              <h3>Next.js 15 + React 19 — 静的配信、サーバー不要</h3>
+              <p>静的エクスポートして <code>web/nextjs/out/</code> に。バックエンドが <code>/</code> でそのまま配信する。</p>
+            </li>
+            <li class="stack-card">
+              <h3>sessions テーブル — AI セッションを永続化して再開</h3>
+              <p>Claude / Codex / Gemini / Cursor のセッションを SQLite に永続化。タスク↔session 双方向ナビ対応。</p>
+            </li>
+            <li class="stack-card">
+              <h3>SQLite — インストール不要、1 ファイル完結</h3>
+              <p>すべては <code>~/.relay/db.sqlite</code> に集約。<code>schema_version</code> でマイグレーション管理。</p>
+            </li>
+            <li class="stack-card">
+              <h3>gh + rg + git — 外部依存 3 つのみ</h3>
+              <p>外部依存はこの 3 つのみ。GitHub 認証は <code>gh auth</code> に委譲、コード scan は ripgrep に任せる。</p>
+            </li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- ───── FAQ ───── -->
+      <section class="section section-faq" id="faq" aria-labelledby="faq-h">
+        <div class="container narrow">
+          <p class="kicker">FAQ</p>
+          <h2 id="faq-h">よくある質問</h2>
+          <p class="section-lead">
+            データは <code>~/.relay/db.sqlite</code> にのみ保存され、外部送信はゼロ。Bun が動く macOS / Linux / WSL で動作し、MIT ライセンスで無料利用可能。
+          </p>
+
+          <details class="faq-item">
+            <summary>
+              <span>データはどこに保存されますか?</span>
+              <span class="faq-chev" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="16" height="16"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </span>
+            </summary>
+            <div class="faq-body">
+              <p>
+                すべて <code>~/.relay/db.sqlite</code> (環境変数 <code>RELAY_HOME</code> で上書き可) に保存されます。
+                外部 SaaS への送信はなく、認証も不要。バックアップが必要なら <code>relay export --json</code>
+                で JSON スナップショットを取得できます。
+              </p>
+            </div>
+          </details>
+
+          <details class="faq-item">
+            <summary>
+              <span>Codex CLI / Gemini CLI との関係は?</span>
+              <span class="faq-chev" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="16" height="16"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </span>
+            </summary>
+            <div class="faq-body">
+              <p>
+                relay は agent の置き換えではなく <strong>起動装置</strong> です。タスクの
+                <code>assignee</code> に応じて <code>claude</code> / <code>codex</code> /
+                <code>gemini</code> バイナリを該当 repo の cwd で spawn し、prompt と
+                context summary を渡します。各 CLI 自体の挙動には介入しません。
+                Codex は <code>--resume</code> パリティ対応済み。
+              </p>
+            </div>
+          </details>
+
+          <details class="faq-item">
+            <summary>
+              <span>Claude Code の TodoWrite と何が違う?</span>
+              <span class="faq-chev" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="16" height="16"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </span>
+            </summary>
+            <div class="faq-body">
+              <p>
+                TodoWrite は <strong>セッション内</strong> のチェックリストで、session が閉じれば消えます。
+                relay は Stop hook で TodoWrite を <code>claude_session_todo</code> タスクとして
+                <strong>SQLite に退避</strong> し、後日 <code>relay run</code> で同じ session を resume
+                できるようにします。さらに 40+リポを横断した俯瞰ビューも提供します。
+              </p>
+            </div>
+          </details>
+
+          <details class="faq-item">
+            <summary>
+              <span>チームで使えますか?</span>
+              <span class="faq-chev" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="16" height="16"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </span>
+            </summary>
+            <div class="faq-body">
+              <p>
+                v0.1 は <strong>個人多事業主向け</strong>のローカルファースト設計です。マルチユーザーや
+                共有は明示的に non-goal。ただし、仕事 Mac / 個人 Mac の往復用に
+                <code>relay export --json</code> ↔ <code>relay import --json</code>
+                の JSON スナップショット同期 (last-writer-wins) は対応しています。
+              </p>
+            </div>
+          </details>
+
+          <details class="faq-item">
+            <summary>
+              <span>どの OS で動きますか?</span>
+              <span class="faq-chev" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="16" height="16"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </span>
+            </summary>
+            <div class="faq-body">
+              <p>
+                Bun が動く環境 — macOS / Linux / WSL を想定しています。実測ベンチは macOS (MacBook Air)
+                で取得。Windows ネイティブは現状未検証です。<code>gh</code> CLI と
+                <code>rg</code> (ripgrep) が PATH にあれば追加依存はありません。
+              </p>
+            </div>
+          </details>
+
+          <details class="faq-item">
+            <summary>
+              <span>Screen reader / 低視力環境では使えますか?</span>
+              <span class="faq-chev" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="16" height="16"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </span>
+            </summary>
+            <div class="faq-body">
+              <p>
+                <strong>Web UI (<code>relay web</code>)</strong> が主要な操作インタフェースです。
+                semantic HTML、status / priority 信号への <code>role="img"</code> + <code>aria-label</code>、
+                focus-visible リング、<code>prefers-contrast: more</code> 対応を備え、
+                screen reader (NVDA / JAWS / VoiceOver) でも操作可能です。
+                キーボードのみでも全操作をカバーします。
+              </p>
+            </div>
+          </details>
+
+          <details class="faq-item">
+            <summary>
+              <span>マルチマシン間で同期できますか?</span>
+              <span class="faq-chev" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="16" height="16"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </span>
+            </summary>
+            <div class="faq-body">
+              <p>
+                クラウド同期は意図的に non-goal ですが、仕事 Mac ↔ 個人 Mac の往復には
+                <code>relay export --json</code> で JSON スナップショットを出力し、
+                別マシンで <code>relay import --json</code> で取り込む方法が使えます (last-writer-wins)。
+              </p>
+            </div>
+          </details>
+
+          <details class="faq-item">
+            <summary>
+              <span>テーマを変更できますか?</span>
+              <span class="faq-chev" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="16" height="16"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </span>
+            </summary>
+            <div class="faq-body">
+              <p>
+                Web UI には 13 種のテーマプリセット (dark / light / sunset / matrix / ocean /
+                notebook / blueprint / washi / sketch / midnight / mist / solar / paper) が
+                あり、theme picker で即切替できます。<code>prefers-color-scheme</code> にも連動します。
+              </p>
+            </div>
+          </details>
+        </div>
+      </section>
+
+      <!-- ───── Final CTA ───── -->
+      <section class="section section-final" aria-labelledby="final-h">
+        <div class="container final-cta">
+          <h2 id="final-h">今日から使える。必要なのは Bun と gh だけ。</h2>
+          <p>
+            MIT ライセンス・完全無料。外部送信なし。
+          </p>
+          <div class="hero-actions final-actions">
+            <a
+              class="btn btn-primary"
+              href="https://github.com/simota/relay"
+              target="_blank"
+              rel="noopener"
+            >
+              <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+                <path fill="currentColor" d="M12 .5C5.7.5.5 5.7.5 12c0 5.1 3.3 9.4 7.9 10.9.6.1.8-.3.8-.6v-2.1c-3.2.7-3.9-1.5-3.9-1.5-.5-1.3-1.3-1.7-1.3-1.7-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.8-1.6-2.6-.3-5.3-1.3-5.3-5.8 0-1.3.5-2.3 1.2-3.1-.1-.3-.5-1.5.1-3.1 0 0 1-.3 3.3 1.2 1-.3 2-.4 3-.4s2 .1 3 .4c2.3-1.5 3.3-1.2 3.3-1.2.6 1.6.2 2.8.1 3.1.8.8 1.2 1.9 1.2 3.1 0 4.5-2.7 5.5-5.3 5.8.4.4.8 1.1.8 2.2v3.3c0 .3.2.7.8.6 4.6-1.5 7.9-5.8 7.9-10.9C23.5 5.7 18.3.5 12 .5Z"/>
+              </svg>
+              GitHub でコードを見る
+            </a>
+            <a class="btn btn-secondary" href="#quickstart">Quickstart を試す</a>
+            <a
+              class="btn btn-ghost"
+              href="https://github.com/simota/relay/blob/main/SPEC.md"
+              target="_blank"
+              rel="noopener"
+            >SPEC を読む</a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer" role="contentinfo">
+      <div class="container footer-inner">
+        <div class="foot-brand">
+          <svg class="brand-mark" viewBox="0 0 64 64" width="22" height="22" aria-hidden="true">
+            <rect width="64" height="64" rx="14" fill="currentColor" opacity="0.08" />
+            <path d="M19 46V20h11.5a8 8 0 0 1 0 16H27l9 10h-7l-9-10V46Zm8-16h3.5a3.5 3.5 0 0 0 0-7H27Z" fill="currentColor"/>
+          </svg>
+          <span>relay</span>
+          <span class="foot-meta">MIT License</span>
+        </div>
+        <nav class="foot-nav" aria-label="ドキュメント">
+          <a href="https://github.com/simota/relay" target="_blank" rel="noopener">GitHub</a>
+          <a href="https://github.com/simota/relay/blob/main/README.md" target="_blank" rel="noopener">README</a>
+          <a href="https://github.com/simota/relay/blob/main/SPEC.md" target="_blank" rel="noopener">SPEC</a>
+          <a href="https://github.com/simota/relay/blob/main/ARCHITECTURE.md" target="_blank" rel="noopener">Architecture</a>
+          <a href="https://github.com/simota/relay/blob/main/HOTKEYS.md" target="_blank" rel="noopener">Hotkeys</a>
+          <a href="https://simota.github.io/relay/" target="_blank" rel="noopener">Landing Page</a>
+        </nav>
+        <p class="foot-fineprint">
+          relay — 個人 × 多リポ × AI のためのローカルタスクハブ。MIT。
+          Built by <a href="https://github.com/simota" target="_blank" rel="noopener">simota</a>.
+          <time datetime="2026-05-16">最終更新: 2026-05-16</time>
+        </p>
+      </div>
+    </footer>
+
+    <script src="./script.js" defer></script>
+  </body>
+</html>
