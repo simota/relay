@@ -1,0 +1,626 @@
+@import "tailwindcss";
+
+/* ─── Design tokens (OKLCH, dark default) ────────────────────────── */
+
+@theme {
+  --color-bg: oklch(0.145 0.005 240);
+  --color-bg-elev: oklch(0.185 0.006 240);
+  --color-bg-elev-2: oklch(0.225 0.008 240);
+  --color-bg-overlay: oklch(0.16 0.005 240 / 0.7);
+
+  --color-border: oklch(0.28 0.008 240);
+  --color-border-strong: oklch(0.4 0.01 240);
+  --color-ring: oklch(0.55 0.18 145 / 0.5);
+
+  --color-fg: oklch(0.95 0.005 240);
+  --color-fg-muted: oklch(0.62 0.01 240);
+  --color-fg-dim: oklch(0.48 0.01 240);
+
+  --color-accent: oklch(0.85 0.18 145);
+  --color-accent-fg: oklch(0.18 0.06 145);
+  --color-warm: oklch(0.82 0.14 60);
+  --color-cool: oklch(0.78 0.13 220);
+  --color-critical: oklch(0.7 0.18 25);
+  --color-highlight: oklch(0.88 0.14 80);
+
+  --font-sans: var(--font-geist-sans, "Geist", system-ui, sans-serif);
+  --font-mono: var(--font-geist-mono, "Geist Mono", "JetBrains Mono", ui-monospace, monospace);
+
+  /* Typographic hierarchy — 3 tiers + 14px headings (kept separate).
+     Tier mapping:
+       meta  (11px) — uppercase labels, age chips, kbd shortcuts
+       aux   (12px) — #ID, repo, assignee, hint text, monospace meta
+       body  (13px) — body copy, task titles
+     Direct `text-[11px]` / `text-[12px]` utilities are used at call sites
+     since Tailwind v4 does not expose `@theme` vars as font-size utilities. */
+  --text-meta: 11px;
+  --text-aux:  12px;
+  --text-body: 13px;
+
+  --radius-sm: 0.25rem;
+  --radius: 0.375rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+
+  --shadow-soft: 0 1px 2px oklch(0 0 0 / 0.2), 0 0 0 1px oklch(0 0 0 / 0.1);
+  --shadow-elev: 0 8px 24px -8px oklch(0 0 0 / 0.4);
+  --shadow-pop: 0 16px 48px -12px oklch(0 0 0 / 0.6);
+
+  /* Motion tokens — shared easing + durations so micro-interactions
+     read with a consistent rhythm. Reduced-motion is enforced globally
+     at the bottom of this file. */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --duration-fast: 120ms;
+  --duration-base: 160ms;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --color-bg: rgb(255 255 255);
+  --color-bg-elev: rgb(246 248 250);
+  --color-bg-elev-2: rgb(234 238 242);
+  --color-bg-overlay: rgb(246 248 250 / 0.82);
+  --color-border: rgb(208 215 222);
+  --color-border-strong: rgb(140 149 159);
+  --color-ring: rgb(26 127 55 / 0.45);
+  --color-fg: rgb(31 35 40);
+  --color-fg-muted: rgb(101 109 118);
+  --color-fg-dim: rgb(140 149 159);
+  --color-accent: rgb(26 127 55);
+  --color-accent-fg: rgb(255 255 255);
+  --color-warm: rgb(191 135 0);
+  --color-cool: rgb(9 105 218);
+  --color-critical: rgb(207 34 46);
+  --color-highlight: rgb(154 103 0);
+  --shadow-soft: 0 1px 2px rgb(31 35 40 / 0.08), 0 0 0 1px rgb(31 35 40 / 0.04);
+  --shadow-elev: 0 8px 24px -8px rgb(31 35 40 / 0.18);
+  --shadow-pop: 0 16px 48px -12px rgb(31 35 40 / 0.22);
+}
+
+:root[data-theme="sunset"] {
+  color-scheme: light;
+  --color-bg:            oklch(0.96 0.02 70);
+  --color-bg-elev:       oklch(0.92 0.04 70);
+  --color-bg-elev-2:     oklch(0.88 0.06 65);
+  --color-bg-overlay:    oklch(0.94 0.03 70 / 0.82);
+  --color-border:        oklch(0.78 0.05 60);
+  --color-border-strong: oklch(0.55 0.08 50);
+  --color-ring:          oklch(0.72 0.20 35 / 0.45);
+  --color-fg:            oklch(0.25 0.04 50);
+  --color-fg-muted:      oklch(0.45 0.04 50);
+  --color-fg-dim:        oklch(0.60 0.04 50);
+  --color-accent:        oklch(0.72 0.20 35);
+  --color-accent-fg:     oklch(0.98 0.005 70);
+  --color-warm:          oklch(0.78 0.15 80);
+  --color-cool:          oklch(0.55 0.15 200);
+  --color-critical:      oklch(0.58 0.20 10);
+  --color-highlight:     oklch(0.78 0.16 0);
+  --shadow-soft:         0 1px 2px oklch(0.30 0.05 40 / 0.10), 0 0 0 1px oklch(0.30 0.05 40 / 0.05);
+  --shadow-elev:         0 8px 24px -8px oklch(0.30 0.05 40 / 0.20);
+  --shadow-pop:          0 16px 48px -12px oklch(0.30 0.05 40 / 0.25);
+}
+
+:root[data-theme="matrix"] {
+  color-scheme: dark;
+  --color-bg:            oklch(0.10 0.01 140);
+  --color-bg-elev:       oklch(0.15 0.02 140);
+  --color-bg-elev-2:     oklch(0.20 0.03 140);
+  --color-bg-overlay:    oklch(0.10 0.01 140 / 0.82);
+  --color-border:        oklch(0.30 0.06 140);
+  --color-border-strong: oklch(0.50 0.10 140);
+  --color-ring:          oklch(0.85 0.28 140 / 0.45);
+  --color-fg:            oklch(0.88 0.20 140);
+  --color-fg-muted:      oklch(0.68 0.15 140);
+  --color-fg-dim:        oklch(0.48 0.10 140);
+  --color-accent:        oklch(0.85 0.28 140);
+  --color-accent-fg:     oklch(0.08 0.01 140);
+  --color-warm:          oklch(0.78 0.15 75);
+  --color-cool:          oklch(0.82 0.18 195);
+  --color-critical:      oklch(0.68 0.25 15);
+  --color-highlight:     oklch(0.99 0 0);
+  --shadow-soft:         0 1px 2px oklch(0 0 0 / 0.3), 0 0 0 1px oklch(0.85 0.28 140 / 0.05);
+  --shadow-elev:         0 8px 24px -8px oklch(0 0 0 / 0.5);
+  --shadow-pop:          0 16px 48px -12px oklch(0 0 0 / 0.7);
+}
+
+:root[data-theme="ocean"] {
+  color-scheme: dark;
+  --color-bg:            oklch(0.16 0.04 240);
+  --color-bg-elev:       oklch(0.20 0.06 240);
+  --color-bg-elev-2:     oklch(0.25 0.08 240);
+  --color-bg-overlay:    oklch(0.16 0.04 240 / 0.82);
+  --color-border:        oklch(0.35 0.07 240);
+  --color-border-strong: oklch(0.50 0.10 240);
+  --color-ring:          oklch(0.84 0.16 195 / 0.45);
+  --color-fg:            oklch(0.93 0.02 220);
+  --color-fg-muted:      oklch(0.70 0.03 220);
+  --color-fg-dim:        oklch(0.50 0.04 220);
+  --color-accent:        oklch(0.84 0.16 195);
+  --color-accent-fg:     oklch(0.12 0.04 240);
+  --color-warm:          oklch(0.74 0.18 5);
+  --color-cool:          oklch(0.72 0.16 250);
+  --color-critical:      oklch(0.68 0.25 25);
+  --color-highlight:     oklch(0.92 0.20 130);
+  --shadow-soft:         0 1px 2px oklch(0 0 0 / 0.35), 0 0 0 1px oklch(0.84 0.16 195 / 0.05);
+  --shadow-elev:         0 8px 24px -8px oklch(0 0 0 / 0.55);
+  --shadow-pop:          0 16px 48px -12px oklch(0 0 0 / 0.7);
+}
+
+:root[data-theme="notebook"] {
+  color-scheme: light;
+  --color-bg:            oklch(0.94 0.04 90);
+  --color-bg-elev:       oklch(0.91 0.05 90);
+  --color-bg-elev-2:     oklch(0.88 0.06 85);
+  --color-bg-overlay:    oklch(0.93 0.04 90 / 0.85);
+  --color-border:        oklch(0.75 0.04 80);
+  --color-border-strong: oklch(0.50 0.06 60);
+  --color-ring:          oklch(0.56 0.21 25 / 0.45);
+  --color-fg:            oklch(0.22 0.04 270);
+  --color-fg-muted:      oklch(0.42 0.04 270);
+  --color-fg-dim:        oklch(0.58 0.04 270);
+  --color-accent:        oklch(0.56 0.21 25);
+  --color-accent-fg:     oklch(0.98 0.01 90);
+  --color-warm:          oklch(0.78 0.16 90);
+  --color-cool:          oklch(0.55 0.10 260);
+  --color-critical:      oklch(0.50 0.22 25);
+  --color-highlight:     oklch(0.75 0.18 100);
+  --shadow-soft:         0 1px 2px oklch(0.30 0.05 60 / 0.12), 0 0 0 1px oklch(0.30 0.05 60 / 0.06);
+  --shadow-elev:         0 8px 24px -8px oklch(0.30 0.05 60 / 0.18);
+  --shadow-pop:          0 16px 48px -12px oklch(0.30 0.05 60 / 0.25);
+  --font-sans:           var(--font-caveat), "Caveat", cursive;
+}
+
+:root[data-theme="blueprint"] {
+  color-scheme: dark;
+  --color-bg:            oklch(0.26 0.10 250);
+  --color-bg-elev:       oklch(0.30 0.11 250);
+  --color-bg-elev-2:     oklch(0.34 0.12 250);
+  --color-bg-overlay:    oklch(0.26 0.10 250 / 0.85);
+  --color-border:        oklch(0.50 0.10 250);
+  --color-border-strong: oklch(0.70 0.10 250);
+  --color-ring:          oklch(0.86 0.16 90 / 0.45);
+  --color-fg:            oklch(0.93 0.01 90);
+  --color-fg-muted:      oklch(0.72 0.02 90);
+  --color-fg-dim:        oklch(0.55 0.04 90);
+  --color-accent:        oklch(0.86 0.16 90);
+  --color-accent-fg:     oklch(0.20 0.06 250);
+  --color-warm:          oklch(0.78 0.15 60);
+  --color-cool:          oklch(0.80 0.10 250);
+  --color-critical:      oklch(0.70 0.21 25);
+  --color-highlight:     oklch(0.85 0.13 195);
+  --shadow-soft:         0 1px 2px oklch(0 0 0 / 0.35), 0 0 0 1px oklch(0.86 0.16 90 / 0.05);
+  --shadow-elev:         0 8px 24px -8px oklch(0 0 0 / 0.55);
+  --shadow-pop:          0 16px 48px -12px oklch(0 0 0 / 0.7);
+  --font-sans:           var(--font-architects-daughter), "Architects Daughter", cursive;
+}
+
+:root[data-theme="washi"] {
+  color-scheme: light;
+  --color-bg:            oklch(0.92 0.04 80);
+  --color-bg-elev:       oklch(0.89 0.05 80);
+  --color-bg-elev-2:     oklch(0.86 0.06 80);
+  --color-bg-overlay:    oklch(0.91 0.04 80 / 0.85);
+  --color-border:        oklch(0.72 0.04 70);
+  --color-border-strong: oklch(0.45 0.06 60);
+  --color-ring:          oklch(0.55 0.18 25 / 0.45);
+  --color-fg:            oklch(0.18 0.02 60);
+  --color-fg-muted:      oklch(0.38 0.03 60);
+  --color-fg-dim:        oklch(0.55 0.04 60);
+  --color-accent:        oklch(0.55 0.18 25);
+  --color-accent-fg:     oklch(0.97 0.01 80);
+  --color-warm:          oklch(0.65 0.14 75);
+  --color-cool:          oklch(0.36 0.11 240);
+  --color-critical:      oklch(0.55 0.20 30);
+  --color-highlight:     oklch(0.78 0.16 85);
+  --shadow-soft:         0 1px 2px oklch(0.20 0.04 60 / 0.10), 0 0 0 1px oklch(0.20 0.04 60 / 0.05);
+  --shadow-elev:         0 8px 24px -8px oklch(0.20 0.04 60 / 0.18);
+  --shadow-pop:          0 16px 48px -12px oklch(0.20 0.04 60 / 0.25);
+  --font-sans:           var(--font-klee-one), "Klee One", serif;
+}
+
+:root[data-theme="sketch"] {
+  color-scheme: light;
+  --color-bg:            oklch(0.985 0.003 0);
+  --color-bg-elev:       oklch(0.95 0.003 0);
+  --color-bg-elev-2:     oklch(0.91 0.004 0);
+  --color-bg-overlay:    oklch(0.97 0.003 0 / 0.85);
+  --color-border:        oklch(0.78 0.005 0);
+  --color-border-strong: oklch(0.50 0.005 0);
+  --color-ring:          oklch(0.62 0.21 20 / 0.45);
+  --color-fg:            oklch(0.20 0.005 0);
+  --color-fg-muted:      oklch(0.42 0.005 0);
+  --color-fg-dim:        oklch(0.58 0.005 0);
+  --color-accent:        oklch(0.62 0.21 20);
+  --color-accent-fg:     oklch(0.985 0.003 0);
+  --color-warm:          oklch(0.62 0.16 150);
+  --color-cool:          oklch(0.52 0.16 250);
+  --color-critical:      oklch(0.55 0.21 25);
+  --color-highlight:     oklch(0.80 0.18 90);
+  --shadow-soft:         0 1px 2px oklch(0.20 0.005 0 / 0.08), 0 0 0 1px oklch(0.20 0.005 0 / 0.04);
+  --shadow-elev:         0 8px 24px -8px oklch(0.20 0.005 0 / 0.18);
+  --shadow-pop:          0 16px 48px -12px oklch(0.20 0.005 0 / 0.22);
+  --font-sans:           var(--font-kalam), "Kalam", cursive;
+}
+
+:root[data-theme="paper"] {
+  color-scheme: light;
+  --color-bg:            oklch(0.97 0 0);
+  --color-bg-elev:       oklch(0.93 0 0);
+  --color-bg-elev-2:     oklch(0.88 0 0);
+  --color-bg-overlay:    oklch(0.95 0 0 / 0.88);
+  --color-border:        oklch(0.72 0 0);
+  --color-border-strong: oklch(0.40 0 0);
+  --color-ring:          oklch(0.20 0 0 / 0.55);
+  --color-fg:            oklch(0.12 0 0);
+  --color-fg-muted:      oklch(0.38 0 0);
+  --color-fg-dim:        oklch(0.55 0 0);
+  --color-accent:        oklch(0.20 0 0);
+  --color-accent-fg:     oklch(0.97 0 0);
+  --color-warm:          oklch(0.32 0 0);
+  --color-cool:          oklch(0.48 0 0);
+  --color-critical:      oklch(0.20 0 0);
+  --color-highlight:     oklch(0.85 0 0);
+  --shadow-soft:         0 1px 2px oklch(0 0 0 / 0.10), 0 0 0 1px oklch(0 0 0 / 0.06);
+  --shadow-elev:         0 8px 24px -8px oklch(0 0 0 / 0.15);
+  --shadow-pop:          0 16px 48px -12px oklch(0 0 0 / 0.22);
+}
+
+:root[data-theme="mist"] {
+  color-scheme: dark;
+  --color-bg:            oklch(0.22 0.025 280);
+  --color-bg-elev:       oklch(0.26 0.028 280);
+  --color-bg-elev-2:     oklch(0.30 0.032 278);
+  --color-bg-overlay:    oklch(0.22 0.025 280 / 0.85);
+  --color-border:        oklch(0.38 0.035 280);
+  --color-border-strong: oklch(0.52 0.045 280);
+  --color-ring:          oklch(0.78 0.10 320 / 0.45);
+  --color-fg:            oklch(0.90 0.018 280);
+  --color-fg-muted:      oklch(0.68 0.020 280);
+  --color-fg-dim:        oklch(0.50 0.022 280);
+  --color-accent:        oklch(0.78 0.10 320);
+  --color-accent-fg:     oklch(0.22 0.025 280);
+  --color-warm:          oklch(0.82 0.10 50);
+  --color-cool:          oklch(0.78 0.09 230);
+  --color-critical:      oklch(0.72 0.14 15);
+  --color-highlight:     oklch(0.85 0.11 95);
+  --shadow-soft:         0 1px 2px oklch(0 0 0 / 0.3), 0 0 0 1px oklch(0.78 0.10 320 / 0.05);
+  --shadow-elev:         0 8px 24px -8px oklch(0 0 0 / 0.45);
+  --shadow-pop:          0 16px 48px -12px oklch(0 0 0 / 0.6);
+}
+
+:root[data-theme="midnight"] {
+  color-scheme: dark;
+  --color-bg:            oklch(0 0 0);
+  --color-bg-elev:       oklch(0.10 0.005 60);
+  --color-bg-elev-2:     oklch(0.16 0.008 60);
+  --color-bg-overlay:    oklch(0 0 0 / 0.82);
+  --color-border:        oklch(0.22 0.012 60);
+  --color-border-strong: oklch(0.38 0.015 60);
+  --color-ring:          oklch(0.78 0.14 70 / 0.45);
+  --color-fg:            oklch(0.86 0.02 60);
+  --color-fg-muted:      oklch(0.60 0.02 60);
+  --color-fg-dim:        oklch(0.42 0.015 60);
+  --color-accent:        oklch(0.78 0.14 70);
+  --color-accent-fg:     oklch(0.10 0.01 60);
+  --color-warm:          oklch(0.74 0.13 50);
+  --color-cool:          oklch(0.58 0.06 40);
+  --color-critical:      oklch(0.68 0.20 25);
+  --color-highlight:     oklch(0.82 0.16 80);
+  --shadow-soft:         0 1px 2px oklch(0 0 0 / 0.5), 0 0 0 1px oklch(0.78 0.14 70 / 0.04);
+  --shadow-elev:         0 8px 24px -8px oklch(0 0 0 / 0.7);
+  --shadow-pop:          0 16px 48px -12px oklch(0 0 0 / 0.9);
+}
+
+:root[data-theme="solar"] {
+  color-scheme: light;
+  --color-bg:            oklch(0.96 0.025 90);
+  --color-bg-elev:       oklch(0.93 0.028 90);
+  --color-bg-elev-2:     oklch(0.89 0.030 88);
+  --color-bg-overlay:    oklch(0.95 0.025 90 / 0.85);
+  --color-border:        oklch(0.78 0.035 85);
+  --color-border-strong: oklch(0.55 0.04 80);
+  --color-ring:          oklch(0.60 0.13 195 / 0.50);
+  --color-fg:            oklch(0.40 0.025 220);
+  --color-fg-muted:      oklch(0.52 0.020 220);
+  --color-fg-dim:        oklch(0.65 0.020 220);
+  --color-accent:        oklch(0.60 0.13 195);
+  --color-accent-fg:     oklch(0.97 0.025 90);
+  --color-warm:          oklch(0.68 0.14 65);
+  --color-cool:          oklch(0.55 0.14 245);
+  --color-critical:      oklch(0.58 0.18 30);
+  --color-highlight:     oklch(0.75 0.14 85);
+  --shadow-soft:         0 1px 2px oklch(0.35 0.04 80 / 0.10), 0 0 0 1px oklch(0.35 0.04 80 / 0.06);
+  --shadow-elev:         0 8px 24px -8px oklch(0.35 0.04 80 / 0.16);
+  --shadow-pop:          0 16px 48px -12px oklch(0.35 0.04 80 / 0.22);
+}
+
+/* Nord — frosted dark with low-saturation Polar Night greys and Frost cyans.
+   Tuned for long coding sessions; reads as "calm dark" next to ocean/blueprint. */
+:root[data-theme="nord"] {
+  color-scheme: dark;
+  --color-bg:            oklch(0.27 0.020 250);
+  --color-bg-elev:       oklch(0.32 0.022 250);
+  --color-bg-elev-2:     oklch(0.36 0.024 250);
+  --color-bg-overlay:    oklch(0.27 0.020 250 / 0.85);
+  --color-border:        oklch(0.45 0.028 250);
+  --color-border-strong: oklch(0.58 0.032 250);
+  --color-ring:          oklch(0.78 0.10 220 / 0.50);
+  --color-fg:            oklch(0.93 0.010 220);
+  --color-fg-muted:      oklch(0.78 0.018 220);
+  --color-fg-dim:        oklch(0.58 0.022 250);
+  --color-accent:        oklch(0.78 0.10 220);
+  --color-accent-fg:     oklch(0.27 0.020 250);
+  --color-warm:          oklch(0.78 0.12 30);
+  --color-cool:          oklch(0.72 0.10 250);
+  --color-critical:      oklch(0.65 0.14 25);
+  --color-highlight:     oklch(0.85 0.13 90);
+  --shadow-soft:         0 1px 2px oklch(0 0 0 / 0.35), 0 0 0 1px oklch(0.78 0.10 220 / 0.05);
+  --shadow-elev:         0 8px 24px -8px oklch(0 0 0 / 0.50);
+  --shadow-pop:          0 16px 48px -12px oklch(0 0 0 / 0.65);
+}
+
+/* Sakura — pale cherry-blossom light with matcha accents. Warm-light
+   counterpart to washi; gentle hue at low saturation to keep text legible. */
+:root[data-theme="sakura"] {
+  color-scheme: light;
+  --color-bg:            oklch(0.97 0.012 15);
+  --color-bg-elev:       oklch(0.94 0.018 15);
+  --color-bg-elev-2:     oklch(0.90 0.022 15);
+  --color-bg-overlay:    oklch(0.96 0.014 15 / 0.85);
+  --color-border:        oklch(0.78 0.040 15);
+  --color-border-strong: oklch(0.55 0.045 15);
+  --color-ring:          oklch(0.62 0.16 150 / 0.50);
+  --color-fg:            oklch(0.30 0.040 25);
+  --color-fg-muted:      oklch(0.50 0.035 25);
+  --color-fg-dim:        oklch(0.65 0.030 25);
+  --color-accent:        oklch(0.62 0.16 150);
+  --color-accent-fg:     oklch(0.97 0.012 15);
+  --color-warm:          oklch(0.72 0.14 20);
+  --color-cool:          oklch(0.62 0.13 230);
+  --color-critical:      oklch(0.58 0.20 20);
+  --color-highlight:     oklch(0.78 0.14 20);
+  --shadow-soft:         0 1px 2px oklch(0.32 0.05 20 / 0.10), 0 0 0 1px oklch(0.32 0.05 20 / 0.06);
+  --shadow-elev:         0 8px 24px -8px oklch(0.32 0.05 20 / 0.18);
+  --shadow-pop:          0 16px 48px -12px oklch(0.32 0.05 20 / 0.24);
+}
+
+/* Amber CRT — monochrome amber phosphor on near-black. Counterpart to matrix
+   (green). Long-session caveat: single hue strains the eye, so border-strong
+   stays vivid for high-contrast preference users. */
+:root[data-theme="amber"] {
+  color-scheme: dark;
+  --color-bg:            oklch(0.10 0.005 60);
+  --color-bg-elev:       oklch(0.14 0.012 60);
+  --color-bg-elev-2:     oklch(0.18 0.015 60);
+  --color-bg-overlay:    oklch(0.10 0.005 60 / 0.85);
+  --color-border:        oklch(0.30 0.05 60);
+  --color-border-strong: oklch(0.55 0.10 65);
+  --color-ring:          oklch(0.92 0.18 80 / 0.45);
+  --color-fg:            oklch(0.84 0.16 75);
+  --color-fg-muted:      oklch(0.65 0.13 75);
+  --color-fg-dim:        oklch(0.45 0.10 75);
+  --color-accent:        oklch(0.92 0.18 80);
+  --color-accent-fg:     oklch(0.10 0.005 60);
+  --color-warm:          oklch(0.78 0.14 55);
+  --color-cool:          oklch(0.70 0.12 60);
+  --color-critical:      oklch(0.70 0.20 30);
+  --color-highlight:     oklch(0.88 0.16 85);
+  --shadow-soft:         0 1px 2px oklch(0 0 0 / 0.55), 0 0 0 1px oklch(0.92 0.18 80 / 0.06);
+  --shadow-elev:         0 8px 24px -8px oklch(0 0 0 / 0.70);
+  --shadow-pop:          0 16px 48px -12px oklch(0 0 0 / 0.85);
+}
+
+/* High Contrast (dark) — pure-black bg + pure-white fg, WCAG AAA (≥7:1).
+   Accent stays high-saturation so status/priority signals survive in
+   `prefers-contrast: more` and e-ink contexts. */
+:root[data-theme="hc-dark"] {
+  color-scheme: dark;
+  --color-bg:            oklch(0 0 0);
+  --color-bg-elev:       oklch(0.10 0 0);
+  --color-bg-elev-2:     oklch(0.18 0 0);
+  --color-bg-overlay:    oklch(0 0 0 / 0.92);
+  --color-border:        oklch(1 0 0);
+  --color-border-strong: oklch(1 0 0);
+  --color-ring:          oklch(0.90 0.22 105 / 0.70);
+  --color-fg:            oklch(1 0 0);
+  --color-fg-muted:      oklch(0.85 0 0);
+  --color-fg-dim:        oklch(0.70 0 0);
+  --color-accent:        oklch(0.90 0.22 105);
+  --color-accent-fg:     oklch(0 0 0);
+  --color-warm:          oklch(0.82 0.20 60);
+  --color-cool:          oklch(0.78 0.20 220);
+  --color-critical:      oklch(0.72 0.26 25);
+  --color-highlight:     oklch(0.90 0.22 100);
+  --shadow-soft:         0 0 0 1px oklch(1 0 0);
+  --shadow-elev:         0 0 0 2px oklch(1 0 0);
+  --shadow-pop:          0 0 0 3px oklch(1 0 0);
+}
+
+/* High Contrast (light) — pure-white bg + pure-black fg. Same WCAG AAA goal,
+   light counterpart to hc-dark. Useful for print previews and e-paper. */
+:root[data-theme="hc-light"] {
+  color-scheme: light;
+  --color-bg:            oklch(1 0 0);
+  --color-bg-elev:       oklch(0.96 0 0);
+  --color-bg-elev-2:     oklch(0.92 0 0);
+  --color-bg-overlay:    oklch(1 0 0 / 0.92);
+  --color-border:        oklch(0 0 0);
+  --color-border-strong: oklch(0 0 0);
+  --color-ring:          oklch(0.45 0.22 260 / 0.70);
+  --color-fg:            oklch(0 0 0);
+  --color-fg-muted:      oklch(0.25 0 0);
+  --color-fg-dim:        oklch(0.40 0 0);
+  --color-accent:        oklch(0.45 0.22 260);
+  --color-accent-fg:     oklch(1 0 0);
+  --color-warm:          oklch(0.45 0.20 50);
+  --color-cool:          oklch(0.35 0.18 220);
+  --color-critical:      oklch(0.45 0.22 25);
+  --color-highlight:     oklch(0.85 0.22 100);
+  --shadow-soft:         0 0 0 1px oklch(0 0 0);
+  --shadow-elev:         0 0 0 2px oklch(0 0 0);
+  --shadow-pop:          0 0 0 3px oklch(0 0 0);
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    color-scheme: light;
+    --color-bg: rgb(255 255 255);
+    --color-bg-elev: rgb(246 248 250);
+    --color-bg-elev-2: rgb(234 238 242);
+    --color-bg-overlay: rgb(246 248 250 / 0.82);
+    --color-border: rgb(208 215 222);
+    --color-border-strong: rgb(140 149 159);
+    --color-ring: rgb(26 127 55 / 0.45);
+    --color-fg: rgb(31 35 40);
+    --color-fg-muted: rgb(101 109 118);
+    --color-fg-dim: rgb(140 149 159);
+    --color-accent: rgb(26 127 55);
+    --color-accent-fg: rgb(255 255 255);
+    --color-warm: rgb(191 135 0);
+    --color-cool: rgb(9 105 218);
+    --color-critical: rgb(207 34 46);
+    --color-highlight: rgb(154 103 0);
+    --shadow-soft: 0 1px 2px rgb(31 35 40 / 0.08), 0 0 0 1px rgb(31 35 40 / 0.04);
+    --shadow-elev: 0 8px 24px -8px rgb(31 35 40 / 0.18);
+    --shadow-pop: 0 16px 48px -12px rgb(31 35 40 / 0.22);
+  }
+}
+
+/* ─── Base ───────────────────────────────────────────────────────── */
+
+* {
+  border-color: var(--color-border);
+}
+
+html, body {
+  height: 100%;
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-fg);
+  font-family: var(--font-sans);
+  font-feature-settings: "rlig" 1, "calt" 1, "ss01" 1;
+  font-size: 13px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: color-mix(in oklch, var(--color-accent) 25%, transparent);
+}
+
+/* Tabular nums for code-like values */
+.tabular {
+  font-variant-numeric: tabular-nums;
+  font-family: var(--font-mono);
+}
+
+/* Subtle scrollbar */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: 5px; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-border-strong); }
+
+/* Glass overlay */
+.glass {
+  background: var(--color-bg-overlay);
+  backdrop-filter: blur(12px) saturate(120%);
+  -webkit-backdrop-filter: blur(12px) saturate(120%);
+}
+
+/* Fuzzy match highlight */
+mark.fuzz {
+  background: transparent;
+  color: var(--color-highlight);
+  font-weight: 600;
+}
+
+/* Route loading placeholders */
+@media (prefers-reduced-motion: no-preference) {
+  .relay-skeleton {
+    animation: relay-skeleton-pulse 1.5s var(--ease-out) infinite;
+  }
+}
+
+@keyframes relay-skeleton-pulse {
+  0%, 100% {
+    opacity: 0.55;
+  }
+
+  50% {
+    opacity: 0.85;
+  }
+}
+
+/* Session detail — newly-arrived message highlight. The hook
+   (use-session-stream) adds `.relay-fresh` to rows added in the most recent
+   snapshot diff and removes it after a cooldown. The base rule keeps the
+   accent border even when motion is reduced, so the cue survives WCAG 2.3.3. */
+.relay-fresh {
+  border-color: var(--color-accent);
+  background: color-mix(in oklch, var(--color-accent) 6%, transparent);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .relay-fresh {
+    animation: relay-fresh-fade 4s var(--ease-out) forwards;
+  }
+}
+
+@keyframes relay-fresh-fade {
+  0% {
+    background: color-mix(in oklch, var(--color-accent) 18%, transparent);
+    box-shadow: 0 0 0 1px var(--color-accent);
+  }
+
+  100% {
+    background: color-mix(in oklch, var(--color-accent) 6%, transparent);
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+/* Focus rings (Tailwind-friendly) */
+.ring-focus:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--color-ring);
+}
+
+/* WCAG 1.4.1 — non-color signal reinforcement in high-contrast mode.
+   Color-only status/priority dots get a visible border, so the signal
+   survives even when color rendering is poor (low-vision, e-ink, etc.). */
+@media (prefers-contrast: more) {
+  .priority-dot,
+  [role="img"][aria-label^="status:"],
+  [role="img"][aria-label^="priority:"] {
+    outline: 1px solid var(--color-fg);
+    outline-offset: 1px;
+  }
+}
+
+/* Critical-tinted background using color-mix so it reads as an 8% alpha
+   wash regardless of theme (var(--color-critical) is OKLCH in dark and
+   rgb in light — color-mix handles both). */
+.bg-critical-soft {
+  background: color-mix(in oklch, var(--color-critical) 8%, transparent);
+}
+
+/* WCAG 2.3.3 — honor prefers-reduced-motion globally. Individual
+   `motion-safe:` / `motion-reduce:` Tailwind utilities still take
+   precedence where authors opted in; this rule catches everything else
+   (route transitions, hover transforms, scroll behavior). */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
