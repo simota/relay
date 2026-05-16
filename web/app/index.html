@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>relay — cross-project task hub</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <div class="header__brand">relay <span class="header__brand-sub">cross-project task hub</span></div>
+      <div class="header__actions">
+        <span class="header__sync-time" id="sync-time">·</span>
+        <button class="header__sync" id="sync-btn">↻ sync</button>
+        <button>⚙</button>
+      </div>
+    </header>
+
+    <aside class="sidebar">
+      <div>
+        <div class="sidebar__group-title">Views</div>
+        <div class="sidebar__item" data-view="today">
+          <span class="sidebar__icon">⌂</span>
+          <span class="sidebar__label">Today</span>
+          <span class="sidebar__count" id="count-today">0</span>
+        </div>
+        <div class="sidebar__item" data-view="open">
+          <span class="sidebar__icon">⏵</span>
+          <span class="sidebar__label">Open</span>
+          <span class="sidebar__count" id="count-open">0</span>
+        </div>
+        <div class="sidebar__item" data-view="snoozed">
+          <span class="sidebar__icon">⏸</span>
+          <span class="sidebar__label">Snoozed</span>
+          <span class="sidebar__count" id="count-snoozed">0</span>
+        </div>
+        <div class="sidebar__item" data-view="done">
+          <span class="sidebar__icon">✓</span>
+          <span class="sidebar__label">Done</span>
+          <span class="sidebar__count" id="count-done">0</span>
+        </div>
+      </div>
+
+      <div>
+        <div class="sidebar__group-title">Browse</div>
+        <div class="sidebar__item" data-view="repos">
+          <span class="sidebar__icon">▢</span>
+          <span class="sidebar__label">Repos</span>
+          <span class="sidebar__count" id="count-repos">0</span>
+        </div>
+        <div class="sidebar__item" data-view="contexts">
+          <span class="sidebar__icon">⏱</span>
+          <span class="sidebar__label">Contexts</span>
+          <span class="sidebar__count" id="count-contexts">0</span>
+        </div>
+      </div>
+
+      <div>
+        <div class="sidebar__group-title">Sources</div>
+        <div class="sidebar__stat-row">
+          <span>code TODO</span><span class="sidebar__stat-num" id="src-code-todo">0</span>
+        </div>
+        <div class="sidebar__stat-row">
+          <span>GitHub issue</span><span class="sidebar__stat-num" id="src-github-issue">0</span>
+        </div>
+        <div class="sidebar__stat-row">
+          <span>GitHub PR</span><span class="sidebar__stat-num" id="src-github-pr">0</span>
+        </div>
+        <div class="sidebar__stat-row">
+          <span>Claude session</span><span class="sidebar__stat-num" id="src-claude-session">0</span>
+        </div>
+        <div class="sidebar__stat-row">
+          <span>.agents</span><span class="sidebar__stat-num" id="src-agents-note">0</span>
+        </div>
+        <div class="sidebar__stat-row">
+          <span>manual</span><span class="sidebar__stat-num" id="src-manual">0</span>
+        </div>
+      </div>
+
+      <div class="sidebar__footer"><span id="mode-badge">·</span> v0.1.0</div>
+    </aside>
+
+    <main class="main">
+      <div class="filter-bar" id="filter-bar">
+        <span class="filter-bar__slash">/</span>
+        <input class="filter-bar__input" id="filter-input" placeholder="fuzzy filter — try `auth`, `refscope`, `claude bug`" autocomplete="off" />
+        <span class="filter-bar__count" id="filter-count">…</span>
+        <span class="filter-bar__clear" id="filter-clear" style="display:none">clear</span>
+      </div>
+      <div id="main-body"><div class="empty">loading…</div></div>
+      <div class="status-bar">
+        <span>j/k move · 1-3 tabs · / filter · r run · s snooze · c close</span>
+        <span id="status-right">relay v0.1.0</span>
+      </div>
+    </main>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script src="fuzzy.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
