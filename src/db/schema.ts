@@ -133,6 +133,10 @@ CREATE TABLE IF NOT EXISTS sessions (
   parent_session_id  TEXT,
   source_path        TEXT NOT NULL,
   sha                TEXT,
+  -- status: 'idle' (default) | 'active' | 'waiting_for_user' | 'interrupted'.
+  -- See SessionStatus in src/types.ts. ALTER for pre-v4 DBs lives in
+  -- runColumnMigrations() so existing rows materialise as 'idle'.
+  status             TEXT NOT NULL DEFAULT 'idle',
   PRIMARY KEY (type, id)
 );
 
@@ -146,6 +150,8 @@ INSERT OR IGNORE INTO schema_version (version, applied_at)
   VALUES (2, datetime('now'));
 INSERT OR IGNORE INTO schema_version (version, applied_at)
   VALUES (3, datetime('now'));
+INSERT OR IGNORE INTO schema_version (version, applied_at)
+  VALUES (4, datetime('now'));
 `;
 
 export interface UndoLogRow {

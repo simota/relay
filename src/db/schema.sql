@@ -1,4 +1,4 @@
--- relay storage schema v1
+-- relay storage schema v4
 
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
@@ -130,6 +130,10 @@ CREATE TABLE IF NOT EXISTS sessions (
   parent_session_id  TEXT,
   source_path        TEXT NOT NULL,
   sha                TEXT,                    -- content hash, used by incremental sync to skip unchanged files
+  -- status: lifecycle state observed by the ingest pipeline.
+  -- 'idle' (default, no signal) | 'active' | 'waiting_for_user' | 'interrupted'.
+  -- See `SessionStatus` in src/types.ts for the canonical enum.
+  status             TEXT NOT NULL DEFAULT 'idle',
   PRIMARY KEY (type, id)
 );
 
@@ -143,3 +147,5 @@ INSERT OR IGNORE INTO schema_version (version, applied_at)
   VALUES (2, datetime('now'));
 INSERT OR IGNORE INTO schema_version (version, applied_at)
   VALUES (3, datetime('now'));
+INSERT OR IGNORE INTO schema_version (version, applied_at)
+  VALUES (4, datetime('now'));
