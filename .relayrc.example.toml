@@ -1,0 +1,32 @@
+# relay configuration — copy to ~/.relay/config.toml and edit.
+
+[scan]
+roots = ["~/repos/github.com"]
+exclude = ["node_modules", "vendor", ".next", "dist", "target", ".git"]
+max_depth = 2
+
+[github]
+user = "simota"
+orgs = ["Luna-company"]
+
+[agents]
+default = "claude-code"
+claude_bin = "claude"
+codex_bin = "codex"
+gemini_bin = "gemini"
+
+[ui]
+default_view = "today"
+today_limit = 5
+priority_decay_days = 14
+
+[daemon]
+enabled = false
+interval_sec = 300
+
+[adapters]
+code_todo = true
+github_issue = true
+github_pr = true
+claude_session = true
+agents_note = true
