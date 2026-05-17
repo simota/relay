@@ -613,6 +613,34 @@ mark.fuzz {
   }
 }
 
+/* Session "streaming now" indicator — applied to the row dot when the
+   client-side poll diff shows last_active advanced this cycle. Visibly
+   out-pulses the standard tailwind animate-pulse (used for the static
+   "active" state) so the eye can distinguish "writing right now" from
+   "wrote in the last 5 s but not this exact second". Base rule keeps the
+   accent color visible so the cue survives prefers-reduced-motion. */
+.relay-pulse-strong {
+  background-color: var(--color-accent);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .relay-pulse-strong {
+    animation: relay-pulse-strong 0.7s var(--ease-out) infinite;
+  }
+}
+
+@keyframes relay-pulse-strong {
+  0%, 100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 color-mix(in oklch, var(--color-accent) 70%, transparent);
+  }
+
+  50% {
+    opacity: 0.6;
+    box-shadow: 0 0 0 4px color-mix(in oklch, var(--color-accent) 0%, transparent);
+  }
+}
+
 /* Focus rings (Tailwind-friendly) */
 .ring-focus:focus-visible {
   outline: none;
