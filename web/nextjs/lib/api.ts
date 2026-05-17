@@ -330,6 +330,18 @@ export const api = {
     const qs = q.toString();
     return request<SessionSummary[]>(`/api/sessions${qs ? `?${qs}` : ""}`);
   },
+  // Live status scan for Claude sessions. Hits the lightweight /scan-live
+  // endpoint that re-detects status from JSONLs modified in the given
+  // window, sidestepping the DB-cached list. Used by the notification
+  // hook so freshly waiting sessions surface within one poll cycle rather
+  // than waiting for the next full sync.
+  sessionsScanLive: (params: { sinceMin?: number; includeSubagents?: boolean } = {}) => {
+    const q = new URLSearchParams();
+    if (params.sinceMin) q.set("since_min", String(params.sinceMin));
+    if (params.includeSubagents === false) q.set("subagents", "0");
+    const qs = q.toString();
+    return request<SessionSummary[]>(`/api/sessions/scan-live${qs ? `?${qs}` : ""}`);
+  },
   session: (type: SessionType, id: string) =>
     request<SessionDetail>(`/api/sessions/${type}/${encodeURIComponent(id)}`),
   sessionTasks: (type: SessionType, id: string) =>

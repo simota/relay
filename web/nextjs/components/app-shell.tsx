@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useCallback, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Search } from "lucide-react";
 import { useSWRConfig } from "swr";
@@ -13,6 +13,10 @@ import { NewTaskDialog } from "@/components/new-task-dialog";
 import { QueueTray } from "@/components/queue-tray";
 import { Cheatsheet } from "@/components/cheatsheet";
 import { ToastProvider } from "@/components/toast";
+import {
+  WaitingNoticesBanner,
+  type WaitingNotice,
+} from "@/components/waiting-notices-banner";
 import { Kbd } from "@/components/ui/kbd";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
@@ -27,10 +31,46 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const { mutate } = useSWRConfig();
 
   useConfigSync();
-  // Global browser-notification firehose for sessions waiting on user
-  // input. Mounted at the shell so it fires on every page, not just
-  // /sessions. See hook header for permission/transition semantics.
-  useSessionWaitingNotifications();
+
+  // In-app banner state for sessions waiting on user input. Complements
+  // the OS Notification path inside useSessionWaitingNotifications —
+  // banner fires for every transition regardless of permission/focus,
+  // OS notification fires when allowed. Stable callback so the hook's
+  // useEffect dependency does not churn each render.
+  const [waitingNotices, setWaitingNotices] = useState<WaitingNotice[]>([]);
+  const nextWaitingIdRef = useRef(1);
+  const handleWaitingTransition = useCallback(
+    (session: {
+      type: WaitingNotice["type"];
+      id: string;
+      repo: string | null;
+      title: string;
+    }) => {
+      setWaitingNotices((current) => {
+        const id = nextWaitingIdRef.current++;
+        return [
+          ...current,
+          {
+            id,
+            type: session.type,
+            sessionId: session.id,
+            repo: session.repo,
+            title: session.title,
+            createdAt: Date.now(),
+          },
+        ];
+      });
+    },
+    [],
+  );
+  const dismissWaitingNotice = useCallback((id: number) => {
+    setWaitingNotices((current) => current.filter((n) => n.id !== id));
+  }, []);
+
+  // Global notifier mounted at shell. Fires on every page; the in-app
+  // banner ensures users see the cue even when OS notifications are
+  // suppressed (focused tab, denied permission, unsupported browser).
+  useSessionWaitingNotifications({ onWaitingTransition: handleWaitingTransition });
 
   const refreshTaskData = async () => {
     await mutate(
@@ -71,6 +111,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <ToastProvider>
+      <WaitingNoticesBanner notices={waitingNotices} onDismiss={dismissWaitingNotice} />
       <div className="h-screen flex">
         <Suspense
           fallback={
