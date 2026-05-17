@@ -137,6 +137,9 @@ CREATE TABLE IF NOT EXISTS sessions (
   -- See SessionStatus in src/types.ts. ALTER for pre-v4 DBs lives in
   -- runColumnMigrations() so existing rows materialise as 'idle'.
   status             TEXT NOT NULL DEFAULT 'idle',
+  -- last_message_text: schema v5 preview field; ALTER for pre-v5 DBs in
+  -- runColumnMigrations() so existing rows materialise as NULL.
+  last_message_text  TEXT,
   PRIMARY KEY (type, id)
 );
 
@@ -152,6 +155,8 @@ INSERT OR IGNORE INTO schema_version (version, applied_at)
   VALUES (3, datetime('now'));
 INSERT OR IGNORE INTO schema_version (version, applied_at)
   VALUES (4, datetime('now'));
+INSERT OR IGNORE INTO schema_version (version, applied_at)
+  VALUES (5, datetime('now'));
 `;
 
 export interface UndoLogRow {

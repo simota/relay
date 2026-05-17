@@ -3,7 +3,7 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { resolveRepoForCwd } from "../lib/repo-from-cwd.js";
-import { compileExcludePatterns, toSessionRow } from "../lib/session-helpers.js";
+import { compileExcludePatterns, toSessionRow, truncate } from "../lib/session-helpers.js";
 import { detectClaudeSessionStatus } from "../lib/session-status.js";
 import type { Adapter, AdapterContext, SessionStatus, TaskInput } from "../types.js";
 
@@ -126,7 +126,8 @@ export const claudeSessionAdapter: Adapter = {
             ctx.log?.(`  ✓ would read: ${fullPath}`);
           }
 
-          const { cwd, sessionTasks, messageCount, status } = await parseSession(fullPath);
+          const { cwd, sessionTasks, messageCount, status, lastMessageText } =
+            await parseSession(fullPath);
           const repo = resolveRepoForCwd(cwd, ctx.roots) ?? legacyProjectToRepo(project);
 
           if (sessionTasks.length > 0 && repo) {
@@ -171,6 +172,7 @@ export const claudeSessionAdapter: Adapter = {
                   messageCount,
                   sourcePath: fullPath,
                   status,
+                  lastMessageText,
                 }),
               );
             } catch (err) {
@@ -214,7 +216,8 @@ export const claudeSessionAdapter: Adapter = {
           // beats cursor — so a stat failure conservatively re-processes.
           if (cursorMs !== null && subStat && subMtimeMs <= cursorMs) continue;
 
-          const { cwd, sessionTasks, messageCount, status } = await parseSession(fullPath);
+          const { cwd, sessionTasks, messageCount, status, lastMessageText } =
+            await parseSession(fullPath);
           const repo = resolveRepoForCwd(cwd, ctx.roots) ?? legacyProjectToRepo(project);
 
           if (sessionTasks.length > 0 && repo) {
@@ -259,6 +262,7 @@ export const claudeSessionAdapter: Adapter = {
                   parentSessionId: subdir,
                   sourcePath: fullPath,
                   status,
+                  lastMessageText,
                 }),
               );
             } catch (err) {
@@ -418,6 +422,7 @@ async function parseSession(
   sessionTasks: SessionTask[];
   messageCount: number;
   status: SessionStatus;
+  lastMessageText: string | null;
 }> {
   const text = await readFile(path, "utf8");
   const { cwd, events } = extractToolEvents(text);
@@ -431,7 +436,63 @@ async function parseSession(
   // Status detection runs on the same text we just parsed — reusing the
   // string keeps this cheap (one extra tail walk, no second readFile).
   const status = detectClaudeSessionStatus(text);
-  return { cwd, sessionTasks: reduceEvents(events), messageCount, status };
+  const lastMessageText = extractLastMessageText(text);
+  return { cwd, sessionTasks: reduceEvents(events), messageCount, status, lastMessageText };
+}
+
+/**
+ * Walk a Claude JSONL backwards to find the most recent user or assistant
+ * message text. Returns a one-line preview truncated to 240 chars, or null
+ * when the file has no extractable message body.
+ *
+ * Claude wraps the real role/content under `message.role` / `message.content`.
+ * `content` can be a string or an array of text/tool blocks; we collect only
+ * `type === "text"` blocks so tool outputs don't poison the preview.
+ */
+function extractLastMessageText(text: string): string | null {
+  const lines = text.split("\n");
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i];
+    if (!line) continue;
+    let evt: unknown;
+    try {
+      evt = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (!evt || typeof evt !== "object") continue;
+    const obj = evt as Record<string, unknown>;
+    const wrapper = (obj.message as Record<string, unknown> | undefined) ?? obj;
+    const role = (wrapper as Record<string, unknown>).role;
+    if (role !== "user" && role !== "assistant") continue;
+    const content = (wrapper as Record<string, unknown>).content;
+    let body = "";
+    if (typeof content === "string") {
+      body = content;
+    } else if (Array.isArray(content)) {
+      const parts: string[] = [];
+      for (const c of content) {
+        if (c && typeof c === "object") {
+          const block = c as Record<string, unknown>;
+          if (block.type === "text" && typeof block.text === "string") {
+            parts.push(block.text);
+          }
+        }
+      }
+      body = parts.join("\n");
+    }
+    const oneLine = firstSignificantLine(body);
+    if (oneLine) return truncate(oneLine, 240);
+  }
+  return null;
+}
+
+function firstSignificantLine(s: string): string {
+  for (const line of s.split("\n")) {
+    const t = line.trim();
+    if (t.length > 0) return t;
+  }
+  return "";
 }
 
 function getToolUseBlocks(evt: Record<string, unknown>): ToolUse[] {

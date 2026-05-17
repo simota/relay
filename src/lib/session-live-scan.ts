@@ -31,6 +31,7 @@ export interface LiveScanResult {
   message_count: number;
   cwd: string | null;
   repo: string | null;
+  last_message_text: string | null;
 }
 
 interface ScanOptions {
@@ -106,9 +107,10 @@ async function scanFile(
   // Extract cwd from the first event that carries one + count non-empty
   // lines for message_count. Single forward walk so we stay under one
   // string allocation per file.
+  const lines = text.split("\n");
   let cwd: string | null = null;
   let messageCount = 0;
-  for (const line of text.split("\n")) {
+  for (const line of lines) {
     if (!line) continue;
     if (line.trim()) messageCount += 1;
     if (cwd === null) {
@@ -124,6 +126,7 @@ async function scanFile(
   }
 
   const repo = cwd ? resolveRepoForCwd(cwd, roots) : null;
+  const lastMessageText = extractLastClaudeMessage(lines);
 
   return {
     type: "claude",
@@ -134,5 +137,48 @@ async function scanFile(
     message_count: messageCount,
     cwd,
     repo,
+    last_message_text: lastMessageText,
   };
+}
+
+const PREVIEW_MAX = 240;
+
+function extractLastClaudeMessage(lines: string[]): string | null {
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i];
+    if (!line) continue;
+    let evt: unknown;
+    try {
+      evt = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (!evt || typeof evt !== "object") continue;
+    const obj = evt as Record<string, unknown>;
+    const wrapper = (obj.message as Record<string, unknown> | undefined) ?? obj;
+    const role = (wrapper as Record<string, unknown>).role;
+    if (role !== "user" && role !== "assistant") continue;
+    const content = (wrapper as Record<string, unknown>).content;
+    let body = "";
+    if (typeof content === "string") {
+      body = content;
+    } else if (Array.isArray(content)) {
+      const parts: string[] = [];
+      for (const c of content) {
+        if (c && typeof c === "object") {
+          const block = c as Record<string, unknown>;
+          if (block.type === "text" && typeof block.text === "string") {
+            parts.push(block.text);
+          }
+        }
+      }
+      body = parts.join("\n");
+    }
+    for (const ln of body.split("\n")) {
+      const t = ln.trim();
+      if (t.length === 0) continue;
+      return t.length <= PREVIEW_MAX ? t : t.slice(0, PREVIEW_MAX - 1) + "…";
+    }
+  }
+  return null;
 }

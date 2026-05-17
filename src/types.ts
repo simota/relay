@@ -86,6 +86,10 @@ export const SessionRow = z.object({
   source_path: z.string().min(1),
   sha: z.string().nullable().default(null),
   status: SessionStatus.default("idle"),
+  // Preview of the most recent user/assistant message — truncated to keep
+  // list-view responses small. Null when the adapter can't cheaply extract
+  // one (e.g. cursor chat protobuf blobs).
+  last_message_text: z.string().nullable().default(null),
 });
 export type SessionRow = z.infer<typeof SessionRow>;
 

@@ -494,19 +494,29 @@ function SessionRow({
         {s.repo ?? <span className="text-[var(--color-fg-dim)]">—</span>}
       </td>
       <td className="px-3 py-2">
-        {isSubagent && (
-          <span className="mr-1.5 text-[var(--color-fg-dim)] font-mono text-[10px]">└─</span>
-        )}
-        <Link
-          href={`/sessions/detail?s=${s.type}:${encodeURIComponent(s.id)}`}
-          className="text-[var(--color-fg)] hover:text-[var(--color-accent)] hover:underline"
-        >
-          {s.title}
-        </Link>
-        {!isSubagent && (s.subagent_count ?? 0) > 0 && (
-          <span className="ml-2 text-[10px] font-mono text-[var(--color-fg-dim)] opacity-70">
-            +{s.subagent_count} sub
-          </span>
+        <div className="flex items-baseline">
+          {isSubagent && (
+            <span className="mr-1.5 text-[var(--color-fg-dim)] font-mono text-[10px]">└─</span>
+          )}
+          <Link
+            href={`/sessions/detail?s=${s.type}:${encodeURIComponent(s.id)}`}
+            className="text-[var(--color-fg)] hover:text-[var(--color-accent)] hover:underline"
+          >
+            {s.title}
+          </Link>
+          {!isSubagent && (s.subagent_count ?? 0) > 0 && (
+            <span className="ml-2 text-[10px] font-mono text-[var(--color-fg-dim)] opacity-70">
+              +{s.subagent_count} sub
+            </span>
+          )}
+        </div>
+        {s.last_message && (
+          <div
+            className="mt-0.5 text-[11px] text-[var(--color-fg-dim)] truncate max-w-[640px]"
+            title={s.last_message}
+          >
+            {s.last_message}
+          </div>
         )}
       </td>
       <td className="px-3 py-2 tabular text-right text-[var(--color-fg-muted)]">

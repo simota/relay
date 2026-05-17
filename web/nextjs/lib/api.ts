@@ -120,6 +120,12 @@ export interface SessionSummary {
    * sources whose adapter has no detection yet (currently codex/gemini).
    */
   status?: SessionStatus;
+  /**
+   * Preview of the most recent user/assistant message in this session.
+   * Truncated server-side to ~240 chars. Omitted when the adapter could not
+   * extract one (e.g. cursor sessions whose chat blobs are protobuf-encoded).
+   */
+  last_message?: string;
 }
 
 export interface SessionMessage {
