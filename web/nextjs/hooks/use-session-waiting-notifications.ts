@@ -20,11 +20,34 @@ import useSWR from "swr";
 import { useRouter } from "next/navigation";
 import { api, type SessionSummary } from "@/lib/api";
 
-const DEFAULT_POLL_MS = 15_000;
+// 10 s lines up with the detector's 5 s idle threshold: a session enters
+// waiting_for_user no sooner than 5 s after its last tool_use, so polling
+// every 10 s catches the transition within one cycle while keeping the
+// scan cost low.
+const DEFAULT_POLL_MS = 10_000;
+
+// Scan window for /api/sessions/scan-live. Anything older than this is not
+// considered for transition detection — it would just be re-firing for
+// stuck waiting sessions on every poll, which the seed-set already guards
+// against but is wasteful work. 5 minutes is generous enough to cover
+// sessions that briefly stalled.
+const DEFAULT_SCAN_MIN = 5;
 
 interface Options {
   pollMs?: number;
   enabled?: boolean;
+  /**
+   * Fired for every detected transition into `waiting_for_user`, regardless
+   * of OS-level notification permission. AppShell uses this to drive an
+   * in-app banner so the user sees the cue even when:
+   *   - the relay tab is focused (browsers may suppress OS notifications)
+   *   - Notification permission is `default` / `denied`
+   *   - the browser does not support the Notification API at all
+   * The OS-level Notification (when allowed) and this callback are
+   * complementary — both fire so whichever surface the user is watching
+   * shows the alert.
+   */
+  onWaitingTransition?: (session: SessionSummary) => void;
 }
 
 /**
@@ -48,6 +71,7 @@ export function useSessionWaitingNotifications(opts: Options = {}): void {
   const pollMs = opts.pollMs ?? DEFAULT_POLL_MS;
   const enabled = opts.enabled !== false;
   const router = useRouter();
+  const onWaitingTransition = opts.onWaitingTransition;
 
   // Stable ref so SWR's render-driven re-execution does not lose state
   // between polls. Set<"type:id"> of sessions whose `waiting_for_user`
@@ -63,14 +87,20 @@ export function useSessionWaitingNotifications(opts: Options = {}): void {
   const browserSupportsNotifications =
     typeof window !== "undefined" && "Notification" in window;
 
+  // Poll regardless of OS notification support: the in-app banner callback
+  // works even when the browser cannot show a Notification. We just want
+  // to be in a real browser (not SSR) so the SWR fetch can run.
+  const inBrowser = typeof window !== "undefined";
+
   const { data } = useSWR<SessionSummary[]>(
-    enabled && browserSupportsNotifications ? "/api/sessions?notify=1" : null,
-    // Reuse the existing list endpoint — no extra backend needed. Limit
-    // matches the sessions page default; per-type filters are intentionally
-    // unset so notifications cover claude + codex + gemini equally (codex
-    // and gemini just have no status today and will be silent, which is
-    // the desired behavior until their detectors land).
-    () => api.sessions({ limit: 200 }),
+    enabled && inBrowser ? "/api/sessions/scan-live" : null,
+    // /scan-live re-detects status live from the filesystem for Claude
+    // sessions modified in the window (default 5 min). The plain list
+    // endpoint serves DB-cached status that only updates on full sync,
+    // so it would miss every transition that happened between syncs —
+    // exactly the case this hook needs to catch. Codex/Gemini have no
+    // detector yet and intentionally fall outside this scan.
+    () => api.sessionsScanLive({ sinceMin: DEFAULT_SCAN_MIN }),
     {
       refreshInterval: pollMs,
       // Suspend polling while the tab is in the background-and-throttled
@@ -87,7 +117,7 @@ export function useSessionWaitingNotifications(opts: Options = {}): void {
   );
 
   useEffect(() => {
-    if (!browserSupportsNotifications) return;
+    if (!inBrowser) return;
     if (!data) return;
 
     const currentWaiting = new Set<string>();
@@ -109,21 +139,28 @@ export function useSessionWaitingNotifications(opts: Options = {}): void {
 
     const seen = seenWaitingRef.current;
 
-    // Newly waiting → fire one notification each.
+    // Newly waiting → both surfaces fire (the in-app banner ALWAYS, and
+    // the OS notification when permission allows). The two are
+    // complementary: tab-focused users may not see the OS toast, and
+    // users without permission see only the banner.
     for (const key of currentWaiting) {
       if (seen.has(key)) continue;
       const session = lookup.get(key);
       if (!session) continue;
-      // Permission check is deferred to fire time so flipping the OS-level
-      // toggle takes effect on the next transition without remounting.
-      if (Notification.permission !== "granted") continue;
-      fireWaitingNotification(session, router);
+      // In-app first — no permission gate, no browser-support gate.
+      if (onWaitingTransition) onWaitingTransition(session);
+      // OS notification — best effort. Permission check is deferred to
+      // fire time so flipping the OS-level toggle takes effect on the
+      // next transition without remounting.
+      if (browserSupportsNotifications && Notification.permission === "granted") {
+        fireWaitingNotification(session, router);
+      }
     }
 
     // Replace seen set — sessions that left waiting are pruned, so a
     // future re-entry fires fresh.
     seenWaitingRef.current = currentWaiting;
-  }, [data, router, browserSupportsNotifications]);
+  }, [data, router, browserSupportsNotifications, inBrowser, onWaitingTransition]);
 }
 
 function fireWaitingNotification(
