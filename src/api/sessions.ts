@@ -68,6 +68,9 @@ interface SessionListItem {
   // Surfaced so the list view can highlight rows waiting on the user.
   // Sourced from `sessions.status` — refreshed on every sync.
   status?: SessionStatus;
+  // Truncated preview of the latest user/assistant message. Omitted when
+  // the adapter can't cheaply produce one (e.g. cursor chat sessions).
+  last_message?: string;
 }
 
 export function createSessionsApi() {
@@ -191,6 +194,7 @@ export function createSessionsApi() {
           source_path: r.source_path,
           sha: existing?.sha ?? null,
           status: r.status,
+          last_message_text: r.last_message_text ?? existing?.last_message_text ?? null,
         });
         const item: SessionListItem = {
           type: r.type,
@@ -206,6 +210,12 @@ export function createSessionsApi() {
         };
         if (r.parent_session_id) item.parent_session_id = r.parent_session_id;
         if (r.id.startsWith("agent-")) item.agent_id = r.id;
+        // Prefer the freshly scanned preview; fall back to whatever the
+        // last full sync persisted so the row is never blank just because
+        // this poll happened to land before any user/assistant message
+        // could be extracted.
+        const preview = r.last_message_text ?? existing?.last_message_text ?? null;
+        if (preview) item.last_message = preview;
         items.push(item);
       }
     } finally {
@@ -434,6 +444,7 @@ function rowToListItem(
     todos_count: 0,
     status: row.status,
   };
+  if (row.last_message_text) item.last_message = row.last_message_text;
   if (isSubagent && row.parent_session_id) {
     item.parent_session_id = row.parent_session_id;
   }

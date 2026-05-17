@@ -38,6 +38,11 @@ interface CodexParsed {
   startedAt: string | null;
   /** Total JSONL line count. Approximates message count. */
   messageCount: number;
+  /**
+   * Truncated preview of the latest user_message or agent_message. null when
+   * the session contains no extractable message body yet.
+   */
+  lastMessageText: string | null;
 }
 
 export const codexSessionAdapter: Adapter = {
@@ -119,6 +124,7 @@ export const codexSessionAdapter: Adapter = {
               lastActive: lastActiveIso,
               messageCount: parsed.messageCount,
               sourcePath: c.path,
+              lastMessageText: parsed.lastMessageText,
             }),
           );
         } catch (err) {
@@ -210,6 +216,7 @@ async function parseCodexSession(path: string): Promise<CodexParsed> {
       sessionId: null,
       startedAt: null,
       messageCount: 0,
+      lastMessageText: null,
     };
   }
 
@@ -219,6 +226,9 @@ async function parseCodexSession(path: string): Promise<CodexParsed> {
   let firstUserMessage: string | null = null;
   let startedAt: string | null = null;
   let messageCount = 0;
+  // Track the latest user_message or agent_message body so the list view can
+  // show "what's happening" without re-reading the JSONL per row.
+  let lastMessageText: string | null = null;
 
   for (const line of lines) {
     if (!line) continue;
@@ -241,17 +251,19 @@ async function parseCodexSession(path: string): Promise<CodexParsed> {
       continue;
     }
 
-    if (obj.type === "event_msg" && payload.type === "user_message") {
-      if (!firstUserMessage && typeof payload.message === "string") {
-        firstUserMessage = firstNonEmptyLine(payload.message);
-        // First user_message wins; remaining lines still counted for
-        // messageCount but otherwise mid-conversation noise. We can't break
-        // here anymore because messageCount needs the full sweep.
+    if (obj.type === "event_msg") {
+      if (payload.type === "user_message" && typeof payload.message === "string") {
+        if (!firstUserMessage) firstUserMessage = firstNonEmptyLine(payload.message);
+        const preview = firstNonEmptyLine(payload.message);
+        if (preview) lastMessageText = truncate(preview, 240);
+      } else if (payload.type === "agent_message" && typeof payload.message === "string") {
+        const preview = firstNonEmptyLine(payload.message);
+        if (preview) lastMessageText = truncate(preview, 240);
       }
     }
   }
 
-  return { cwd, firstUserMessage, sessionId, startedAt, messageCount };
+  return { cwd, firstUserMessage, sessionId, startedAt, messageCount, lastMessageText };
 }
 
 /**

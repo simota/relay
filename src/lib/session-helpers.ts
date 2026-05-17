@@ -117,6 +117,7 @@ export function toSessionRow(args: {
   sourcePath: string;
   sha?: string | null;
   status?: SessionRow["status"];
+  lastMessageText?: string | null;
 }): SessionRow {
   return {
     id: args.id,
@@ -130,5 +131,6 @@ export function toSessionRow(args: {
     source_path: args.sourcePath,
     sha: args.sha ?? null,
     status: args.status ?? "idle",
+    last_message_text: args.lastMessageText ?? null,
   };
 }

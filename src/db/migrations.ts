@@ -35,11 +35,16 @@ export function runColumnMigrations(db: Database): void {
   // schema_version 4: sessions.status. Pre-v4 DBs already have the sessions
   // table from v3 but no status column; backfill defaults all existing rows
   // to 'idle' so we never falsely advertise an unobserved state.
+  // schema_version 5: sessions.last_message_text. Nullable preview field —
+  // existing rows materialise as NULL until the next sync refreshes them.
   const sessionCols = db
     .prepare(`PRAGMA table_info(sessions)`)
     .all() as Array<{ name: string }>;
   if (sessionCols.length > 0 && !sessionCols.some((c) => c.name === "status")) {
     db.exec(`ALTER TABLE sessions ADD COLUMN status TEXT NOT NULL DEFAULT 'idle'`);
+  }
+  if (sessionCols.length > 0 && !sessionCols.some((c) => c.name === "last_message_text")) {
+    db.exec(`ALTER TABLE sessions ADD COLUMN last_message_text TEXT`);
   }
 }
 

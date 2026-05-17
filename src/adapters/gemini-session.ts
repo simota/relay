@@ -34,6 +34,11 @@ interface GeminiParsed {
   lastUpdated: string | null;
   /** Total entries in the `messages` array — used as message_count. */
   messageCount: number;
+  /**
+   * Truncated preview of the latest user or model message. null when the
+   * session has no extractable message body yet.
+   */
+  lastMessageText: string | null;
 }
 
 export const geminiSessionAdapter: Adapter = {
@@ -176,6 +181,7 @@ export const geminiSessionAdapter: Adapter = {
               lastActive: lastActiveIso,
               messageCount: parsed.messageCount,
               sourcePath: c.path,
+              lastMessageText: parsed.lastMessageText,
             }),
           );
         } catch (err) {
@@ -222,6 +228,7 @@ async function parseGeminiSession(path: string): Promise<GeminiParsed> {
     firstUserMessage: null,
     lastUpdated: null,
     messageCount: 0,
+    lastMessageText: null,
   };
   const text = await readFile(path, "utf8").catch(() => "");
   if (!text) return empty;
@@ -239,6 +246,10 @@ async function parseGeminiSession(path: string): Promise<GeminiParsed> {
 
   let firstUserMessage: string | null = null;
   let messageCount = 0;
+  // Walk forward for messageCount + firstUser, then walk backwards to grab
+  // the most recent user/model message for the preview field. One extra pass
+  // over an already-in-memory array is negligible.
+  let lastMessageText: string | null = null;
   const messages = obj.messages;
   if (Array.isArray(messages)) {
     messageCount = messages.length;
@@ -253,9 +264,24 @@ async function parseGeminiSession(path: string): Promise<GeminiParsed> {
         // staying defensive in case the loop is reused for other extractions.
       }
     }
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (!m || typeof m !== "object") continue;
+      const msg = m as Record<string, unknown>;
+      const type = msg.type;
+      if (type !== "user" && type !== "gemini" && type !== "assistant" && type !== "model") {
+        continue;
+      }
+      const content = extractText(msg.content);
+      const preview = firstNonEmptyLine(content);
+      if (preview) {
+        lastMessageText = truncate(preview, 240);
+        break;
+      }
+    }
   }
 
-  return { projectHash, sessionId, firstUserMessage, lastUpdated, messageCount };
+  return { projectHash, sessionId, firstUserMessage, lastUpdated, messageCount, lastMessageText };
 }
 
 /**

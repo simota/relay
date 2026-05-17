@@ -1,4 +1,4 @@
--- relay storage schema v4
+-- relay storage schema v5
 
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
@@ -134,6 +134,11 @@ CREATE TABLE IF NOT EXISTS sessions (
   -- 'idle' (default, no signal) | 'active' | 'waiting_for_user' | 'interrupted'.
   -- See `SessionStatus` in src/types.ts for the canonical enum.
   status             TEXT NOT NULL DEFAULT 'idle',
+  -- last_message_text: preview of the most recent user/assistant message in
+  -- the session (truncated to ~240 chars). NULL when the adapter cannot
+  -- cheaply extract one (e.g. cursor chat protobuf blobs). Powers the
+  -- "最終メッセージ" column on the session list.
+  last_message_text  TEXT,
   PRIMARY KEY (type, id)
 );
 
@@ -149,3 +154,5 @@ INSERT OR IGNORE INTO schema_version (version, applied_at)
   VALUES (3, datetime('now'));
 INSERT OR IGNORE INTO schema_version (version, applied_at)
   VALUES (4, datetime('now'));
+INSERT OR IGNORE INTO schema_version (version, applied_at)
+  VALUES (5, datetime('now'));
