@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { loadConfig, resolveScanRoots } from "../config.js";
 import { RelayDB } from "../db/client.js";
+import { scanClaudeSessionsLive } from "../lib/session-live-scan.js";
 import { getSession, getSessionPath } from "../sessions/index.js";
 import type { SessionRow, SessionStatus, SessionType } from "../types.js";
 
@@ -30,9 +31,19 @@ const MAX_LIMIT = 1000;
 // time, so many `change` events arrive within milliseconds; we collapse them
 // into one re-parse + push per ~200 ms window.
 const PUSH_DEBOUNCE_MS = 200;
-// Heartbeat keeps proxies from killing idle SSE connections. 25s is safely
-// under the common 30-60s idle timeout for Cloudflare / nginx defaults.
-const HEARTBEAT_INTERVAL_MS = 25_000;
+// Heartbeat keeps the connection alive between filesystem-driven pushes.
+// MUST be shorter than Bun.serve's idleTimeout (default 10s) — otherwise
+// Bun closes the TCP socket mid-stream and the browser reports
+// ERR_INCOMPLETE_CHUNKED_ENCODING. Cloudflare / nginx defaults (30-60s)
+// would also tolerate this lower value.
+const HEARTBEAT_INTERVAL_MS = 8_000;
+
+// scan-live freshness window (Claude only). 5 minutes is generous enough
+// to catch sessions that briefly stalled while still flagging fresh
+// transitions; tighter than the list endpoint's default lookback so the
+// notification hook does not pay full-list cost on every poll.
+const DEFAULT_SCAN_LIVE_SINCE_MIN = 5;
+const MAX_SCAN_LIVE_SINCE_MIN = 60;
 
 /**
  * Public shape returned from the list endpoint. Kept structurally
@@ -125,6 +136,81 @@ export function createSessionsApi() {
     const items: SessionListItem[] = capped.map((row) =>
       rowToListItem(row, subagentCountByType.get(row.type)),
     );
+
+    return c.json(items);
+  });
+
+  // Live status scan for Claude sessions. Reads JSONLs modified in the
+  // last N minutes (default 5), runs the detector, and upserts the result
+  // back to the sessions table. Drives the notification hook's tight
+  // polling loop — the list endpoint alone is DB-cached, so a session
+  // that flipped to waiting_for_user between syncs is invisible there
+  // until the next full sync. This route closes that gap without touching
+  // the slow adapters (gh, code_todo, ...).
+  //
+  // Returns SessionListItem[] so the notification hook can consume the
+  // same shape as the existing list endpoint with zero client-side
+  // branching. Routed BEFORE the /:type/:id routes so Hono does not
+  // capture "scan-live" as a type parameter.
+  app.get("/scan-live", async (c) => {
+    const cfg = loadConfig();
+    const roots = resolveScanRoots(cfg);
+    const sinceMin = clampInt(
+      c.req.query("since_min"),
+      DEFAULT_SCAN_LIVE_SINCE_MIN,
+      1,
+      MAX_SCAN_LIVE_SINCE_MIN,
+    );
+    const includeSubagents = c.req.query("subagents") !== "0";
+
+    const scan = await scanClaudeSessionsLive({
+      sinceMs: sinceMin * 60 * 1000,
+      roots,
+      includeSubagents,
+    });
+
+    // Persist freshly detected status to the sessions table so the list
+    // view also reflects it (and the next full sync skips files whose
+    // mtime has not advanced past its cursor). Preserve started_at and
+    // sha from the existing row when present — those are populated by
+    // the full adapter pass and we have no reason to overwrite them.
+    const db = new RelayDB();
+    const items: SessionListItem[] = [];
+    try {
+      for (const r of scan) {
+        const existing = db.getSessionByTypeId("claude", r.id);
+        db.upsertSession({
+          id: r.id,
+          type: "claude",
+          repo: r.repo ?? existing?.repo ?? null,
+          cwd: r.cwd ?? existing?.cwd ?? null,
+          started_at: existing?.started_at ?? r.last_active,
+          last_active: r.last_active,
+          message_count: r.message_count,
+          parent_session_id: r.parent_session_id,
+          source_path: r.source_path,
+          sha: existing?.sha ?? null,
+          status: r.status,
+        });
+        const item: SessionListItem = {
+          type: r.type,
+          id: r.id,
+          repo: r.repo ?? existing?.repo ?? null,
+          cwd: r.cwd ?? existing?.cwd ?? null,
+          title: deriveTitleFromCwd(r.cwd ?? existing?.cwd ?? null),
+          started_at: existing?.started_at ?? r.last_active,
+          last_active: r.last_active,
+          message_count: r.message_count,
+          todos_count: 0,
+          status: r.status,
+        };
+        if (r.parent_session_id) item.parent_session_id = r.parent_session_id;
+        if (r.id.startsWith("agent-")) item.agent_id = r.id;
+        items.push(item);
+      }
+    } finally {
+      db.close();
+    }
 
     return c.json(items);
   });
@@ -366,10 +452,14 @@ function rowToListItem(
 }
 
 function deriveTitle(row: SessionRow): string {
+  return deriveTitleFromCwd(row.cwd);
+}
+
+function deriveTitleFromCwd(cwd: string | null): string {
   // `cwd` basename is the next best handle when no first-user-message is
   // available. Skips empty paths and the root segment.
-  if (row.cwd) {
-    const parts = row.cwd.split("/").filter((p) => p.length > 0);
+  if (cwd) {
+    const parts = cwd.split("/").filter((p) => p.length > 0);
     const last = parts[parts.length - 1];
     if (last) return last;
   }
