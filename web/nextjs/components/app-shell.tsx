@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import { useHotkeys } from "@/hooks/use-hotkeys";
 import { useConfigSync } from "@/hooks/use-config-sync";
+import { useSessionWaitingNotifications } from "@/hooks/use-session-waiting-notifications";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -26,6 +27,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const { mutate } = useSWRConfig();
 
   useConfigSync();
+  // Global browser-notification firehose for sessions waiting on user
+  // input. Mounted at the shell so it fires on every page, not just
+  // /sessions. See hook header for permission/transition semantics.
+  useSessionWaitingNotifications();
 
   const refreshTaskData = async () => {
     await mutate(

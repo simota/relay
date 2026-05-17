@@ -95,7 +95,7 @@ export type SessionType = "claude" | "codex" | "gemini";
 
 // Mirror of the canonical enum in src/types.ts. Kept inline rather than
 // generated so the web bundle does not pull in the server-side zod schema.
-export type SessionStatus = "active" | "waiting_for_user" | "interrupted" | "idle";
+export type SessionStatus = "active" | "waiting_for_user" | "interrupted" | "ended" | "idle";
 
 export interface SessionSummary {
   type: SessionType;

@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import useSWR from "swr";
 import { api, type SessionSummary, type SessionType } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { NotificationPermissionButton } from "@/components/notification-permission-button";
 import { PageState } from "@/components/page-state";
 import { c, formatNumber } from "@/lib/copy";
 import { cn } from "@/lib/utils";
@@ -85,6 +86,44 @@ export default function SessionsPage() {
     [sessions],
   );
   const [waitingOnly, setWaitingOnly] = useState(false);
+
+  // Streaming-now detection (Option A): track each session's last_active
+  // and message_count across polls; a row that advanced its last_active
+  // since the previous render is "actively producing" right now. This is
+  // strictly client-side (no backend change) and provides a sharper signal
+  // than the 5-second server-side `active` window for the moment of a fresh
+  // write. Persists for one poll cycle (~15s) then auto-clears unless the
+  // session keeps advancing.
+  const prevPollRef = useRef<Map<string, { last_active: string; message_count: number }>>(
+    new Map(),
+  );
+  const streamingDeltas = useMemo(() => {
+    const out = new Map<string, number>();
+    for (const s of sessions) {
+      const key = `${s.type}:${s.id}`;
+      const prev = prevPollRef.current.get(key);
+      if (prev && prev.last_active !== s.last_active) {
+        const delta = s.message_count - prev.message_count;
+        // `delta > 0` is the meaningful case. A negative delta only
+        // happens when the parser revises message_count downward (rare,
+        // e.g. file truncated); ignore those — no UI signal warranted.
+        if (delta > 0) out.set(key, delta);
+      }
+    }
+    return out;
+  }, [sessions]);
+  useEffect(() => {
+    // Defer the ref update so the next poll's useMemo reads the previous
+    // values. Done in useEffect (not inside the useMemo) so StrictMode's
+    // double-invoke in dev does not eat the delta.
+    for (const s of sessions) {
+      const key = `${s.type}:${s.id}`;
+      prevPollRef.current.set(key, {
+        last_active: s.last_active,
+        message_count: s.message_count,
+      });
+    }
+  }, [sessions]);
 
   const filtered = useMemo(() => {
     let rows = sessions;
@@ -213,6 +252,7 @@ export default function SessionsPage() {
                   {formatNumber(waitingCount)} waiting
                 </button>
               )}
+              <NotificationPermissionButton />
             </p>
           </div>
           <div className="flex items-center gap-2 flex-wrap justify-end">
@@ -341,6 +381,7 @@ export default function SessionsPage() {
                       checked={selected.has(key)}
                       onToggle={() => toggleSelect(key)}
                       isSubagent={!!s.parent_session_id}
+                      streamingDelta={streamingDeltas.get(key)}
                     />
                   );
                 })}
@@ -359,15 +400,27 @@ function SessionRow({
   checked,
   onToggle,
   isSubagent,
+  streamingDelta,
 }: {
   session: SessionSummary;
   nowMs: number;
   checked: boolean;
   onToggle: () => void;
   isSubagent: boolean;
+  streamingDelta?: number;
 }) {
   const active = isActiveSession(s.last_active, nowMs);
   const waiting = s.status === "waiting_for_user";
+  // Server detector classifies the conversation as cleanly finished
+  // (assistant's last turn had stop_reason: end_turn, no events after).
+  // Distinct from `idle` which means "no signal".
+  const ended = s.status === "ended";
+  // Server-side "active" is tighter (5s window) than the client-side
+  // 2-minute heuristic — strong signal that the CLI is producing now.
+  const serverActive = s.status === "active";
+  // Streaming = mtime/message_count advanced between polls. Subset of
+  // active but actually observed during this poll cycle.
+  const streaming = (streamingDelta ?? 0) > 0;
   return (
     <tr
       className={cn(
@@ -391,20 +444,45 @@ function SessionRow({
       </td>
       <td className="px-3 py-2">
         {waiting ? (
-          // Waiting takes priority over active — both can be true (the
-          // file is fresh AND a tool_use is pending), but the user needs
-          // to act on this one, so we surface the warmer signal.
+          // Waiting takes priority over everything — both can be true
+          // (the file is fresh AND a tool_use is pending), but the user
+          // needs to act on this one, so we surface the warmer signal.
           <span
             className="relay-attention inline-block w-2 h-2 rounded-full"
             title="waiting for user input (permission prompt or unanswered tool_use)"
             aria-label="waiting for user input"
           />
-        ) : active ? (
+        ) : streaming ? (
+          // Brightest signal: the file actually advanced during the
+          // current poll window. Uses the strong-pulse keyframe so it
+          // visibly out-pulses the static "active" dot.
+          <span
+            className="relay-pulse-strong inline-block w-2 h-2 rounded-full bg-[var(--color-accent)]"
+            title={`streaming now (+${streamingDelta} since last poll)`}
+            aria-label="streaming now"
+          />
+        ) : serverActive ? (
           <span
             className="inline-block w-2 h-2 rounded-full bg-[var(--color-accent)] animate-pulse"
-            title="active (writes within 2 min)"
+            title="active (writes within 5 s)"
             aria-label="active"
           />
+        ) : active ? (
+          <span
+            className="inline-block w-2 h-2 rounded-full bg-[var(--color-accent)]/70"
+            title="recently active (writes within 2 min)"
+            aria-label="recently active"
+          />
+        ) : ended ? (
+          // Distinct from blank: tells the user the conversation finished
+          // cleanly (assistant end_turn) rather than just having no signal.
+          <span
+            className="inline-block w-2 text-[10px] leading-none text-[var(--color-fg-dim)] text-center"
+            title="ended (assistant turn finished cleanly)"
+            aria-label="ended"
+          >
+            ✓
+          </span>
         ) : (
           <span className="inline-block w-2 h-2" aria-hidden />
         )}
@@ -433,6 +511,18 @@ function SessionRow({
       </td>
       <td className="px-3 py-2 tabular text-right text-[var(--color-fg-muted)]">
         {formatNumber(s.message_count)}
+        {streaming && (
+          // Transient delta badge — only renders while streamingDelta > 0
+          // (one poll cycle, ~15 s). Gives a precise readout next to the
+          // pulsing dot so the user can tell "1 new line" from "100 new
+          // lines" at a glance without opening the detail tile.
+          <span
+            className="ml-1 text-[10px] font-mono text-[var(--color-accent)]"
+            title={`+${streamingDelta} since last poll`}
+          >
+            +{streamingDelta}
+          </span>
+        )}
       </td>
       <td className="px-3 py-2 tabular text-right text-[var(--color-fg-muted)]">
         {s.todos_count > 0 ? (
