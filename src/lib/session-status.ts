@@ -49,9 +49,14 @@ const INTERRUPTED_MARKER = /^\[Request interrupted by user/;
  *   - `active`: a tool_use is in flight but still within the idle window,
  *     OR the last event is recent and the turn has not ended. The CLI is
  *     plausibly still working; do not pester the user.
- *   - `idle`: nothing pending. Either the turn ended cleanly (assistant
- *     `end_turn`) or there is no signal at all. Default for empty / opaque
- *     transcripts so we never advertise a state we have not observed.
+ *   - `ended`: the last assistant turn finished with `stop_reason: end_turn`
+ *     and no further events followed. The conversation is paused on the
+ *     user's side (free to send a new prompt). Distinct from `idle`, which
+ *     means "no signal at all" — `ended` means "we know it stopped cleanly".
+ *   - `idle`: nothing pending and no clean turn-end marker. Either the file
+ *     is empty / opaque, or activity exists but does not match any other
+ *     state. Default fallback so we never advertise a state we have not
+ *     observed.
  *
  * Background tool calls (`run_in_background: true`) are excluded from the
  * "unanswered tool_use" check because their tool_result legitimately lags.
@@ -63,11 +68,12 @@ export function detectClaudeSessionStatus(text: string, opts: DetectOptions = {}
   const idleMs = opts.idleMs ?? DEFAULT_IDLE_MS;
 
   const lines = text.split("\n");
-  // Walk from the end to find the most recent assistant turn and any
-  // user/tool_result entries that followed it. We do not need the full
-  // history — only the tail since the last assistant message matters for
-  // status classification.
-  let lastAssistantToolUses: { id: string; background: boolean }[] | null = null;
+  // Walk from the end to find the most recent assistant turn. We need the
+  // tool_use blocks AND the stop_reason from the same assistant message —
+  // both feed the classification.
+  let lastAssistantToolUses: { id: string; background: boolean }[] = [];
+  let lastAssistantStopReason: string | null = null;
+  let lastAssistantTsMs: number | null = null;
   let lastAssistantIndex = -1;
   let lastTimestampMs: number | null = null;
   let interruptedAfterAssistant = false;
@@ -84,18 +90,16 @@ export function detectClaudeSessionStatus(text: string, opts: DetectOptions = {}
 
     const role = extractRole(obj);
     if (role === "assistant") {
-      const toolUses = extractToolUses(obj);
-      if (toolUses.length > 0) {
-        lastAssistantToolUses = toolUses;
-        lastAssistantIndex = i;
-      }
+      lastAssistantToolUses = extractToolUses(obj);
+      lastAssistantStopReason = extractStopReason(obj);
+      lastAssistantTsMs = ts;
+      lastAssistantIndex = i;
       break;
     }
   }
 
-  // No assistant tool_use anywhere in the visible tail → there is nothing
-  // to "await". Fall back to recency-based active/idle classification.
-  if (lastAssistantIndex < 0 || !lastAssistantToolUses) {
+  // No assistant at all → fall back to recency-based active/idle.
+  if (lastAssistantIndex < 0) {
     return classifyByRecency(lastTimestampMs, now, idleMs);
   }
 
@@ -103,11 +107,16 @@ export function detectClaudeSessionStatus(text: string, opts: DetectOptions = {}
   // tool_result_id that arrived and detect the interruption marker. The
   // `user` role carries both tool_results (structured content blocks) and
   // free-text interruption markers, so we have to inspect both shapes.
+  // We also track whether any event with a real timestamp appeared after
+  // the assistant — this distinguishes "AI turn ended, session quiet"
+  // from "AI turn ended, user just sent a new prompt".
+  let eventsAfterAssistant = false;
   for (let i = lastAssistantIndex + 1; i < lines.length; i++) {
     const line = lines[i];
     if (!line) continue;
     const obj = safeParseLine(line);
     if (!obj) continue;
+    if (parseTimestamp(obj) !== null) eventsAfterAssistant = true;
     if (extractRole(obj) !== "user") continue;
 
     for (const id of extractToolResultIds(obj)) toolResultsAfterAssistant.add(id);
@@ -129,17 +138,34 @@ export function detectClaudeSessionStatus(text: string, opts: DetectOptions = {}
     (tu) => !tu.background && !toolResultsAfterAssistant.has(tu.id),
   );
 
-  if (pendingForeground.length === 0) {
-    // Every foreground tool_use was answered. Fall back to recency: a fresh
-    // tail without pending work is `active`; an old one is `idle`.
-    return classifyByRecency(lastTimestampMs, now, idleMs);
+  if (pendingForeground.length > 0) {
+    // Pending foreground tool_use(s). If the tail is recent, the CLI is
+    // probably still running the tool — wait before declaring "user input
+    // needed". Past the idle window, we declare waiting_for_user.
+    if (lastTimestampMs !== null && now - lastTimestampMs < idleMs) return "active";
+    return "waiting_for_user";
   }
 
-  // Pending foreground tool_use(s). If the tail is recent, the CLI is
-  // probably still running the tool — wait before declaring "user input
-  // needed". Past the idle window, we declare waiting_for_user.
-  if (lastTimestampMs !== null && now - lastTimestampMs < idleMs) return "active";
-  return "waiting_for_user";
+  // Every foreground tool_use was answered (or there were none). Three
+  // sub-cases ordered from most specific to most general:
+  //
+  // 1. The freshest event in the file IS the last assistant AND that
+  //    assistant message ended with `stop_reason: end_turn` → `ended`.
+  //    The conversation is paused on the user's side.
+  // 2. Events appeared after the last assistant (user typed a new prompt,
+  //    sent a tool_result, etc) → fall back to recency. Recent activity
+  //    is `active`; stale is `idle`.
+  // 3. No `end_turn` and no trailing activity → fall back to recency.
+  //    This is the "stop_reason: max_tokens" / unknown / pre-end-turn
+  //    streaming case where we cannot definitively claim the turn ended.
+  if (!eventsAfterAssistant && lastAssistantStopReason === "end_turn") {
+    return "ended";
+  }
+  // If the last assistant itself is the freshest signal and it ended
+  // cleanly OR if the assistant is still recent in its own right, classify
+  // by the freshest available timestamp.
+  const freshestTs = lastTimestampMs ?? lastAssistantTsMs;
+  return classifyByRecency(freshestTs, now, idleMs);
 }
 
 function classifyByRecency(lastTimestampMs: number | null, now: number, idleMs: number): SessionStatus {
@@ -168,6 +194,15 @@ function extractRole(obj: Record<string, unknown>): "user" | "assistant" | "syst
   const role = (wrapper as Record<string, unknown>).role;
   if (role === "user" || role === "assistant" || role === "system") return role;
   return null;
+}
+
+function extractStopReason(obj: Record<string, unknown>): string | null {
+  // Claude session entries nest the assistant message under `.message`. The
+  // stop_reason sits at that level (alongside role / content). Possible
+  // values: end_turn | tool_use | max_tokens | stop_sequence | null.
+  const wrapper = (obj.message as Record<string, unknown> | undefined) ?? obj;
+  const sr = (wrapper as Record<string, unknown>).stop_reason;
+  return typeof sr === "string" ? sr : null;
 }
 
 function extractToolUses(obj: Record<string, unknown>): { id: string; background: boolean }[] {

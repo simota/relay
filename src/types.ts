@@ -46,6 +46,13 @@ export type SessionType = (typeof SESSION_TYPES)[number];
 // - "interrupted"       → the user interrupted the last turn (the JSONL
 //                         contains an explicit `[Request interrupted by
 //                         user...]` marker).
+// - "ended"             → the last assistant turn finished cleanly with
+//                         `stop_reason: "end_turn"` and no further events
+//                         followed. The conversation is paused — the ball
+//                         is in the user's court (new prompt) but the CLI
+//                         is not actively producing. Distinct from `idle`,
+//                         which means we have no signal at all (opaque /
+//                         empty file / unparseable).
 // - "idle"              → no signal; the session is at rest (turn ended
 //                         cleanly, or the adapter has not classified it).
 //                         Default for newly ingested rows so we never
@@ -54,6 +61,7 @@ export const SESSION_STATUSES = [
   "active",
   "waiting_for_user",
   "interrupted",
+  "ended",
   "idle",
 ] as const;
 export const SessionStatus = z.enum(SESSION_STATUSES);
