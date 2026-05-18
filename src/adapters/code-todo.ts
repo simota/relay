@@ -1,5 +1,6 @@
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
+import { existsSync, statSync } from "node:fs";
 import { resolveRepoForCwd } from "../lib/repo-from-cwd.js";
 import type { Adapter, AdapterContext, TaskInput } from "../types.js";
 
@@ -83,6 +84,13 @@ export const codeTodoAdapter: Adapter = {
 
 function runRipgrep(root: string, exclude: string[]): Promise<RgMatch[]> {
   return new Promise((resolve, reject) => {
+    if (!existsSync(root) || !statSync(root).isDirectory()) {
+      // Misconfigured `scan.roots` entry — `rg` would exit 2 here and fail
+      // the whole sync. Surface as zero matches so other roots still scan
+      // and the adapter status stays green.
+      resolve([]);
+      return;
+    }
     const args = [
       "--json",
       "--no-messages",
