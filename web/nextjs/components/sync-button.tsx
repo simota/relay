@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { RefreshCw, Check, X, Trash2 } from "lucide-react";
 import { useSWRConfig } from "swr";
 import { Button } from "@/components/ui/button";
+import { SSE_BASE } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import type { SyncEvent } from "@/lib/types";
 
@@ -48,7 +49,7 @@ export function SyncButton() {
       pruneTimerRef.current = null;
     }
 
-    const es = new EventSource("/api/sync/stream");
+    const es = new EventSource(`${SSE_BASE}/api/sync/stream`);
     esRef.current = es;
 
     const upsert = (adapter: string, patch: Partial<AdapterProgress> & { status: AdapterStatus }) => {

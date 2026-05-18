@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Eye, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { SSE_BASE } from "@/lib/api";
 import type { SyncEvent } from "@/lib/types";
 
 interface PreviewRow {
@@ -38,7 +39,7 @@ export function SyncPreviewButton() {
     setRows([]);
     setDone(false);
     setRunning(true);
-    const es = new EventSource("/api/sync/preview");
+    const es = new EventSource(`${SSE_BASE}/api/sync/preview`);
     esRef.current = es;
     es.addEventListener("adapter_done", (e) => {
       const ev = JSON.parse((e as MessageEvent).data) as AdapterEvent;

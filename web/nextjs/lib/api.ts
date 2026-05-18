@@ -27,6 +27,13 @@ import type {
   OrphansResponse,
 } from "./types";
 
+// Origin prefix for EventSource / fetch streaming. In `next dev` the /api/*
+// rewrite buffers text/event-stream responses so SSE never reaches the
+// browser; setting NEXT_PUBLIC_RELAY_API=http://127.0.0.1:7340 makes those
+// streams hit Hono directly (CORS is enabled server-side for localhost).
+// Production export served by Hono itself leaves this empty (same-origin).
+export const SSE_BASE: string = process.env.NEXT_PUBLIC_RELAY_API ?? "";
+
 export interface ReviewData {
   closed: Task[];
   stale: Task[];
