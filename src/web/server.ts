@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
+import { cors } from "hono/cors";
 import { streamSSE } from "hono/streaming";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
@@ -62,6 +63,23 @@ const MIME: Record<string, string> = {
 
 export function buildApp() {
   const app = new Hono();
+
+  // --- CORS ------------------------------------------------------------
+  // Allow the Next.js dev server (`next dev` on :3340) to call /api/*
+  // directly. Production runs the static export from the same Hono
+  // origin (:7340), so CORS is unused there — but enabling it broadly
+  // is safe because the server only binds to 127.0.0.1. The dev SSE
+  // stream MUST go cross-origin: Next.js's dev rewrites buffer
+  // text/event-stream responses, so EventSource hits :7340 directly.
+  app.use("/api/*", cors({
+    origin: (origin) => {
+      if (!origin) return origin;
+      if (/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin)) return origin;
+      return null;
+    },
+    allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowHeaders: ["Content-Type", "Accept"],
+  }));
 
   // --- Health ----------------------------------------------------------
   app.get("/api/health", (c) => {

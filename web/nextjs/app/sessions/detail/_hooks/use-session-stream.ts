@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, type SessionDetail, type SessionType } from "@/lib/api";
+import { api, SSE_BASE, type SessionDetail, type SessionType } from "@/lib/api";
 import { messageKey } from "../_lib/format";
 import type { StreamState } from "../_types";
 
@@ -118,7 +118,7 @@ export function useSessionStream(type: SessionType | null, id: string | null): S
       };
     }
 
-    const es = new EventSource(`/api/sessions/${type}/${encodeURIComponent(id)}/stream`);
+    const es = new EventSource(`${SSE_BASE}/api/sessions/${type}/${encodeURIComponent(id)}/stream`);
 
     const handleSnapshot = (evt: MessageEvent<string>) => {
       try {
