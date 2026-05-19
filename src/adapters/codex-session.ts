@@ -43,6 +43,15 @@ interface CodexParsed {
    * the session contains no extractable message body yet.
    */
   lastMessageText: string | null;
+  /**
+   * Parent thread id for Codex `spawn_agent` subagent sessions. Codex
+   * embeds this under `session_meta.payload.source.subagent.thread_spawn`
+   * — top-level sessions omit the field, in which case this stays null.
+   * The `sessions` table's `parent_session_id` column is type-agnostic so
+   * once populated, flock/tree/DAG views render Codex subagents the same
+   * way they render Claude `agent-*` rollouts.
+   */
+  parentSessionId: string | null;
 }
 
 export const codexSessionAdapter: Adapter = {
@@ -109,7 +118,9 @@ export const codexSessionAdapter: Adapter = {
 
       // F-1 Phase B: upsert sessions row. Uses session_meta.timestamp for
       // started_at when present (UPSERT preserves first-seen anyway), file
-      // mtime for last_active. Codex has no parent/child concept.
+      // mtime for last_active. Codex `spawn_agent` subagents carry
+      // `parent_thread_id` on the session_meta line — propagate it so the
+      // flock/tree/DAG views see Codex parent/child relationships.
       if (ctx.db && !ctx.dryRun) {
         try {
           const lastActiveIso = new Date(c.mtimeMs).toISOString();
@@ -125,6 +136,7 @@ export const codexSessionAdapter: Adapter = {
               messageCount: parsed.messageCount,
               sourcePath: c.path,
               lastMessageText: parsed.lastMessageText,
+              parentSessionId: parsed.parentSessionId,
             }),
           );
         } catch (err) {
@@ -217,6 +229,7 @@ async function parseCodexSession(path: string): Promise<CodexParsed> {
       startedAt: null,
       messageCount: 0,
       lastMessageText: null,
+      parentSessionId: null,
     };
   }
 
@@ -229,6 +242,7 @@ async function parseCodexSession(path: string): Promise<CodexParsed> {
   // Track the latest user_message or agent_message body so the list view can
   // show "what's happening" without re-reading the JSONL per row.
   let lastMessageText: string | null = null;
+  let parentSessionId: string | null = null;
 
   for (const line of lines) {
     if (!line) continue;
@@ -248,6 +262,22 @@ async function parseCodexSession(path: string): Promise<CodexParsed> {
       if (typeof payload.id === "string") sessionId = payload.id;
       // Codex stamps `timestamp` (ISO 8601) on the session_meta line.
       if (typeof payload.timestamp === "string") startedAt = payload.timestamp;
+      // Codex stores subagent metadata at
+      // `session_meta.payload.source.subagent.thread_spawn.parent_thread_id`.
+      // Top-level sessions omit `source.subagent` entirely, so every step
+      // is gated by a type-narrowing object check; any missing or unexpected
+      // shape silently falls back to null (parent stays absent).
+      const source = payload.source;
+      if (source && typeof source === "object") {
+        const sub = (source as Record<string, unknown>).subagent;
+        if (sub && typeof sub === "object") {
+          const spawn = (sub as Record<string, unknown>).thread_spawn;
+          if (spawn && typeof spawn === "object") {
+            const pid = (spawn as Record<string, unknown>).parent_thread_id;
+            if (typeof pid === "string") parentSessionId = pid;
+          }
+        }
+      }
       continue;
     }
 
@@ -263,7 +293,15 @@ async function parseCodexSession(path: string): Promise<CodexParsed> {
     }
   }
 
-  return { cwd, firstUserMessage, sessionId, startedAt, messageCount, lastMessageText };
+  return {
+    cwd,
+    firstUserMessage,
+    sessionId,
+    startedAt,
+    messageCount,
+    lastMessageText,
+    parentSessionId,
+  };
 }
 
 /**

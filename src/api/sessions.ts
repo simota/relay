@@ -125,12 +125,12 @@ export function createSessionsApi() {
       });
       merged.push(...perTypeRows);
 
-      // Subagent counts are only meaningful for claude (the only adapter
-      // emitting parent/child rows). Skip the SQL round-trip for the other
-      // three types.
-      if (t === "claude") {
-        subagentCountByType.set(t, db.countSubagentsByParent(t));
-      }
+      // Aggregate subagent counts for every session type that may carry
+      // parent/child rows. Claude emits them via `agent-*` sub-rollouts;
+      // Codex emits them via `spawn_agent` (parent_thread_id on
+      // session_meta). The SQL filter `parent_session_id IS NOT NULL`
+      // naturally yields an empty map for types without parents.
+      subagentCountByType.set(t, db.countSubagentsByParent(t));
     }
 
     // Merge-sort across types by last_active DESC, then cap at the
