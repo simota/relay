@@ -89,7 +89,10 @@ export function createSessionsApi() {
     const includeSubagents = c.req.query("include") === "subagents";
     const parent = c.req.query("parent") || undefined;
 
-    const sinceLastActive = isoCutoff(lookbackDays);
+    // `parent` queries want every subagent under the named parent regardless
+    // of age — flock/tree/DAG views go incomplete when a 30-day cutoff hides
+    // older children. Top-level listings still pay the lookback cost.
+    const sinceLastActive = parent ? undefined : isoCutoff(lookbackDays);
 
     const db = new RelayDB();
 
