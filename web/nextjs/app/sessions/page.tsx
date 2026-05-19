@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NotificationPermissionButton } from "@/components/notification-permission-button";
 import { PageState } from "@/components/page-state";
+import { SessionTitle } from "@/components/session-title";
 import { c, formatNumber } from "@/lib/copy";
 import { cn } from "@/lib/utils";
 
@@ -515,7 +516,7 @@ function SessionRow({
             className="mt-0.5 text-[11px] text-[var(--color-fg-dim)] truncate max-w-[640px]"
             title={s.last_message}
           >
-            {s.last_message}
+            <SessionTitle raw={s.last_message} />
           </div>
         )}
       </td>

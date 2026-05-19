@@ -16,6 +16,7 @@ import { formatDuration, truncatePath } from "../_lib/format";
 import { computeStats } from "../_lib/stats";
 import type { RoleFilter, StreamStatus, TileSpec } from "../_types";
 import { extractFileTouches } from "../_lib/file-touch";
+import { SessionTitle } from "@/components/session-title";
 import { RelativeTime, TypeBadge } from "./badges";
 import { BashCommandPanel } from "./bash-command-panel";
 import { CadenceHeatmap } from "./cadence-heatmap";
@@ -301,7 +302,7 @@ export function SessionTileView({
           )}
           title={compact ? data.title : undefined}
         >
-          {data.title}
+          <SessionTitle raw={data.title} />
         </h2>
         {isSubagent && data.parent_session_id && (
           <div className="flex items-center gap-1.5 text-[10.5px] font-mono text-[var(--color-fg-dim)]">
