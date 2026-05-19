@@ -1,5 +1,15 @@
 "use client";
 
+import {
+  Activity,
+  Bot,
+  FileText,
+  ListChecks,
+  MessageSquare,
+  Network,
+  Wrench,
+  Workflow,
+} from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -399,20 +409,44 @@ export function SessionTileView({
       >
         <div className="flex gap-2 items-start">
           <div className="flex gap-1 items-center flex-wrap min-w-0 flex-1">
-            <TabButton active={tab === "messages"} onClick={() => setTab("messages")} compact={compact}>
-              messages · {formatNumber(filteredMessages.length)}
+            <TabButton
+              active={tab === "messages"}
+              onClick={() => setTab("messages")}
+              compact={compact}
+              title={`messages · ${formatNumber(filteredMessages.length)}`}
+            >
+              <MessageSquare className="w-3.5 h-3.5" aria-hidden />
+              <span className="tabular">{formatNumber(filteredMessages.length)}</span>
             </TabButton>
             {data.todos.length > 0 && (
-              <TabButton active={tab === "todos"} onClick={() => setTab("todos")} compact={compact}>
-                todos · {formatNumber(data.todos.length)}
+              <TabButton
+                active={tab === "todos"}
+                onClick={() => setTab("todos")}
+                compact={compact}
+                title={`todos · ${formatNumber(data.todos.length)}`}
+              >
+                <ListChecks className="w-3.5 h-3.5" aria-hidden />
+                <span className="tabular">{formatNumber(data.todos.length)}</span>
               </TabButton>
             )}
-            <TabButton active={tab === "tools"} onClick={() => setTab("tools")} compact={compact}>
-              tools · {formatNumber(filteredTools.length)}
+            <TabButton
+              active={tab === "tools"}
+              onClick={() => setTab("tools")}
+              compact={compact}
+              title={`tools · ${formatNumber(filteredTools.length)}`}
+            >
+              <Wrench className="w-3.5 h-3.5" aria-hidden />
+              <span className="tabular">{formatNumber(filteredTools.length)}</span>
             </TabButton>
             {fileTouchCount > 0 && (
-              <TabButton active={tab === "files"} onClick={() => setTab("files")} compact={compact}>
-                {compact ? "file" : "files"} · {formatNumber(fileTouchCount)}
+              <TabButton
+                active={tab === "files"}
+                onClick={() => setTab("files")}
+                compact={compact}
+                title={`files · ${formatNumber(fileTouchCount)}`}
+              >
+                <FileText className="w-3.5 h-3.5" aria-hidden />
+                <span className="tabular">{formatNumber(fileTouchCount)}</span>
               </TabButton>
             )}
             {laneEligible && (
@@ -420,22 +454,42 @@ export function SessionTileView({
                 active={tab === "lane"}
                 onClick={() => setTab("lane")}
                 compact={compact}
+                title={`lane · ${formatNumber(data.messages.length + data.tool_calls.length)}`}
               >
-                lane · {formatNumber(data.messages.length + data.tool_calls.length)}
+                <Activity className="w-3.5 h-3.5" aria-hidden />
+                <span className="tabular">{formatNumber(data.messages.length + data.tool_calls.length)}</span>
               </TabButton>
             )}
             {dagEligible && (
-              <TabButton active={tab === "agents"} onClick={() => setTab("agents")} compact={compact}>
-                agents · {formatNumber(data.subagent_count ?? 0)}
+              <TabButton
+                active={tab === "agents"}
+                onClick={() => setTab("agents")}
+                compact={compact}
+                title={`agents · ${formatNumber(data.subagent_count ?? 0)}`}
+              >
+                <Bot className="w-3.5 h-3.5" aria-hidden />
+                <span className="tabular">{formatNumber(data.subagent_count ?? 0)}</span>
               </TabButton>
             )}
             {dagEligible && (
-              <TabButton active={tab === "dag"} onClick={() => setTab("dag")} compact={compact}>
-                dag · {formatNumber(data.subagent_count ?? 0)}
+              <TabButton
+                active={tab === "dag"}
+                onClick={() => setTab("dag")}
+                compact={compact}
+                title={`dag · ${formatNumber(data.subagent_count ?? 0)}`}
+              >
+                <Network className="w-3.5 h-3.5" aria-hidden />
+                <span className="tabular">{formatNumber(data.subagent_count ?? 0)}</span>
               </TabButton>
             )}
-            <TabButton active={tab === "flock"} onClick={() => setTab("flock")} compact={compact}>
-              flock · {formatNumber(data.subagent_count ?? 0)}
+            <TabButton
+              active={tab === "flock"}
+              onClick={() => setTab("flock")}
+              compact={compact}
+              title={`flock · ${formatNumber(data.subagent_count ?? 0)}`}
+            >
+              <Workflow className="w-3.5 h-3.5" aria-hidden />
+              <span className="tabular">{formatNumber(data.subagent_count ?? 0)}</span>
             </TabButton>
           </div>
           <input

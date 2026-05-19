@@ -170,7 +170,7 @@ const messages = {
   "task.due": "due",
   "task.session": "session",
   "task.openSession": "Open original session",
-  "sessions.detail.tasksHeading": "Tasks from this session ({count})",
+  "sessions.detail.tasksHeading": "Tasks · {count}",
   "sessions.detail.noTasks": "No tasks created from this session",
   "task.files": "files",
   "task.scopeToRepo": "scope to {repo}",
