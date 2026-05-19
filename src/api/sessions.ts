@@ -5,6 +5,7 @@ import { loadConfig, resolveScanRoots } from "../config.js";
 import { RelayDB } from "../db/client.js";
 import { scanClaudeSessionsLive } from "../lib/session-live-scan.js";
 import { getSession, getSessionPath } from "../sessions/index.js";
+import type { SessionDetail } from "../sessions/types.js";
 import type { SessionRow, SessionStatus, SessionType } from "../types.js";
 
 // `SessionType` includes "cursor" (Phase A) but the live-fs readers only
@@ -279,6 +280,7 @@ export function createSessionsApi() {
     }
     const session = await getSession(typeParam as SessionType, id, roots);
     if (!session) return c.json({ error: "not found" }, 404);
+    attachSubagentCount(session, typeParam as SessionType);
     return c.json(session);
   });
 
@@ -345,6 +347,7 @@ export function createSessionsApi() {
             });
             return;
           }
+          attachSubagentCount(session, typeParam);
           await stream.writeSSE({
             event: eventName,
             data: JSON.stringify(session),
@@ -491,6 +494,22 @@ function clampInt(raw: string | undefined, dflt: number, min: number, max: numbe
   const n = Number(raw);
   if (!Number.isFinite(n)) return dflt;
   return Math.max(min, Math.min(max, Math.floor(n)));
+}
+
+// `getSession` reads the JSONL alone and has no idea how many subagents
+// the parent owns. The detail page's tree / DAG / flock tabs all gate on
+// `subagent_count > 0` and `useSubagents` short-circuits before fetching
+// when it's zero, so without this augmentation the tabs never render.
+// No-op on subagent (leaf) sessions and on zero-child parents.
+function attachSubagentCount(session: SessionDetail, type: SessionType): void {
+  if (session.parent_session_id) return;
+  const db = new RelayDB();
+  try {
+    const n = db.countSubagentsByParent(type).get(session.id);
+    if (n && n > 0) session.subagent_count = n;
+  } finally {
+    db.close();
+  }
 }
 
 function isoCutoff(lookbackDays: number): string {
