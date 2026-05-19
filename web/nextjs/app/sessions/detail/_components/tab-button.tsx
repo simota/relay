@@ -18,7 +18,7 @@ export function TabButton({
       type="button"
       onClick={onClick}
       className={cn(
-        "border-b-2 transition-colors",
+        "border-b-2 transition-colors whitespace-nowrap shrink-0 font-mono",
         compact ? "h-7 px-2 text-[11px]" : "h-8 px-3 text-[12px]",
         active
           ? "border-[var(--color-accent)] text-[var(--color-fg)]"

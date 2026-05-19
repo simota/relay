@@ -8,7 +8,7 @@ import {
   type SessionSummary,
   type SessionType,
 } from "@/lib/api";
-import { c, formatNumber } from "@/lib/copy";
+import { formatNumber } from "@/lib/copy";
 import { cn } from "@/lib/utils";
 import { MAX_TILES } from "../_constants";
 import { useSubagents } from "../_hooks/use-subagents";
@@ -396,55 +396,54 @@ export function SessionTileView({
           compact ? "px-3 pt-0.5 pb-1.5" : "px-4 pt-1 pb-2",
         )}
       >
-        <div className="flex gap-1 items-center">
-          <TabButton active={tab === "messages"} onClick={() => setTab("messages")} compact={compact}>
-            {c("sessions.detail.messagesHeading", {
-              count: formatNumber(filteredMessages.length),
-            })}
-          </TabButton>
-          {data.todos.length > 0 && (
-            <TabButton active={tab === "todos"} onClick={() => setTab("todos")} compact={compact}>
-              {c("sessions.detail.todosHeading", { count: formatNumber(data.todos.length) })}
+        <div className="flex gap-2 items-start">
+          <div className="flex gap-1 items-center flex-wrap min-w-0 flex-1">
+            <TabButton active={tab === "messages"} onClick={() => setTab("messages")} compact={compact}>
+              messages · {formatNumber(filteredMessages.length)}
             </TabButton>
-          )}
-          <TabButton active={tab === "tools"} onClick={() => setTab("tools")} compact={compact}>
-            {c("sessions.detail.toolCallsHeading", { count: formatNumber(filteredTools.length) })}
-          </TabButton>
-          {fileTouchCount > 0 && (
-            <TabButton active={tab === "files"} onClick={() => setTab("files")} compact={compact}>
-              {compact ? "file" : "files"} · {formatNumber(fileTouchCount)}
+            {data.todos.length > 0 && (
+              <TabButton active={tab === "todos"} onClick={() => setTab("todos")} compact={compact}>
+                todos · {formatNumber(data.todos.length)}
+              </TabButton>
+            )}
+            <TabButton active={tab === "tools"} onClick={() => setTab("tools")} compact={compact}>
+              tools · {formatNumber(filteredTools.length)}
             </TabButton>
-          )}
-          {laneEligible && (
-            <TabButton
-              active={tab === "lane"}
-              onClick={() => setTab("lane")}
-              compact={compact}
-            >
-              lane · {formatNumber(data.messages.length + data.tool_calls.length)}
+            {fileTouchCount > 0 && (
+              <TabButton active={tab === "files"} onClick={() => setTab("files")} compact={compact}>
+                {compact ? "file" : "files"} · {formatNumber(fileTouchCount)}
+              </TabButton>
+            )}
+            {laneEligible && (
+              <TabButton
+                active={tab === "lane"}
+                onClick={() => setTab("lane")}
+                compact={compact}
+              >
+                lane · {formatNumber(data.messages.length + data.tool_calls.length)}
+              </TabButton>
+            )}
+            {dagEligible && (
+              <TabButton active={tab === "agents"} onClick={() => setTab("agents")} compact={compact}>
+                agents · {formatNumber(data.subagent_count ?? 0)}
+              </TabButton>
+            )}
+            {dagEligible && (
+              <TabButton active={tab === "dag"} onClick={() => setTab("dag")} compact={compact}>
+                dag · {formatNumber(data.subagent_count ?? 0)}
+              </TabButton>
+            )}
+            <TabButton active={tab === "flock"} onClick={() => setTab("flock")} compact={compact}>
+              flock · {formatNumber(data.subagent_count ?? 0)}
             </TabButton>
-          )}
-          {dagEligible && (
-            <TabButton active={tab === "agents"} onClick={() => setTab("agents")} compact={compact}>
-              agents · {formatNumber(data.subagent_count ?? 0)}
-            </TabButton>
-          )}
-          {dagEligible && (
-            <TabButton active={tab === "dag"} onClick={() => setTab("dag")} compact={compact}>
-              dag · {formatNumber(data.subagent_count ?? 0)}
-            </TabButton>
-          )}
-          <TabButton active={tab === "flock"} onClick={() => setTab("flock")} compact={compact}>
-            flock · {formatNumber(data.subagent_count ?? 0)}
-          </TabButton>
-          <div className="flex-1" />
+          </div>
           <input
             type="search"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="filter…"
             className={cn(
-              "font-mono text-[12px] px-2 rounded-[var(--radius)] border border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-fg)] focus:outline-none focus:border-[var(--color-accent)]",
+              "shrink-0 font-mono text-[12px] px-2 rounded-[var(--radius)] border border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-fg)] focus:outline-none focus:border-[var(--color-accent)]",
               compact ? "w-[120px] h-6" : "w-[180px] h-7",
             )}
           />
