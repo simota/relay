@@ -1,9 +1,11 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import type { ComponentProps } from "react";
+import { useState, type ComponentProps } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
+
+import { formatNumber } from "@/lib/copy";
 
 // Mermaid is heavy and only client-renderable, so we lazy-load it. The chunk
 // is fetched only when a session message actually contains a ```mermaid fence.
@@ -140,12 +142,79 @@ const components: Components = {
   },
 };
 
+function MarkdownPlain({ text }: { text: string }) {
+  return (
+    <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+      {text}
+    </ReactMarkdown>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// XML-style tag splitter. Claude/Codex/Gemini transcripts often contain blocks
+// like <thinking>…</thinking> or <commit_analysis>…</commit_analysis>. We
+// surface them as labeled, collapsible panels so the structure is legible
+// rather than vanishing into raw HTML pass-through.
+// ---------------------------------------------------------------------------
+type Segment =
+  | { type: "text"; content: string }
+  | { type: "xml"; tag: string; content: string };
+
+// Tag name must start with a letter; we match the matching closing tag via a
+// backreference, which means same-name nesting collapses to the outermost
+// boundary (acceptable for v1 — different-name nesting is preserved and
+// rendered recursively).
+const XML_TAG_RE = /<([a-zA-Z][a-zA-Z0-9_-]*)\b[^>]*>([\s\S]*?)<\/\1>/g;
+
+export function splitXmlBlocks(text: string): Segment[] {
+  const out: Segment[] = [];
+  let last = 0;
+  for (const m of text.matchAll(XML_TAG_RE)) {
+    const idx = m.index ?? 0;
+    if (idx > last) out.push({ type: "text", content: text.slice(last, idx) });
+    out.push({ type: "xml", tag: m[1] ?? "", content: m[2] ?? "" });
+    last = idx + m[0].length;
+  }
+  if (last < text.length) out.push({ type: "text", content: text.slice(last) });
+  return out;
+}
+
+function XmlPanel({ tag, content }: { tag: string; content: string }) {
+  const [expanded, setExpanded] = useState(true);
+  const lineCount = content === "" ? 0 : content.split("\n").length;
+  return (
+    <div className="rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-bg-elev)]/40">
+      <div className="flex items-center gap-2 px-2 py-1 border-b border-[var(--color-border)] text-[10.5px] font-mono leading-[1.5]">
+        <span className="uppercase tracking-wider text-[var(--color-fg-muted)]">{tag}</span>
+        <span className="flex-1" />
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="text-[10.5px] text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] font-mono"
+          aria-expanded={expanded}
+        >
+          {expanded ? "collapse" : `expand (${formatNumber(lineCount)} lines)`}
+        </button>
+      </div>
+      {expanded && (
+        <div className="p-2">
+          <MarkdownLite text={content} />
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function MarkdownLite({ text }: { text: string }) {
+  const segments = splitXmlBlocks(text);
   return (
     <div className="space-y-2 font-mono text-[12px] leading-relaxed [&>*:first-child]:mt-0">
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
-        {text}
-      </ReactMarkdown>
+      {segments.map((seg, i) => {
+        if (seg.type === "xml") {
+          return <XmlPanel key={`xml-${i}-${seg.tag}`} tag={seg.tag} content={seg.content} />;
+        }
+        return <MarkdownPlain key={`text-${i}`} text={seg.content} />;
+      })}
     </div>
   );
 }

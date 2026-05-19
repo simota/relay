@@ -55,10 +55,7 @@ function MessageRow({
   const lines = m.text.split("\n").length;
   const long = lines > COLLAPSE_LINE_THRESHOLD || m.text.length > COLLAPSE_CHAR_THRESHOLD;
   const [expanded, setExpanded] = useState(!long);
-  const isAssistant = m.role === "assistant";
-  const [renderMode, setRenderMode] = useState<"rendered" | "raw">(
-    isAssistant ? "rendered" : "raw",
-  );
+  const [renderMode, setRenderMode] = useState<"rendered" | "raw">("rendered");
 
   return (
     <li
