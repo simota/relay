@@ -2,6 +2,12 @@
 
 import type { SessionDetail } from "@/lib/api";
 import { c } from "@/lib/copy";
+import { getTodoStatusColor, type TodoStatus } from "../_lib/colors";
+import { TodoProgressDonut } from "./todo-progress-donut";
+
+function isTodoStatus(s: string): s is TodoStatus {
+  return s === "completed" || s === "in_progress" || s === "pending";
+}
 
 export function TodosList({ todos }: { todos: SessionDetail["todos"] }) {
   if (todos.length === 0) {
@@ -12,30 +18,31 @@ export function TodosList({ todos }: { todos: SessionDetail["todos"] }) {
     );
   }
   return (
-    <ul className="space-y-1.5 pt-3">
-      {todos.map((t) => (
-        <li
-          key={t.id}
-          className="rounded-[var(--radius)] border border-[var(--color-border)] px-3 py-2 flex items-center gap-3 text-[13px]"
-        >
-          <StatusBadge status={t.status} />
-          <span className="flex-1">{t.title}</span>
-        </li>
-      ))}
-    </ul>
+    <div className="pt-3">
+      <div className="mb-3">
+        <TodoProgressDonut todos={todos} />
+      </div>
+      <ul className="space-y-1.5">
+        {todos.map((t) => (
+          <li
+            key={t.id}
+            className="rounded-[var(--radius)] border border-[var(--color-border)] px-3 py-2 flex items-center gap-3 text-[13px]"
+          >
+            <StatusBadge status={t.status} />
+            <span className="flex-1">{t.title}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
 function StatusBadge({ status }: { status: string }) {
-  const colors: Record<string, string> = {
-    completed: "var(--color-ok, var(--color-cool))",
-    in_progress: "var(--color-accent)",
-    pending: "var(--color-fg-dim)",
-  };
+  const color = isTodoStatus(status) ? getTodoStatusColor(status) : "var(--color-fg-dim)";
   return (
     <span
       className="font-mono text-[10.5px] uppercase tracking-wider w-24"
-      style={{ color: colors[status] ?? "var(--color-fg-dim)" }}
+      style={{ color }}
     >
       {status}
     </span>

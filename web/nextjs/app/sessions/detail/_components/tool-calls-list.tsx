@@ -2,8 +2,16 @@
 
 import { useMemo, useState } from "react";
 import type { SessionToolCall } from "@/lib/api";
+import { computeDiffGlyph, type DiffKind } from "../_lib/args-diff";
 import { shortTime } from "../_lib/format";
 import { parseToolArgs } from "../_lib/tool-args";
+
+const GLYPH_COLOR: Record<DiffKind, string> = {
+  edit: "var(--color-accent)",
+  write: "var(--color-cool)",
+  read: "var(--color-fg-dim)",
+  none: "var(--color-fg-dim)",
+};
 
 export function ToolCallsList({ calls }: { calls: SessionToolCall[] }) {
   if (calls.length === 0) {
@@ -25,6 +33,10 @@ function ToolCallRow({ call }: { call: SessionToolCall }) {
     () => parseToolArgs(call.name, call.args_json),
     [call.name, call.args_json],
   );
+  const glyph = useMemo(
+    () => computeDiffGlyph(call.name, call.args_json),
+    [call.name, call.args_json],
+  );
   const [showRaw, setShowRaw] = useState(false);
   return (
     <li className="rounded-[var(--radius)] border border-[var(--color-border)] px-3 py-2 text-[11.5px] font-mono space-y-1">
@@ -35,6 +47,21 @@ function ToolCallRow({ call }: { call: SessionToolCall }) {
           <span className="text-[var(--color-fg)] truncate">{parsed.headline}</span>
         )}
         <span className="flex-1" />
+        {glyph.label && (
+          <span
+            className="text-[10px] font-mono shrink-0"
+            style={{ color: GLYPH_COLOR[glyph.kind] }}
+            title={
+              glyph.kind === "edit"
+                ? `line delta ${glyph.label}`
+                : glyph.kind === "write"
+                  ? `wrote ${glyph.label} line${glyph.delta === 1 ? "" : "s"}`
+                  : undefined
+            }
+          >
+            {glyph.label}
+          </span>
+        )}
         {call.args_json && (
           <button
             type="button"

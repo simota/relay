@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   api,
   type SessionDetail,
@@ -11,16 +11,29 @@ import {
 import { c, formatNumber } from "@/lib/copy";
 import { cn } from "@/lib/utils";
 import { MAX_TILES } from "../_constants";
+import { useSubagents } from "../_hooks/use-subagents";
 import { formatDuration, truncatePath } from "../_lib/format";
 import { computeStats } from "../_lib/stats";
 import type { RoleFilter, StreamStatus, TileSpec } from "../_types";
+import { extractFileTouches } from "../_lib/file-touch";
 import { RelativeTime, TypeBadge } from "./badges";
+import { BashCommandPanel } from "./bash-command-panel";
+import { CadenceHeatmap } from "./cadence-heatmap";
+import { FilesTouchList } from "./files-touch-list";
+import { MessageLengthStrip } from "./message-length-strip";
 import { MessagesList } from "./messages-list";
+import { SequenceLane } from "./sequence-lane";
 import { SessionTasksPanel } from "./session-tasks-panel";
 import { StreamStatusBadge, WaitingForUserBadge } from "./session-tile";
+import { StatusRibbon } from "./status-ribbon";
+import { SubagentDag } from "./subagent-dag";
+import { SubagentFlockView } from "./subagent-flock-view";
+import { SubagentTree } from "./subagent-tree";
 import { TabButton } from "./tab-button";
 import { TodosList } from "./todos-list";
 import { ToolCallsList } from "./tool-calls-list";
+import { ToolPie } from "./tool-pie";
+import { ToolTransitionMatrix } from "./tool-transition-matrix";
 
 // ---------------------------------------------------------------------------
 // SessionTileView — the main content view for one session tile
@@ -45,9 +58,22 @@ export function SessionTileView({
   onAddSubagents: (agentIds: string[], type: SessionType) => void;
   currentTileCount: number;
 }) {
-  const [tab, setTab] = useState<"messages" | "todos" | "tools">("messages");
+  const [tab, setTab] = useState<
+    | "messages"
+    | "todos"
+    | "tools"
+    | "agents"
+    | "files"
+    | "dag"
+    | "lane"
+    | "flock"
+  >("messages");
   const [roleFilter, setRoleFilter] = useState<RoleFilter>("all");
   const [search, setSearch] = useState("");
+  // When the timeline jumps to a message, we set this so the next render
+  // (after switching to the messages tab) can locate the row and scroll
+  // it into view. Cleared once the scroll has been attempted.
+  const [pendingJumpKey, setPendingJumpKey] = useState<string | null>(null);
 
   // Compact layout kicks in when the board hosts 4+ tiles — shrink header,
   // metadata, and chrome so the message body stays readable in a 3×2 grid.
@@ -62,6 +88,49 @@ export function SessionTileView({
   const isSubagent = !!data.parent_session_id;
   const hasSubagents = (data.subagent_count ?? 0) > 0;
   const [addingSubagents, setAddingSubagents] = useState(false);
+
+  // Fetch the subagent list only for parent tiles that actually have
+  // children. The hook itself short-circuits when hasSubagents is false,
+  // but gating from the call site makes the intent explicit and avoids
+  // running the effect dance for every leaf session.
+  const subagents = useSubagents(
+    data.type,
+    data.id,
+    !isSubagent && hasSubagents,
+    data.last_active,
+  );
+
+  const handleOpenChild = useCallback(
+    (child: SessionSummary) => {
+      onReplaceTile(tileIndex, { type: data.type, id: child.id });
+    },
+    [data.type, onReplaceTile, tileIndex],
+  );
+
+  const fileTouchCount = useMemo(
+    () => extractFileTouches(data.tool_calls).length,
+    [data.tool_calls],
+  );
+  const laneEligible = data.messages.length + data.tool_calls.length >= 2;
+  const dagEligible = !isSubagent && hasSubagents;
+
+  // Drop the user back to `messages` if the active tab disappears (e.g. they
+  // open a subagent tile while parked on the agents tab of the parent, or
+  // file-touch entries get filtered out by an upstream snapshot).
+  useEffect(() => {
+    if (tab === "agents" && !dagEligible) {
+      setTab("messages");
+    }
+    if (tab === "files" && fileTouchCount === 0) {
+      setTab("messages");
+    }
+    if (tab === "dag" && !dagEligible) {
+      setTab("messages");
+    }
+    if (tab === "lane" && !laneEligible) {
+      setTab("messages");
+    }
+  }, [tab, dagEligible, fileTouchCount, laneEligible]);
 
   const handleAddAllSubagents = useCallback(async () => {
     if (addingSubagents) return;
@@ -87,6 +156,71 @@ export function SessionTileView({
     if (!data.parent_session_id) return;
     onReplaceTile(tileIndex, { type: data.type, id: data.parent_session_id });
   }, [data.parent_session_id, data.type, tileIndex, onReplaceTile]);
+
+  const handleJumpToMessage = useCallback((key: string) => {
+    setTab("messages");
+    setPendingJumpKey(key);
+  }, []);
+
+  const handleJumpToToolByQuery = useCallback((q: string) => {
+    setTab("tools");
+    setSearch(q);
+  }, []);
+
+  // After a lane jump, locate the message row by its data-message-key
+  // attribute and scroll it into view. We retry once on the next animation
+  // frame in case the messages list hasn't mounted yet.
+  useEffect(() => {
+    if (!pendingJumpKey || tab !== "messages") return;
+    const key = pendingJumpKey;
+    const attempt = () => {
+      const el = document.querySelector(
+        `[data-message-key="${CSS.escape(key)}"]`,
+      );
+      if (el && "scrollIntoView" in el) {
+        (el as HTMLElement).scrollIntoView({ block: "center", behavior: "smooth" });
+        setPendingJumpKey(null);
+        return true;
+      }
+      return false;
+    };
+    if (!attempt()) {
+      const handle = requestAnimationFrame(() => {
+        attempt();
+        setPendingJumpKey(null);
+      });
+      return () => cancelAnimationFrame(handle);
+    }
+  }, [pendingJumpKey, tab]);
+
+  // Clicking a ToolPie slice routes the user to the tools tab and prefills
+  // the filter input. Re-clicking the same slice clears the filter (toggle);
+  // clicking a different slice overwrites the previous one. The "other"
+  // bucket is synthetic — it would match nothing literally — so we treat
+  // it as a pure toggle that just clears the filter when active.
+  const toolPieSelection = useMemo(() => {
+    if (tab !== "tools") return null;
+    const q = search.trim();
+    if (!q) return null;
+    return q;
+  }, [tab, search]);
+
+  const handleToolPieSelect = useCallback(
+    (name: string) => {
+      setTab("tools");
+      const current = search.trim();
+      if (current.toLowerCase() === name.toLowerCase()) {
+        setSearch("");
+        return;
+      }
+      if (name === "other") {
+        setSearch("");
+        return;
+      }
+      setSearch(name);
+    },
+    [search],
+  );
 
   const filteredMessages = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -198,13 +332,23 @@ export function SessionTileView({
           </div>
         )}
         {!compact && (
-          <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-[10.5px] text-[var(--color-fg-dim)] font-mono">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-0.5 text-[10.5px] text-[var(--color-fg-dim)] font-mono">
             <span title={data.cwd ?? ""}>cwd: {truncatePath(data.cwd ?? "—", 50)}</span>
             <span>session: {data.id.slice(0, 8)}</span>
             {stats.user > 0 && <span>user: {formatNumber(stats.user)}</span>}
             {stats.assistant > 0 && <span>assistant: {formatNumber(stats.assistant)}</span>}
             {stats.tool > 0 && <span>tool: {formatNumber(stats.tool)}</span>}
             <span>duration: {duration}</span>
+            {stats.tool > 0 && (
+              <span className="ml-auto inline-flex items-center">
+                <ToolPie
+                  toolCalls={data.tool_calls}
+                  compact={false}
+                  onSelect={handleToolPieSelect}
+                  selected={toolPieSelection}
+                />
+              </span>
+            )}
           </div>
         )}
         {compact && (
@@ -219,7 +363,23 @@ export function SessionTileView({
               </span>
             )}
             <span>{duration}</span>
+            {stats.tool > 0 && (
+              <span className="ml-auto inline-flex items-center">
+                <ToolPie
+                  toolCalls={data.tool_calls}
+                  compact
+                  onSelect={handleToolPieSelect}
+                  selected={toolPieSelection}
+                />
+              </span>
+            )}
           </div>
+        )}
+        {data.messages.length > 1 && (
+          <CadenceHeatmap data={data} compact={compact} />
+        )}
+        {(data.messages.length > 1 || data.tool_calls.length > 0) && (
+          <StatusRibbon data={data} compact={compact} />
         )}
       </div>
 
@@ -249,6 +409,33 @@ export function SessionTileView({
           )}
           <TabButton active={tab === "tools"} onClick={() => setTab("tools")} compact={compact}>
             {c("sessions.detail.toolCallsHeading", { count: formatNumber(filteredTools.length) })}
+          </TabButton>
+          {fileTouchCount > 0 && (
+            <TabButton active={tab === "files"} onClick={() => setTab("files")} compact={compact}>
+              {compact ? "file" : "files"} · {formatNumber(fileTouchCount)}
+            </TabButton>
+          )}
+          {laneEligible && (
+            <TabButton
+              active={tab === "lane"}
+              onClick={() => setTab("lane")}
+              compact={compact}
+            >
+              lane · {formatNumber(data.messages.length + data.tool_calls.length)}
+            </TabButton>
+          )}
+          {dagEligible && (
+            <TabButton active={tab === "agents"} onClick={() => setTab("agents")} compact={compact}>
+              agents · {formatNumber(data.subagent_count ?? 0)}
+            </TabButton>
+          )}
+          {dagEligible && (
+            <TabButton active={tab === "dag"} onClick={() => setTab("dag")} compact={compact}>
+              dag · {formatNumber(data.subagent_count ?? 0)}
+            </TabButton>
+          )}
+          <TabButton active={tab === "flock"} onClick={() => setTab("flock")} compact={compact}>
+            flock · {formatNumber(data.subagent_count ?? 0)}
           </TabButton>
           <div className="flex-1" />
           <input
@@ -295,14 +482,67 @@ export function SessionTileView({
       {/* Scrollable content */}
       <div className={cn("flex-1 min-h-0 overflow-y-auto", compact ? "px-3" : "px-4")}>
         {tab === "messages" && (
-          <MessagesList
-            messages={filteredMessages}
-            freshKeys={freshMessageKeys}
+          <>
+            {data.messages.length > 1 && (
+              <div className={cn(compact ? "pt-2" : "pt-3")}>
+                <MessageLengthStrip messages={data.messages} compact={compact} />
+              </div>
+            )}
+            <MessagesList
+              messages={filteredMessages}
+              freshKeys={freshMessageKeys}
+              compact={compact}
+            />
+          </>
+        )}
+        {tab === "todos" && <TodosList todos={data.todos} />}
+        {tab === "tools" && (
+          <>
+            <BashCommandPanel toolCalls={data.tool_calls} compact={compact} />
+            <ToolTransitionMatrix toolCalls={data.tool_calls} compact={compact} />
+            <ToolCallsList calls={filteredTools} />
+          </>
+        )}
+        {tab === "files" && (
+          <FilesTouchList toolCalls={data.tool_calls} compact={compact} />
+        )}
+        {tab === "lane" && (
+          <SequenceLane
+            data={data}
+            compact={compact}
+            onJumpToMessage={handleJumpToMessage}
+            onJumpToToolByQuery={handleJumpToToolByQuery}
+          />
+        )}
+        {tab === "agents" && dagEligible && (
+          <SubagentTree
+            childrenSessions={subagents.children}
+            onOpenChild={handleOpenChild}
+            loading={subagents.loading}
+            error={subagents.error}
             compact={compact}
           />
         )}
-        {tab === "todos" && <TodosList todos={data.todos} />}
-        {tab === "tools" && <ToolCallsList calls={filteredTools} />}
+        {tab === "dag" && dagEligible && (
+          <SubagentDag
+            childrenSessions={subagents.children}
+            toolCalls={data.tool_calls}
+            parentId={data.id}
+            onOpenChild={handleOpenChild}
+            loading={subagents.loading}
+            error={subagents.error}
+            compact={compact}
+          />
+        )}
+        {tab === "flock" && (
+          <SubagentFlockView
+            childrenSessions={subagents.children}
+            onOpenChild={handleOpenChild}
+            loading={subagents.loading}
+            error={subagents.error}
+            compact={compact}
+          />
+        )}
       </div>
     </div>
   );

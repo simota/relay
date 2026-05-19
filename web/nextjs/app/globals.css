@@ -613,6 +613,32 @@ mark.fuzz {
   }
 }
 
+/* Softer variant of relay-attention for dense visualizations (e.g. the state
+   machine node circle). Half amplitude and 1.5x period so a small ring in a
+   crowded SVG stays readable without flashing the rest of the chart. */
+.relay-attention-soft {
+  background-color: var(--color-warm);
+  color: var(--color-warm);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .relay-attention-soft {
+    animation: relay-attention-soft-blink 1.65s var(--ease-out) infinite;
+  }
+}
+
+@keyframes relay-attention-soft-blink {
+  0%, 100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 color-mix(in oklch, var(--color-warm) 30%, transparent);
+  }
+
+  50% {
+    opacity: 0.72;
+    box-shadow: 0 0 0 1.5px color-mix(in oklch, var(--color-warm) 0%, transparent);
+  }
+}
+
 /* Session "streaming now" indicator — applied to the row dot when the
    client-side poll diff shows last_active advanced this cycle. Visibly
    out-pulses the standard tailwind animate-pulse (used for the static

@@ -26,10 +26,12 @@ export function MessagesList({
     <ol className={cn(compact ? "space-y-2 pt-2" : "space-y-3 pt-3")}>
       {messages.map((m, i) => {
         const isFresh = freshKeys?.has(messageKey(m)) ?? false;
+        const key = messageKey(m);
         return (
           <MessageRow
             key={`${m.timestamp}-${i}`}
             message={m}
+            messageKey={key}
             compact={compact}
             fresh={isFresh}
           />
@@ -41,10 +43,12 @@ export function MessagesList({
 
 function MessageRow({
   message: m,
+  messageKey: msgKey,
   compact = false,
   fresh = false,
 }: {
   message: SessionMessage;
+  messageKey: string;
   compact?: boolean;
   fresh?: boolean;
 }) {
@@ -64,6 +68,7 @@ function MessageRow({
         fresh && "relay-fresh",
       )}
       data-fresh={fresh ? "" : undefined}
+      data-message-key={msgKey}
     >
       <div className="flex items-center gap-2 text-[10.5px] text-[var(--color-fg-dim)] font-mono">
         <span

@@ -65,6 +65,32 @@ export function strField(obj: Record<string, unknown>, key: string): string | nu
   return typeof v === "string" && v.length > 0 ? v : null;
 }
 
+export function parseTaskCreateArgs(
+  argsJson: string | null,
+): { subagent: string | null; description: string | null } | null {
+  if (!argsJson) return null;
+  let parsed: Record<string, unknown> | null = null;
+  try {
+    const v = JSON.parse(argsJson);
+    if (v && typeof v === "object" && !Array.isArray(v)) {
+      parsed = v as Record<string, unknown>;
+    }
+  } catch {
+    return null;
+  }
+  if (!parsed) return null;
+  const subagent =
+    strField(parsed, "subagent_type") ??
+    strField(parsed, "subagent") ??
+    strField(parsed, "agent") ??
+    strField(parsed, "agent_id");
+  const description =
+    strField(parsed, "description") ??
+    strField(parsed, "prompt") ??
+    strField(parsed, "task");
+  return { subagent, description };
+}
+
 export function dedup(
   items: Array<{ key: string; value: string }>,
 ): Array<{ key: string; value: string }> {
