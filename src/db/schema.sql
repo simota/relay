@@ -1,4 +1,4 @@
--- relay storage schema v5
+-- relay storage schema v6
 
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
@@ -156,3 +156,5 @@ INSERT OR IGNORE INTO schema_version (version, applied_at)
   VALUES (4, datetime('now'));
 INSERT OR IGNORE INTO schema_version (version, applied_at)
   VALUES (5, datetime('now'));
+INSERT OR IGNORE INTO schema_version (version, applied_at)
+  VALUES (6, datetime('now'));

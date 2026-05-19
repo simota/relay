@@ -18,6 +18,7 @@ import { runExport } from "./commands/export.js";
 import { runForget } from "./commands/forget.js";
 import { runImport, type ImportKind } from "./commands/import.js";
 import { runPrune } from "./commands/prune.js";
+import { runMaintain } from "./commands/maintain.js";
 import { runAssign, runClose, runSnooze, runReopen } from "./commands/mutate.js";
 import {
   runContextEdit,
@@ -386,6 +387,13 @@ program
       only: opts.only,
       list: Boolean(opts.list),
     });
+  });
+
+program
+  .command("maintain")
+  .description("Reclaim DB file size (VACUUM). Run after large prune operations.")
+  .action(() => {
+    runMaintain();
   });
 
 program

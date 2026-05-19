@@ -46,6 +46,34 @@ export function runColumnMigrations(db: Database): void {
   if (sessionCols.length > 0 && !sessionCols.some((c) => c.name === "last_message_text")) {
     db.exec(`ALTER TABLE sessions ADD COLUMN last_message_text TEXT`);
   }
+
+  // schema_version 6: shrink undo_log's `prune_delete_done` rows. Pre-v6
+  // producers serialised full Task snapshots into `inverse.tasks`, which at
+  // production scale ballooned undo_log past 400 MB (one row reached 56 MB).
+  // We rewrite the inverse to only carry the deleted ids plus an
+  // `unrecoverable: true` flag — undo for these rows now returns a
+  // soft-failure response instead of attempting restore. WHERE clause makes
+  // the migration idempotent: rows already carrying `unrecoverable` are
+  // skipped, so re-running the migration is a no-op. undo_log is guaranteed
+  // to exist (ensureUndoSchema is called by every undo write path), but we
+  // still gate on table presence to keep this safe on bare-bones DBs.
+  const hasUndoTable =
+    db
+      .prepare(
+        `SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'undo_log' LIMIT 1`,
+      )
+      .get() !== undefined;
+  if (hasUndoTable) {
+    db.exec(
+      `UPDATE undo_log
+          SET inverse = json_object(
+                'ids', json_extract(payload, '$.ids'),
+                'unrecoverable', json('true')
+              )
+        WHERE op_kind = 'prune_delete_done'
+          AND json_extract(inverse, '$.unrecoverable') IS NULL`,
+    );
+  }
 }
 
 export function ensureQueueSchema(db: Database): void {

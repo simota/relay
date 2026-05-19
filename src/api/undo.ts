@@ -7,7 +7,14 @@ interface UndoPayload {
 }
 
 interface DeleteDoneUndoPayload {
-  tasks: Task[];
+  // Legacy rows (schema_version <= 5 producers): full Task snapshots saved so
+  // we can fully restore on undo.
+  tasks?: Task[];
+  // New rows (schema_version 6 producers): only the deleted ids are kept; the
+  // snapshots were dropped because they ballooned undo_log past 400 MB. Undo
+  // for these rows is reported as `unrecoverable`.
+  ids?: number[];
+  unrecoverable?: boolean;
 }
 
 interface UndoListItem {
@@ -65,7 +72,27 @@ export function createUndoApi() {
           db.close();
           return c.json({ error: "undo payload is invalid" }, 500);
         }
-        const count = db.restoreDeletedTasks(inversePayload.tasks);
+        // schema_version 6+ rows persist only ids + unrecoverable flag. We
+        // mark the undo as consumed so it disappears from the log, but cannot
+        // restore the rows because full snapshots were never written.
+        if (inversePayload.unrecoverable === true) {
+          db.markUndoStatus(row.id, "undone");
+          db.close();
+          return c.json({
+            ok: true,
+            id: row.id,
+            op_kind: row.op_kind,
+            count: 0,
+            undone: true,
+            redone: false,
+            unrecoverable: true,
+            message:
+              "physical deletion is not undoable; task IDs were recorded but full snapshots were not persisted",
+          });
+        }
+        // Legacy rows: full snapshots present — restore as before.
+        const tasks = inversePayload.tasks ?? [];
+        const count = db.restoreDeletedTasks(tasks);
         db.markUndoStatus(row.id, "undone");
         db.close();
         return c.json({ ok: true, id: row.id, op_kind: row.op_kind, count, undone: true, redone: false });
@@ -103,6 +130,16 @@ function parseDeleteDoneUndoPayload(value: string): DeleteDoneUndoPayload | null
     const parsed = JSON.parse(value) as unknown;
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
     const record = parsed as Record<string, unknown>;
+
+    // New shape: { ids: number[], unrecoverable: true }
+    if (record.unrecoverable === true) {
+      const ids = Array.isArray(record.ids)
+        ? (record.ids as unknown[]).filter((id): id is number => typeof id === "number")
+        : [];
+      return { unrecoverable: true, ids };
+    }
+
+    // Legacy shape: { tasks: Task[] }
     if (!Array.isArray(record.tasks)) return null;
     const tasks = record.tasks as Task[];
     // Minimal validation: each item needs at minimum an id

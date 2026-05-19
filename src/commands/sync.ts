@@ -279,6 +279,14 @@ export async function runSync(opts: SyncOptions = {}): Promise<SyncReport> {
   if (!opts.dryRun) {
     autoCloseMissingRepoTasks(db, ctx.roots, log);
     await autoCloseResolvedRemoteTasks(adapters, ctx, db, log);
+    // Trim old undo_log rows so bulk-operation snapshots don't bloat the
+    // SQLite file indefinitely. 7 days is well past the practical undo
+    // window — the only consumer is `relay undo`, which always operates
+    // on the most recent entry.
+    const pruned = db.pruneUndoOlderThan(7);
+    if (pruned > 0) {
+      log(chalk.gray(`· pruned ${pruned} undo_log row(s) older than 7 days`));
+    }
   }
   db.close();
 

@@ -120,6 +120,11 @@ export function pruneMissingRepos(opts: {
     }
 
     // --- execute: physical delete done ---
+    // We deliberately do NOT persist full row snapshots in `inverse` — at
+    // production scale the snapshots dwarfed the rest of the DB (one 56 MB row
+    // is real). Physical deletion of `done` tasks is treated as unrecoverable
+    // from undo's perspective; the IDs are still recorded so redo can re-run
+    // and operators can correlate with logs.
     let deletedCount = 0;
     if (doneTasks.length > 0) {
       const doneIds = doneTasks.map((t) => t.id);
@@ -127,7 +132,7 @@ export function pruneMissingRepos(opts: {
       db.recordUndo({
         op_kind: "prune_delete_done",
         payload: { ids: doneIds },
-        inverse: { tasks: snapshots },
+        inverse: { ids: doneIds, unrecoverable: true },
       });
       deletedCount = snapshots.length;
     }

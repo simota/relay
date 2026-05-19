@@ -157,6 +157,8 @@ INSERT OR IGNORE INTO schema_version (version, applied_at)
   VALUES (4, datetime('now'));
 INSERT OR IGNORE INTO schema_version (version, applied_at)
   VALUES (5, datetime('now'));
+INSERT OR IGNORE INTO schema_version (version, applied_at)
+  VALUES (6, datetime('now'));
 `;
 
 export interface UndoLogRow {

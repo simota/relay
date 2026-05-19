@@ -191,6 +191,15 @@ export class RelayDB {
     this.db.close();
   }
 
+  /**
+   * Reclaim free pages and shrink the on-disk file. `VACUUM` rewrites the
+   * entire database, so callers should hold no other transactions open.
+   * Used by `relay maintain` after large prune operations.
+   */
+  vacuum(): void {
+    this.db.exec("VACUUM");
+  }
+
   // Filesystem-bound source types — these tasks cannot exist meaningfully
   // when the local repo directory is gone. github_issue/pr live on github.com,
   // manual tasks may target remote-only repos, so we leave those alone.
