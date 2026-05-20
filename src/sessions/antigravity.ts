@@ -151,7 +151,11 @@ async function readAntigravityDetail(
     }
   }
 
-  const userMessageCount = entries.filter((e) => e.type === "USER_INPUT").length;
+  // Match the adapter's `messageCount: lines.length` semantics so the list
+  // view (sessions table) and the detail view never show a different number
+  // for the same conversation. Counting only USER_INPUT here would diverge
+  // ~5x on real transcripts.
+  const entryCount = entries.length;
   const title = firstUser ? truncate(firstUser, 160) : "(no prompt)";
   const now = new Date().toISOString();
 
@@ -163,7 +167,7 @@ async function readAntigravityDetail(
     title,
     started_at: startedAt ?? lastActive ?? now,
     last_active: lastActive ?? startedAt ?? now,
-    message_count: userMessageCount,
+    message_count: entryCount,
     todos_count: 0,
   };
 
@@ -189,7 +193,11 @@ function deriveCwdFromTranscript(entries: TranscriptEntry[]): string | null {
 }
 
 function roleOf(entry: TranscriptEntry): SessionMessage["role"] | null {
-  if (entry.type === "USER_INPUT") return "user";
+  // `source === "USER_EXPLICIT"` is the canonical user marker in the
+  // current transcript format; `type === "USER_INPUT"` is a redundant
+  // signal on the same row. Checking both defends against either field
+  // drifting in a future Antigravity CLI release.
+  if (entry.type === "USER_INPUT" || entry.source === "USER_EXPLICIT") return "user";
   if (entry.type === "PLANNER_RESPONSE" || entry.source === "MODEL") return "assistant";
   if (entry.type === "CONVERSATION_HISTORY") return null;
   if (entry.source === "SYSTEM") return "system";
