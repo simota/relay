@@ -364,6 +364,80 @@ export function formatRelative(ts: number, now: number): string {
   return `${Math.floor(diff / 86_400_000)}d`;
 }
 
+// ---------------------------------------------------------------------------
+// Sonar — per-session silence detection
+// ---------------------------------------------------------------------------
+
+export interface SonarEntry {
+  key: string;
+  sessionType: FleetEvent["sessionType"];
+  sessionId: string;
+  repo: string | null;
+  agentId?: string;
+  status: SessionStatus | undefined;
+  /** ms since the most recent event for this session. */
+  silenceMs: number;
+  /** "ended" sessions are excluded from the stalled check by callers. */
+  isEnded: boolean;
+}
+
+// Pull the latest event timestamp per session from the merged feed. Used by
+// the Sonar strip to render a silence bar per session without re-scanning
+// SessionDetail. `events` is expected to be the same merged stream the feed
+// renders (newest-first).
+export function buildSonarEntries(
+  events: readonly FleetEvent[],
+  now: number,
+): SonarEntry[] {
+  const latestByKey = new Map<string, FleetEvent>();
+  for (const e of events) {
+    const key = `${e.sessionType}:${e.sessionId}`;
+    const existing = latestByKey.get(key);
+    if (!existing || e.ts > existing.ts) latestByKey.set(key, e);
+  }
+  const out: SonarEntry[] = [];
+  for (const [key, e] of latestByKey) {
+    out.push({
+      key,
+      sessionType: e.sessionType,
+      sessionId: e.sessionId,
+      repo: e.repo,
+      agentId: e.agentId,
+      status: e.status,
+      silenceMs: Math.max(0, now - e.ts),
+      isEnded: e.status === "ended",
+    });
+  }
+  // Longest silence first so the eye lands on the most-stalled session.
+  out.sort((a, b) => b.silenceMs - a.silenceMs);
+  return out;
+}
+
+// Median of active (non-ended) silences. We use median × 3 as the stalled
+// threshold so a single quiet artifact doesn't drag the cutoff up. Returns
+// 0 when no active sessions are eligible.
+export function silenceMedian(entries: readonly SonarEntry[]): number {
+  const active = entries.filter((e) => !e.isEnded).map((e) => e.silenceMs);
+  if (active.length === 0) return 0;
+  active.sort((a, b) => a - b);
+  const mid = Math.floor(active.length / 2);
+  if (active.length % 2 === 1) return active[mid] ?? 0;
+  return ((active[mid - 1] ?? 0) + (active[mid] ?? 0)) / 2;
+}
+
+export function formatSilence(ms: number): string {
+  if (ms < 1000) return "0s";
+  if (ms < 60_000) return `${Math.floor(ms / 1000)}s`;
+  if (ms < 3_600_000) {
+    const m = Math.floor(ms / 60_000);
+    const s = Math.floor((ms % 60_000) / 1000);
+    return s > 0 && m < 10 ? `${m}m${s}s` : `${m}m`;
+  }
+  const h = Math.floor(ms / 3_600_000);
+  const m = Math.floor((ms % 3_600_000) / 60_000);
+  return m > 0 && h < 10 ? `${h}h${m}m` : `${h}h`;
+}
+
 // Calendar-day bucket key (YYYY-MM-DD in local time). Used to insert
 // day-separator headers in the feed.
 export function dateBucketKey(ts: number): string {

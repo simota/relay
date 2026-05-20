@@ -6,7 +6,11 @@ import type { SessionDetail, SessionSummary } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useSessionDetails } from "../_hooks/use-session-details";
 import {
+  bucketizeLatencies,
   bucketizeMessages,
+  LATENCY_BUCKETS,
+  LATENCY_COLORS,
+  latencyTotal,
   maxBucket,
   normalizeBuckets,
   type PulseRange,
@@ -79,7 +83,12 @@ export function FleetPulseSparklines({
       const buckets = detail
         ? bucketizeMessages(detail.messages, win)
         : new Array(win.bucketCount).fill(0);
-      return { row: r, key, detail, buckets };
+      // Tide stack — per-row response-latency histogram. Empty array
+      // when detail hasn't arrived; downstream treats that as "no data".
+      const latency = detail
+        ? bucketizeLatencies(detail.messages, win)
+        : new Array(LATENCY_BUCKETS.length).fill(0);
+      return { row: r, key, detail, buckets, latency };
     });
     return rows;
   }, [visibleSessions, details, win]);
@@ -146,7 +155,7 @@ export function FleetPulseSparklines({
                 ))}
               </div>
               <div />
-              {bucketRows.map(({ row, key, detail, buckets }) => {
+              {bucketRows.map(({ row, key, detail, buckets, latency }) => {
                 const selected = selectedKeys.has(key);
                 const waiting = row.session.status === "waiting_for_user";
                 const normalized = normalizeBuckets(buckets, sharedMax);
@@ -197,16 +206,19 @@ export function FleetPulseSparklines({
                       disabled={disabled}
                       title={rowTitle(row.session, detail)}
                       className={cn(
-                        "relative h-6 rounded-[2px] border border-transparent",
+                        "relative h-8 rounded-[2px] border border-transparent flex flex-col items-stretch py-0.5 gap-0.5",
                         selected && "ring-1 ring-[var(--color-accent)]",
                         disabled && "cursor-not-allowed",
                       )}
                     >
-                      <Sparkline
-                        normalized={normalized}
-                        color={statusColor(row.session.status)}
-                        loading={isLoading}
-                      />
+                      <span className="relative flex-1 min-h-0">
+                        <Sparkline
+                          normalized={normalized}
+                          color={statusColor(row.session.status)}
+                          loading={isLoading}
+                        />
+                      </span>
+                      <TideStack latency={latency} loading={isLoading} />
                     </button>
                     <span
                       className="self-center text-[var(--color-fg-dim)]"
@@ -225,8 +237,21 @@ export function FleetPulseSparklines({
                 );
               })}
             </div>
-            <div className="mt-3 flex items-center gap-3 text-[10px] text-[var(--color-fg-dim)]">
+            <div className="mt-3 flex items-center gap-3 text-[10px] text-[var(--color-fg-dim)] flex-wrap">
               <span>shared max: {sharedMax || 0} msgs/bucket</span>
+              <span className="inline-flex items-center gap-1.5">
+                <span>tide:</span>
+                {LATENCY_BUCKETS.map((b, i) => (
+                  <span key={b.key} className="inline-flex items-center gap-0.5">
+                    <span
+                      aria-hidden
+                      className="inline-block w-2 h-2 rounded-[1px]"
+                      style={{ background: LATENCY_COLORS[i] }}
+                    />
+                    <span className="tabular">{b.key}</span>
+                  </span>
+                ))}
+              </span>
               <span>click row → open tile</span>
               {hasMore && (
                 <button
@@ -286,6 +311,61 @@ function Sparkline({
           }}
         />
       ))}
+    </span>
+  );
+}
+
+// Tide stack — horizontal stacked bar of user→assistant latency counts.
+// Each segment's width is its share of the row's total, so a session full
+// of <10s replies reads as a green ribbon and one full of long waits as a
+// red one. Drawn underneath the sparkline within the same button cell.
+function TideStack({
+  latency,
+  loading,
+}: {
+  latency: readonly number[];
+  loading: boolean;
+}) {
+  const total = latencyTotal(latency);
+  if (loading) {
+    return (
+      <span
+        aria-hidden
+        className="block h-1.5 rounded-[1px]"
+        style={{
+          background: "var(--color-border)",
+          animation: "relay-skeleton-pulse 1.4s ease-in-out infinite",
+        }}
+      />
+    );
+  }
+  if (total === 0) {
+    // No pairs in window — render an empty rail so the row height stays
+    // consistent with rows that have data.
+    return (
+      <span
+        aria-hidden
+        className="block h-1.5 rounded-[1px]"
+        style={{ background: "var(--color-border)", opacity: 0.35 }}
+      />
+    );
+  }
+  return (
+    <span aria-hidden className="flex h-1.5 rounded-[1px] overflow-hidden">
+      {latency.map((v, i) => {
+        if (v === 0) return null;
+        const pct = (v / total) * 100;
+        return (
+          <span
+            key={i}
+            className="block h-full"
+            style={{
+              width: `${pct}%`,
+              background: LATENCY_COLORS[i] ?? "var(--color-border)",
+            }}
+          />
+        );
+      })}
     </span>
   );
 }

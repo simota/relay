@@ -20,13 +20,17 @@ import {
   buildDetailEvents,
   buildFeedRows,
   buildHueMap,
+  buildSonarEntries,
   dateBucketKey,
   dateBucketLabel,
   type FeedRow,
   type FleetEvent,
   type FleetEventKind,
   formatRelative,
+  formatSilence,
   hueForSession,
+  silenceMedian,
+  type SonarEntry,
 } from "../_lib/fleet-activity";
 import { sessionKey, statusColor } from "../_lib/fleet-timeline";
 import type { TileSpec } from "../_types";
@@ -80,6 +84,27 @@ export function FleetActivityFeed({
   );
   const hueMap = useMemo(() => buildHueMap(sessions), [sessions]);
   const rows = useMemo(() => buildFeedRows(events), [events]);
+
+  // Sonar — per-session silence (now - last event ts). Re-derived on each
+  // `now` tick so the strip animates without a separate timer. Repo filter
+  // applies so the strip mirrors what the feed is showing.
+  const sonarEntries = useMemo(() => {
+    const filtered = repoFilter
+      ? events.filter((e) => e.repo === repoFilter)
+      : events;
+    return buildSonarEntries(filtered, now);
+  }, [events, repoFilter, now]);
+  const sonarMedian = useMemo(
+    () => silenceMedian(sonarEntries),
+    [sonarEntries],
+  );
+  // Stalled = active (non-ended) sessions whose silence exceeds median × 3,
+  // with a 30s floor so an empty fleet doesn't pulse on every blink.
+  const sonarThreshold = Math.max(sonarMedian * 3, 30_000);
+  const sonarMaxSilence = sonarEntries.reduce(
+    (m, e) => (e.silenceMs > m ? e.silenceMs : m),
+    0,
+  );
 
   const repos = useMemo(() => {
     const set = new Set<string>();
@@ -209,6 +234,17 @@ export function FleetActivityFeed({
             );
           })}
         </div>
+        {sonarEntries.length > 0 && (
+          <SonarStrip
+            entries={sonarEntries}
+            hueMap={hueMap}
+            maxSilence={sonarMaxSilence}
+            threshold={sonarThreshold}
+            selectedKeys={selectedKeys}
+            canAdd={canAdd}
+            onPickSession={onPickSession}
+          />
+        )}
       </div>
 
       {/* Body */}
@@ -524,6 +560,105 @@ function StreamPill({
       />
       {label}
     </span>
+  );
+}
+
+// Sonar — horizontal strip below the filters that surfaces per-session
+// silence. Each chip is a tall thin bar whose height is silence / max; the
+// hue ribbon and label below identify the session. Bars whose silence
+// exceeds median × 3 pulse and turn warning-colored so a stalled session
+// pops without the user having to scroll the feed.
+function SonarStrip({
+  entries,
+  hueMap,
+  maxSilence,
+  threshold,
+  selectedKeys,
+  canAdd,
+  onPickSession,
+}: {
+  entries: readonly SonarEntry[];
+  hueMap: ReadonlyMap<string, number>;
+  maxSilence: number;
+  threshold: number;
+  selectedKeys: ReadonlySet<string>;
+  canAdd: boolean;
+  onPickSession: (spec: TileSpec) => void;
+}) {
+  // Cap how many sessions render so a fleet of 30+ doesn't blow out the
+  // header. Longest silences are already at the front (buildSonarEntries
+  // sorted them), so slicing keeps the most interesting ones.
+  const VISIBLE = 16;
+  const shown = entries.slice(0, VISIBLE);
+  const hidden = entries.length - shown.length;
+  return (
+    <div className="px-6 pb-1.5 pt-0.5 flex items-end gap-1.5 overflow-x-auto border-t border-[var(--color-border)]/40">
+      <span className="text-[9.5px] font-mono uppercase tracking-wide text-[var(--color-fg-dim)] pr-1 pb-2 self-end">
+        sonar
+      </span>
+      {shown.map((e) => {
+        const hue = hueForSession(hueMap, e.sessionType, e.sessionId);
+        const stalled = !e.isEnded && e.silenceMs >= threshold;
+        const selected = selectedKeys.has(e.key);
+        const ratio = maxSilence > 0 ? e.silenceMs / maxSilence : 0;
+        // Floor at 8% so even short silences render as a visible nub.
+        const barHeight = Math.max(0.08, ratio) * 100;
+        const tile: TileSpec = { type: e.sessionType, id: e.sessionId };
+        const clickable = selected || canAdd;
+        return (
+          <button
+            key={e.key}
+            type="button"
+            disabled={!clickable}
+            onClick={() => onPickSession(tile)}
+            title={`${e.sessionType}/${e.repo ?? "—"}${e.agentId ? ` · ${e.agentId}` : ""}\nsilence: ${formatSilence(e.silenceMs)}${stalled ? "  (stalled · ≥ median × 3)" : ""}`}
+            className={cn(
+              "flex flex-col items-center gap-0.5 px-0.5 py-0.5 rounded-[var(--radius-sm)]",
+              clickable
+                ? "hover:bg-[var(--color-border)]/30 cursor-pointer"
+                : "opacity-70 cursor-default",
+              selected && "ring-1 ring-[var(--color-accent)]",
+            )}
+          >
+            <span
+              aria-hidden
+              className="relative w-1.5 h-6 rounded-full overflow-hidden bg-[var(--color-border)]/40"
+            >
+              <span
+                className={cn(
+                  "absolute bottom-0 left-0 right-0 rounded-full",
+                  stalled && "relay-pulse-strong",
+                )}
+                style={{
+                  height: `${barHeight}%`,
+                  background: stalled
+                    ? "var(--color-warn,#d97706)"
+                    : e.isEnded
+                      ? `hsl(${hue}, 25%, 45%)`
+                      : `hsl(${hue}, 65%, 55%)`,
+                  opacity: e.isEnded ? 0.55 : 1,
+                }}
+              />
+            </span>
+            <span
+              className={cn(
+                "text-[9px] font-mono tabular leading-none",
+                stalled
+                  ? "text-[var(--color-warn,#d97706)]"
+                  : "text-[var(--color-fg-dim)]",
+              )}
+            >
+              {formatSilence(e.silenceMs)}
+            </span>
+          </button>
+        );
+      })}
+      {hidden > 0 && (
+        <span className="text-[10px] font-mono text-[var(--color-fg-dim)] pl-1 pb-2 self-end">
+          +{hidden}
+        </span>
+      )}
+    </div>
   );
 }
 
