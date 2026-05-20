@@ -4,6 +4,7 @@ import { streamSSE } from "hono/streaming";
 import { loadConfig, resolveScanRoots } from "../config.js";
 import { RelayDB } from "../db/client.js";
 import { scanClaudeSessionsLive } from "../lib/session-live-scan.js";
+import { refreshLastActiveByMtime } from "../lib/session-touch-refresh.js";
 import { getSession, getSessionPath } from "../sessions/index.js";
 import type { SessionDetail } from "../sessions/types.js";
 import type { SessionRow, SessionStatus, SessionType } from "../types.js";
@@ -145,6 +146,16 @@ export function createSessionsApi() {
         if (closed) return;
         const db = new RelayDB();
         try {
+          // Cheap freshness pass: stat each session's source file and bump
+          // last_active when the cached value lags the on-disk mtime. Lets
+          // Codex/Antigravity/Claude sessions appear to update in real time
+          // between full `relay sync` runs — without this, the SSE poll
+          // would only ever surface the same cached snapshot until sync.
+          await refreshLastActiveByMtime(db, {
+            types: opts.typeFilter ? [opts.typeFilter] : DEFAULT_LIST_TYPES,
+            sinceLastActive: opts.parent ? undefined : isoCutoff(opts.lookbackDays),
+            includeSubagents: opts.includeSubagents || !!opts.parent,
+          });
           const items = collectSessionListItems(db, opts);
           const json = JSON.stringify(items);
           if (json === lastJson && eventName === "update") return;
