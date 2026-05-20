@@ -667,6 +667,7 @@ mark.fuzz {
   }
 }
 
+
 /* Focus rings (Tailwind-friendly) */
 .ring-focus:focus-visible {
   outline: none;
