@@ -382,6 +382,19 @@ function MessageWindow({
   // dissolving behind".
   const op = hovered ? 1 : disabled ? Math.min(0.5, point.opacity) : point.opacity;
 
+  // Fresh / hovered cards force themselves to the top of the transparent
+  // draw queue so the swim-drift never lets an older card occlude a brand
+  // new one. Within the fresh pool, newer messages render last (= on top)
+  // so a burst of arrivals stacks in chronological order rather than
+  // depending on three.js' camera-distance sort. three.js' `renderOrder`
+  // does not propagate through Group, so it is stamped on every leaf
+  // (mesh / lineSegments / Text) below.
+  const renderOrder = hovered
+    ? Number.MAX_SAFE_INTEGER
+    : point.isFresh
+      ? Math.floor(point.ts / 1000)
+      : 0;
+
   return (
     <group
       ref={groupRef}
@@ -403,7 +416,7 @@ function MessageWindow({
               that fades within ~540ms of mount. Reads as "a card just
               materialized here" even when the card itself is small. */}
           {entryFade > 0.01 && (
-            <mesh position={[0, 0, -0.015]}>
+            <mesh position={[0, 0, -0.015]} renderOrder={renderOrder}>
               <planeGeometry args={[W * 2.1, H * 2.1]} />
               <meshBasicMaterial
                 color="white"
@@ -417,7 +430,7 @@ function MessageWindow({
           {/* Card body — neutral off-white normally, tinted hue when
               fresh so the message reads as "alive" through color rather
               than animation. */}
-          <mesh>
+          <mesh renderOrder={renderOrder}>
             <planeGeometry args={[W, H]} />
             <meshBasicMaterial
               color={cardBg}
@@ -428,7 +441,10 @@ function MessageWindow({
             />
           </mesh>
           {/* Header bar */}
-          <mesh position={[0, H / 2 - HEADER_H / 2, 0.001]}>
+          <mesh
+            position={[0, H / 2 - HEADER_H / 2, 0.001]}
+            renderOrder={renderOrder}
+          >
             <planeGeometry args={[W, HEADER_H]} />
             <meshBasicMaterial
               color={headerColor}
@@ -440,7 +456,7 @@ function MessageWindow({
           </mesh>
           {/* Subtle outer outline so cards read as distinct slabs even
               when packed close together. */}
-          <lineSegments position={[0, 0, 0.0005]}>
+          <lineSegments position={[0, 0, 0.0005]} renderOrder={renderOrder}>
             <edgesGeometry args={[new THREE.PlaneGeometry(W, H)]} />
             <lineBasicMaterial
               color={selected ? "#7dd3fc" : "#222"}
@@ -453,7 +469,10 @@ function MessageWindow({
               here) so it provides a steady "this is new" marker while
               the white halo behind it does the blinking. */}
           {point.isFresh && (
-            <lineSegments position={[0, 0, 0.0007]}>
+            <lineSegments
+              position={[0, 0, 0.0007]}
+              renderOrder={renderOrder}
+            >
               <edgesGeometry args={[new THREE.PlaneGeometry(W + 0.06, H + 0.06)]} />
               <lineBasicMaterial
                 color="#fcd34d"
@@ -474,6 +493,7 @@ function MessageWindow({
             maxWidth={W * 0.32}
             outlineWidth={0}
             overflowWrap="normal"
+            renderOrder={renderOrder}
           >
             {`▣ ${kindLabel}`}
             <meshBasicMaterial
@@ -492,6 +512,7 @@ function MessageWindow({
             fontSize={0.28}
             maxWidth={W * 0.66}
             overflowWrap="normal"
+            renderOrder={renderOrder}
           >
             {headerRight}
             <meshBasicMaterial
@@ -515,6 +536,7 @@ function MessageWindow({
             lineHeight={1.3}
             textAlign="left"
             overflowWrap="break-word"
+            renderOrder={renderOrder}
           >
             {body}
             <meshBasicMaterial
