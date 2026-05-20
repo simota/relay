@@ -39,10 +39,20 @@ export function FleetCosmos3D({
   const details = useSessionDetails(sessions);
 
   const [now, setNow] = useState(() => Date.now());
+  // Idle drift: refresh `now` every 30s so old cards keep sliding
+  // backward even when no new sessions arrive.
   useEffect(() => {
     const handle = setInterval(() => setNow(Date.now()), NOW_TICK_MS);
     return () => clearInterval(handle);
   }, []);
+  // Event-driven refresh: whenever the SSE stream pushes new sessions
+  // or `useSessionDetails` lands a fresh detail, snap `now` to wall
+  // clock. The cosmos recomputes Z immediately so the newest message
+  // jumps to the front and the rest of the scene gets pushed back as
+  // one cohesive shift.
+  useEffect(() => {
+    setNow(Date.now());
+  }, [sessions, details]);
 
   const cosmos = useMemo<Cosmos | null>(() => {
     if (sessions.length === 0) return null;
