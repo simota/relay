@@ -3,8 +3,9 @@
 import { Billboard, OrbitControls, Sparkles, Text } from "@react-three/drei";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { Bloom, EffectComposer } from "@react-three/postprocessing";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
+import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import { cn } from "@/lib/utils";
 import { useSessionDetails } from "../_hooks/use-session-details";
 import {
@@ -60,6 +61,13 @@ export function FleetCosmos3D({
   }, [sessions, details, now]);
 
   const [hover, setHover] = useState<MessagePoint | null>(null);
+  const controlsRef = useRef<OrbitControlsImpl | null>(null);
+  const resetCamera = useCallback(() => {
+    // OrbitControls.reset() snaps camera position + target back to the
+    // saved initial state (set during the controls' first render). Cheap
+    // and doesn't fight any in-flight damping.
+    controlsRef.current?.reset();
+  }, []);
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
@@ -67,7 +75,14 @@ export function FleetCosmos3D({
         <span>{cosmos?.points.length ?? 0} messages</span>
         <span>last 6h</span>
         <StreamPill status={streamStatus} />
-        <span className="ml-auto text-[10px]">
+        <button
+          type="button"
+          onClick={resetCamera}
+          className="ml-auto px-2 h-5 rounded-[var(--radius-sm)] border border-[var(--color-border)] hover:text-[var(--color-fg)] hover:border-[var(--color-fg-muted)] transition-colors"
+        >
+          reset view
+        </button>
+        <span className="text-[10px]">
           drag: orbit · wheel: zoom · click: open
         </span>
       </div>
@@ -116,6 +131,7 @@ export function FleetCosmos3D({
               color={0xb6ccff}
             />
             <OrbitControls
+              ref={controlsRef}
               enablePan
               enableRotate
               enableZoom
