@@ -3,6 +3,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { resolveRepoForCwd } from "../lib/repo-from-cwd.js";
+import { detectAntigravitySessionStatus } from "../lib/session-status.js";
 import type {
   SessionDetail,
   SessionMessage,
@@ -12,6 +13,13 @@ import type {
 
 const BRAIN_ROOT = join(homedir(), ".gemini", "antigravity-cli", "brain");
 const HISTORY_PATH = join(homedir(), ".gemini", "antigravity-cli", "history.jsonl");
+const LAST_CONVERSATIONS_PATH = join(
+  homedir(),
+  ".gemini",
+  "antigravity-cli",
+  "cache",
+  "last_conversations.json",
+);
 
 /**
  * Resolve a single Antigravity CLI session by conversation id. The
@@ -49,25 +57,47 @@ function transcriptPathFor(id: string): string {
 }
 
 async function loadConversationWorkspaceMap(): Promise<Map<string, string>> {
+  // Mirrors the adapter's two-source merge (see
+  // `src/adapters/antigravity-session.ts`): history.jsonl is the primary
+  // source but skips single-prompt conversations, so we fall back to
+  // `cache/last_conversations.json` for the latest conversation per
+  // workspace. Keeping the resolution logic identical here means the SSE
+  // detail endpoint shows the same repo as the list view.
   const map = new Map<string, string>();
+
   const text = await readFile(HISTORY_PATH, "utf8").catch(() => "");
-  if (!text) return map;
-  for (const line of text.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    let entry: unknown;
-    try {
-      entry = JSON.parse(trimmed);
-    } catch {
-      continue;
+  if (text) {
+    for (const line of text.split("\n")) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      let entry: unknown;
+      try {
+        entry = JSON.parse(trimmed);
+      } catch {
+        continue;
+      }
+      if (!entry || typeof entry !== "object") continue;
+      const obj = entry as Record<string, unknown>;
+      const id = typeof obj.conversationId === "string" ? obj.conversationId : null;
+      const workspace = typeof obj.workspace === "string" ? obj.workspace : null;
+      if (!id || !workspace) continue;
+      if (!map.has(id)) map.set(id, workspace);
     }
-    if (!entry || typeof entry !== "object") continue;
-    const obj = entry as Record<string, unknown>;
-    const id = typeof obj.conversationId === "string" ? obj.conversationId : null;
-    const workspace = typeof obj.workspace === "string" ? obj.workspace : null;
-    if (!id || !workspace) continue;
-    if (!map.has(id)) map.set(id, workspace);
   }
+
+  const cacheText = await readFile(LAST_CONVERSATIONS_PATH, "utf8").catch(() => "");
+  if (cacheText) {
+    try {
+      const parsed = JSON.parse(cacheText) as Record<string, unknown>;
+      for (const [workspace, id] of Object.entries(parsed)) {
+        if (typeof id !== "string" || typeof workspace !== "string") continue;
+        if (!map.has(id)) map.set(id, workspace);
+      }
+    } catch {
+      // Corrupt cache — primary source still works.
+    }
+  }
+
   return map;
 }
 
@@ -158,6 +188,9 @@ async function readAntigravityDetail(
   const entryCount = entries.length;
   const title = firstUser ? truncate(firstUser, 160) : "(no prompt)";
   const now = new Date().toISOString();
+  // Live status detection — re-runs on each SSE detail tick so the UI flips
+  // to active/ended without waiting for the next sync.
+  const status = detectAntigravitySessionStatus(text);
 
   const summary: SessionSummary = {
     type: "antigravity",
@@ -169,6 +202,7 @@ async function readAntigravityDetail(
     last_active: lastActive ?? startedAt ?? now,
     message_count: entryCount,
     todos_count: 0,
+    status,
   };
 
   return {

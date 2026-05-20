@@ -9,7 +9,8 @@ import {
   toSessionRow,
   truncate,
 } from "../lib/session-helpers.js";
-import type { Adapter, AdapterContext, TaskInput } from "../types.js";
+import { detectAntigravitySessionStatus } from "../lib/session-status.js";
+import type { Adapter, AdapterContext, SessionStatus, TaskInput } from "../types.js";
 
 /**
  * Scans ~/.gemini/antigravity-cli/brain/<conversationId>/.system_generated/
@@ -43,6 +44,12 @@ interface AntigravityParsed {
    * transcript has no extractable message body yet.
    */
   lastMessageText: string | null;
+  /**
+   * Lifecycle status derived from the transcript tail. Antigravity ships a
+   * per-entry `status` field so the heuristic is simpler than Claude/Codex
+   * (see `detectAntigravitySessionStatus`).
+   */
+  status: SessionStatus;
 }
 
 interface TranscriptEntry {
@@ -163,6 +170,7 @@ export const antigravitySessionAdapter: Adapter = {
               sourcePath: c.transcriptPath,
               lastMessageText: parsed.lastMessageText,
               title: titleForRow,
+              status: parsed.status,
             }),
           );
         } catch (err) {
@@ -178,33 +186,65 @@ export const antigravitySessionAdapter: Adapter = {
 };
 
 /**
- * Read ~/.gemini/antigravity-cli/history.jsonl line by line and build a
- * `conversationId → workspace path` map. Only events with a non-empty
- * `conversationId` contribute; the first user-input line for a fresh
- * conversation usually lacks the id (it's assigned by the CLI after the
- * first round-trip), so we keep walking and accept the first event that
- * does carry the id.
+ * Build a `conversationId → workspace path` map by merging two Antigravity
+ * sources:
+ *
+ *   1. Primary: `~/.gemini/antigravity-cli/history.jsonl`. One line per
+ *      prompt; the first prompt of a conversation is flushed *before* the
+ *      CLI assigns a conversationId, so single-prompt conversations never
+ *      get an id-carrying row here. Multi-prompt conversations do.
+ *   2. Fallback: `~/.gemini/antigravity-cli/cache/last_conversations.json`,
+ *      a `{workspace: conversationId}` object holding the *latest*
+ *      conversation per workspace. Covers the single-prompt case the
+ *      primary source misses, but does not back-fill older conversations
+ *      that shared a workspace (only one id per workspace key).
+ *
+ * Primary wins on conflict so deliberate workspace overrides in
+ * history.jsonl are preserved.
  */
 async function loadConversationWorkspaceMap(path: string): Promise<Map<string, string>> {
   const map = new Map<string, string>();
+
   const text = await readFile(path, "utf8").catch(() => "");
-  if (!text) return map;
-  for (const line of text.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    let entry: unknown;
-    try {
-      entry = JSON.parse(trimmed);
-    } catch {
-      continue;
+  if (text) {
+    for (const line of text.split("\n")) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      let entry: unknown;
+      try {
+        entry = JSON.parse(trimmed);
+      } catch {
+        continue;
+      }
+      if (!entry || typeof entry !== "object") continue;
+      const obj = entry as Record<string, unknown>;
+      const id = typeof obj.conversationId === "string" ? obj.conversationId : null;
+      const workspace = typeof obj.workspace === "string" ? obj.workspace : null;
+      if (!id || !workspace) continue;
+      if (!map.has(id)) map.set(id, workspace);
     }
-    if (!entry || typeof entry !== "object") continue;
-    const obj = entry as Record<string, unknown>;
-    const id = typeof obj.conversationId === "string" ? obj.conversationId : null;
-    const workspace = typeof obj.workspace === "string" ? obj.workspace : null;
-    if (!id || !workspace) continue;
-    if (!map.has(id)) map.set(id, workspace);
   }
+
+  const cachePath = join(
+    homedir(),
+    ".gemini",
+    "antigravity-cli",
+    "cache",
+    "last_conversations.json",
+  );
+  const cacheText = await readFile(cachePath, "utf8").catch(() => "");
+  if (cacheText) {
+    try {
+      const parsed = JSON.parse(cacheText) as Record<string, unknown>;
+      for (const [workspace, id] of Object.entries(parsed)) {
+        if (typeof id !== "string" || typeof workspace !== "string") continue;
+        if (!map.has(id)) map.set(id, workspace);
+      }
+    } catch {
+      // Corrupt cache — primary source still works, so swallow.
+    }
+  }
+
   return map;
 }
 
@@ -218,6 +258,7 @@ async function parseAntigravityTranscript(
     lastTranscriptAt: null,
     messageCount: 0,
     lastMessageText: null,
+    status: "idle",
   };
   const text = await readFile(path, "utf8").catch(() => "");
   if (!text) return empty;
@@ -267,12 +308,17 @@ async function parseAntigravityTranscript(
     }
   }
 
+  // Status detection reuses the same text we just walked — one readFile,
+  // one status pass. Symmetric with the Claude / Codex adapters.
+  const status = detectAntigravitySessionStatus(text);
+
   return {
     conversationId,
     firstUserMessage,
     lastTranscriptAt,
     messageCount: lines.length,
     lastMessageText,
+    status,
   };
 }
 
