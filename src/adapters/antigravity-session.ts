@@ -144,6 +144,13 @@ export const antigravitySessionAdapter: Adapter = {
         try {
           const mtimeIso = new Date(c.mtimeMs).toISOString();
           const lastActiveIso = parsed.lastTranscriptAt ?? mtimeIso;
+          // Persist the first-user-message as the session title so the list
+          // view shows the prompt even when cwd resolution failed (subagents,
+          // cwd-less conversations). Null when no prompt was extractable —
+          // API falls back to cwd basename → `(no prompt)`.
+          const titleForRow = parsed.firstUserMessage
+            ? truncate(parsed.firstUserMessage, 240)
+            : null;
           ctx.db.upsertSession(
             toSessionRow({
               id: parsed.conversationId,
@@ -155,6 +162,7 @@ export const antigravitySessionAdapter: Adapter = {
               messageCount: parsed.messageCount,
               sourcePath: c.transcriptPath,
               lastMessageText: parsed.lastMessageText,
+              title: titleForRow,
             }),
           );
         } catch (err) {

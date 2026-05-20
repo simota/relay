@@ -424,8 +424,8 @@ export function upsertSession(db: Database, row: SessionRow): void {
     .prepare(
       `INSERT INTO sessions (
          id, type, repo, cwd, started_at, last_active, message_count,
-         parent_session_id, source_path, sha, status, last_message_text
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         parent_session_id, source_path, sha, status, last_message_text, title
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(type, id) DO UPDATE SET
          repo              = excluded.repo,
          cwd               = excluded.cwd,
@@ -435,7 +435,8 @@ export function upsertSession(db: Database, row: SessionRow): void {
          source_path       = excluded.source_path,
          sha               = excluded.sha,
          status            = excluded.status,
-         last_message_text = excluded.last_message_text`,
+         last_message_text = excluded.last_message_text,
+         title             = COALESCE(excluded.title, sessions.title)`,
     )
     .run(
       row.id,
@@ -450,6 +451,7 @@ export function upsertSession(db: Database, row: SessionRow): void {
       row.sha,
       row.status,
       row.last_message_text,
+      row.title,
     );
 }
 
@@ -489,7 +491,8 @@ export function getSessions(
   const rows = db
     .prepare(
       `SELECT id, type, repo, cwd, started_at, last_active, message_count,
-              parent_session_id, source_path, sha, status, last_message_text
+              parent_session_id, source_path, sha, status, last_message_text,
+              title
          FROM sessions
          ${whereSql}
          ORDER BY last_active DESC
@@ -508,6 +511,7 @@ export function getSessions(
     sha: string | null;
     status: string;
     last_message_text: string | null;
+    title: string | null;
   }>;
   return rows.map((r) => ({
     id: r.id,
@@ -522,6 +526,7 @@ export function getSessions(
     sha: r.sha,
     status: r.status as SessionRow["status"],
     last_message_text: r.last_message_text,
+    title: r.title,
   }));
 }
 
@@ -533,7 +538,8 @@ export function getSessionByTypeId(
   const row = db
     .prepare(
       `SELECT id, type, repo, cwd, started_at, last_active, message_count,
-              parent_session_id, source_path, sha, status, last_message_text
+              parent_session_id, source_path, sha, status, last_message_text,
+              title
          FROM sessions
          WHERE type = ? AND id = ?
          LIMIT 1`,
@@ -552,6 +558,7 @@ export function getSessionByTypeId(
         sha: string | null;
         status: string;
         last_message_text: string | null;
+        title: string | null;
       }
     | undefined;
   if (!row) return null;
@@ -568,6 +575,7 @@ export function getSessionByTypeId(
     sha: row.sha,
     status: row.status as SessionRow["status"],
     last_message_text: row.last_message_text,
+    title: row.title,
   };
 }
 

@@ -205,7 +205,10 @@ export function createSessionsApi() {
           id: r.id,
           repo: r.repo ?? existing?.repo ?? null,
           cwd: r.cwd ?? existing?.cwd ?? null,
-          title: deriveTitleFromCwd(r.cwd ?? existing?.cwd ?? null),
+          title:
+            existing?.title && existing.title.length > 0
+              ? existing.title
+              : deriveTitleFromCwd(r.cwd ?? existing?.cwd ?? null),
           started_at: existing?.started_at ?? r.last_active,
           last_active: r.last_active,
           message_count: r.message_count,
@@ -469,6 +472,10 @@ function rowToListItem(
 }
 
 function deriveTitle(row: SessionRow): string {
+  // Schema v8: adapter writes the first-user-message into sessions.title.
+  // Prefer it whenever populated; the cwd basename fallback exists only for
+  // pre-v8 rows and for adapters that don't fill the field yet.
+  if (row.title && row.title.length > 0) return row.title;
   return deriveTitleFromCwd(row.cwd);
 }
 

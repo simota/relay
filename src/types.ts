@@ -90,6 +90,11 @@ export const SessionRow = z.object({
   // list-view responses small. Null when the adapter can't cheaply extract
   // one (e.g. cursor chat protobuf blobs).
   last_message_text: z.string().nullable().default(null),
+  // Per-session display title (truncated to ~240 chars). Lets the list view
+  // surface the first user prompt for sessions whose cwd resolution failed
+  // (subagents, cwd-less conversations). Null when the adapter cannot
+  // extract one; the API falls back to cwd basename → `(no prompt)`.
+  title: z.string().nullable().default(null),
 });
 export type SessionRow = z.infer<typeof SessionRow>;
 

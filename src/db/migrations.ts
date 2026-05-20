@@ -47,6 +47,13 @@ export function runColumnMigrations(db: Database): void {
     db.exec(`ALTER TABLE sessions ADD COLUMN last_message_text TEXT`);
   }
 
+  // schema_version 8: sessions.title. Nullable; pre-v8 rows surface as NULL
+  // until the next sync repopulates them. API layer falls back to
+  // cwd basename → `(no prompt)` when title is NULL.
+  if (sessionCols.length > 0 && !sessionCols.some((c) => c.name === "title")) {
+    db.exec(`ALTER TABLE sessions ADD COLUMN title TEXT`);
+  }
+
   // schema_version 6: shrink undo_log's `prune_delete_done` rows. Pre-v6
   // producers serialised full Task snapshots into `inverse.tasks`, which at
   // production scale ballooned undo_log past 400 MB (one row reached 56 MB).

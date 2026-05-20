@@ -1,4 +1,4 @@
--- relay storage schema v7
+-- relay storage schema v8
 
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
@@ -143,6 +143,12 @@ CREATE TABLE IF NOT EXISTS sessions (
   -- cheaply extract one (e.g. cursor chat protobuf blobs). Powers the
   -- "最終メッセージ" column on the session list.
   last_message_text  TEXT,
+  -- title: schema v8. Per-session display title (truncated to ~240 chars)
+  -- so the list view shows the first user prompt even when cwd-based
+  -- fallback would yield `(no prompt)` (typical for subagent / cwd-less
+  -- conversations). NULL when the adapter cannot extract one; the API
+  -- layer falls back to cwd basename → `(no prompt)` in that order.
+  title              TEXT,
   PRIMARY KEY (type, id)
 );
 
@@ -164,3 +170,5 @@ INSERT OR IGNORE INTO schema_version (version, applied_at)
   VALUES (6, datetime('now'));
 INSERT OR IGNORE INTO schema_version (version, applied_at)
   VALUES (7, datetime('now'));
+INSERT OR IGNORE INTO schema_version (version, applied_at)
+  VALUES (8, datetime('now'));
