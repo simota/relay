@@ -59,6 +59,7 @@ export function SessionTileView({
   onReplaceTile,
   onAddSubagents,
   currentTileCount,
+  forceCompact,
 }: {
   data: SessionDetail;
   streamStatus: StreamStatus;
@@ -68,6 +69,7 @@ export function SessionTileView({
   onReplaceTile: (index: number, spec: TileSpec) => void;
   onAddSubagents: (agentIds: string[], type: SessionType) => void;
   currentTileCount: number;
+  forceCompact: boolean;
 }) {
   const [tab, setTab] = useState<
     | "messages"
@@ -86,9 +88,10 @@ export function SessionTileView({
   // it into view. Cleared once the scroll has been attempted.
   const [pendingJumpKey, setPendingJumpKey] = useState<string | null>(null);
 
-  // Compact layout kicks in when the board hosts 4+ tiles — shrink header,
-  // metadata, and chrome so the message body stays readable in a 3×2 grid.
-  const compact = currentTileCount >= 4;
+  // Compact layout is resolved in SessionsBoard from a tri-state preference
+  // (explicit user toggle wins; otherwise auto-on at the 4-tile / 3×2-grid
+  // threshold). By this point it's a flat boolean.
+  const compact = forceCompact;
 
   const stats = useMemo(() => computeStats(data.messages), [data.messages]);
   const duration = useMemo(
@@ -386,10 +389,10 @@ export function SessionTileView({
             )}
           </div>
         )}
-        {data.messages.length > 1 && (
+        {!compact && data.messages.length > 1 && (
           <CadenceHeatmap data={data} compact={compact} />
         )}
-        {(data.messages.length > 1 || data.tool_calls.length > 0) && (
+        {!compact && (data.messages.length > 1 || data.tool_calls.length > 0) && (
           <StatusRibbon data={data} compact={compact} />
         )}
       </div>
@@ -537,8 +540,8 @@ export function SessionTileView({
       <div className={cn("flex-1 min-h-0 overflow-y-auto", compact ? "px-3" : "px-4")}>
         {tab === "messages" && (
           <>
-            {data.messages.length > 1 && (
-              <div className={cn(compact ? "pt-2" : "pt-3")}>
+            {!compact && data.messages.length > 1 && (
+              <div className="pt-3">
                 <MessageLengthStrip messages={data.messages} compact={compact} />
               </div>
             )}

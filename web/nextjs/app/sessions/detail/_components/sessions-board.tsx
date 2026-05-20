@@ -1,9 +1,9 @@
 "use client";
 
-import { LayoutGrid, Radar } from "lucide-react";
+import { LayoutGrid, Minimize2, Maximize2, Radar } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { SessionType } from "@/lib/api";
 import { c } from "@/lib/copy";
 import { cn } from "@/lib/utils";
@@ -26,6 +26,44 @@ function parseFleetSubview(params: URLSearchParams): FleetSubview {
   if (v === "cosmos") return "cosmos";
   return "feed";
 }
+
+// User-controlled compact toggle: maximizes the message list area by shrinking
+// the per-tile header, metadata, ribbon, and chrome. Tri-state preference:
+//   null  → no explicit user choice; fall back to "auto-compact when tileCount
+//           >= 4" so the 5–6 tile (3×2) board renders compact by default.
+//   true  → user explicitly opted in.
+//   false → user explicitly opted out (overrides the auto-compact threshold).
+// Persisted in localStorage only after a toggle interaction so we can tell
+// "never touched" from "explicitly off".
+const COMPACT_STORAGE_KEY = "relay.sessions.detail.compact";
+
+function readCompactPref(): boolean | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const v = window.localStorage.getItem(COMPACT_STORAGE_KEY);
+    if (v === "1") return true;
+    if (v === "0") return false;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function writeCompactPref(v: boolean): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(COMPACT_STORAGE_KEY, v ? "1" : "0");
+  } catch {
+    // localStorage may be disabled (Safari private mode etc.). Falling
+    // through is fine — the toggle still works for this session.
+  }
+}
+
+// Tile count at which the board flips to a 3×2 grid; each tile loses ~half
+// of its width and the per-tile chrome (header, metadata, ribbon) starts to
+// wrap onto a second row. Treat this as the auto-compact threshold so users
+// land on a tight layout by default for those grids.
+const AUTO_COMPACT_TILE_THRESHOLD = 4;
 
 // ---------------------------------------------------------------------------
 // SessionsBoard — URL parsing, tile list management, layout
@@ -103,6 +141,25 @@ export function SessionsBoard() {
   const topView = parseTopView(params);
   const fleetSubview = parseFleetSubview(params);
 
+  // compactPref = user's explicit preference (null = never touched). SSR-safe:
+  // starts null on first render, then hydrates from localStorage on mount so
+  // the server and first client paint match.
+  const [compactPref, setCompactPref] = useState<boolean | null>(null);
+  useEffect(() => {
+    setCompactPref(readCompactPref());
+  }, []);
+  // effectiveCompact resolves the tri-state: explicit user choice wins;
+  // otherwise auto-compact when the board would render a 3×2 grid.
+  const effectiveCompact =
+    compactPref ?? tileCount >= AUTO_COMPACT_TILE_THRESHOLD;
+  const toggleCompact = useCallback(() => {
+    // Flip relative to the *displayed* state so the click always inverts
+    // what the user sees, regardless of whether that came from auto or pref.
+    const next = !effectiveCompact;
+    setCompactPref(next);
+    writeCompactPref(next);
+  }, [effectiveCompact]);
+
   const goTopView = useCallback(
     (v: TopView) => {
       const next = new URLSearchParams(params.toString());
@@ -156,8 +213,33 @@ export function SessionsBoard() {
             </Link>
           </>
         )}
+        {topView === "board" && (
+          <button
+            type="button"
+            onClick={toggleCompact}
+            aria-pressed={effectiveCompact}
+            title={
+              effectiveCompact
+                ? "expand tile chrome (show full header / metadata)"
+                : "collapse tile chrome to maximize messages"
+            }
+            className={cn(
+              "ml-auto inline-flex items-center gap-1 px-2 h-6 rounded-[var(--radius-sm)] border text-[11px] font-mono transition-colors",
+              effectiveCompact
+                ? "border-[var(--color-accent)] text-[var(--color-accent)]"
+                : "border-[var(--color-border)] text-[var(--color-fg-muted)] hover:text-[var(--color-fg)]",
+            )}
+          >
+            {effectiveCompact ? (
+              <Maximize2 className="w-3 h-3" aria-hidden />
+            ) : (
+              <Minimize2 className="w-3 h-3" aria-hidden />
+            )}
+            <span>{effectiveCompact ? "compact" : "compact off"}</span>
+          </button>
+        )}
         {topView === "board" && tileCount > 0 && (
-          <span className="ml-auto text-[11px] font-mono text-[var(--color-fg-dim)]">
+          <span className="text-[11px] font-mono text-[var(--color-fg-dim)]">
             {tileCount} tile{tileCount !== 1 ? "s" : ""}
           </span>
         )}
@@ -179,6 +261,7 @@ export function SessionsBoard() {
           specs={specs}
           tileCount={tileCount}
           gridClass={gridClass}
+          forceCompact={effectiveCompact}
           removeTile={removeTile}
           replaceTile={replaceTile}
           addSubagents={addSubagents}
@@ -192,6 +275,7 @@ interface BoardAreaProps {
   specs: TileSpec[];
   tileCount: number;
   gridClass: string;
+  forceCompact: boolean;
   removeTile: (index: number) => void;
   replaceTile: (index: number, spec: TileSpec) => void;
   addSubagents: (agentIds: string[], type: SessionType) => void;
@@ -201,6 +285,7 @@ function BoardArea({
   specs,
   tileCount,
   gridClass,
+  forceCompact,
   removeTile,
   replaceTile,
   addSubagents,
@@ -233,6 +318,7 @@ function BoardArea({
             onReplaceTile={replaceTile}
             onAddSubagents={addSubagents}
             currentTileCount={tileCount}
+            forceCompact={forceCompact}
           />
         </div>
       )}
@@ -253,6 +339,7 @@ function BoardArea({
                 onReplaceTile={replaceTile}
                 onAddSubagents={addSubagents}
                 currentTileCount={tileCount}
+                forceCompact={forceCompact}
               />
             </div>
           ))}

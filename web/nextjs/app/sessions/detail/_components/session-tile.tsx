@@ -19,6 +19,7 @@ export function SessionTile({
   onReplaceTile,
   onAddSubagents,
   currentTileCount,
+  forceCompact,
 }: {
   type: SessionType;
   id: string;
@@ -28,6 +29,7 @@ export function SessionTile({
   onReplaceTile: (index: number, spec: TileSpec) => void;
   onAddSubagents: (agentIds: string[], type: SessionType) => void;
   currentTileCount: number;
+  forceCompact: boolean;
 }) {
   const { data, status, error, freshMessageKeys } = useSessionStream(type, id);
 
@@ -51,6 +53,7 @@ export function SessionTile({
           onReplaceTile={onReplaceTile}
           onAddSubagents={onAddSubagents}
           currentTileCount={currentTileCount}
+          forceCompact={forceCompact}
         />
       )}
     </div>
