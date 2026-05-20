@@ -199,6 +199,7 @@ export function createSessionsApi() {
           sha: existing?.sha ?? null,
           status: r.status,
           last_message_text: r.last_message_text ?? existing?.last_message_text ?? null,
+          title: existing?.title ?? null,
         });
         const item: SessionListItem = {
           type: r.type,
