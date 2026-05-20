@@ -117,11 +117,11 @@ CREATE TABLE IF NOT EXISTS undo_log (
 CREATE INDEX IF NOT EXISTS idx_undo_log_created_at ON undo_log(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_undo_log_status_created_at ON undo_log(status, created_at DESC);
 
--- sessions: first-class store for CLI sessions (Claude / Codex / Gemini /
--- Cursor). Phase A introduces the table + helpers only; adapter ingest and
--- read-path migration land in later phases. UNIQUE on (type, id) keeps cross-
--- CLI id collisions impossible while letting each adapter UPSERT by its own
--- native session id.
+-- sessions: first-class store for CLI sessions (Claude / Codex /
+-- Antigravity / Cursor). Phase A introduces the table + helpers only;
+-- adapter ingest and read-path migration land in later phases. UNIQUE on
+-- (type, id) keeps cross-CLI id collisions impossible while letting each
+-- adapter UPSERT by its own native session id.
 CREATE TABLE IF NOT EXISTS sessions (
   id                 TEXT NOT NULL,
   type               TEXT NOT NULL,
@@ -159,6 +159,8 @@ INSERT OR IGNORE INTO schema_version (version, applied_at)
   VALUES (5, datetime('now'));
 INSERT OR IGNORE INTO schema_version (version, applied_at)
   VALUES (6, datetime('now'));
+INSERT OR IGNORE INTO schema_version (version, applied_at)
+  VALUES (7, datetime('now'));
 `;
 
 export interface UndoLogRow {

@@ -98,7 +98,7 @@ export interface UndoLogItem {
   status: "active" | "undone";
 }
 
-export type SessionType = "claude" | "codex" | "gemini";
+export type SessionType = "claude" | "codex" | "antigravity";
 
 // Mirror of the canonical enum in src/types.ts. Kept inline rather than
 // generated so the web bundle does not pull in the server-side zod schema.
@@ -124,7 +124,7 @@ export interface SessionSummary {
    * Lifecycle state from the detector. The list endpoint reads this from the
    * DB (refreshed on sync); the detail endpoint / SSE stream recomputes it
    * on every JSONL change so the UI updates in real time. Omitted for
-   * sources whose adapter has no detection yet (currently codex/gemini).
+   * sources whose adapter has no detection yet (currently codex/antigravity).
    */
   status?: SessionStatus;
   /**

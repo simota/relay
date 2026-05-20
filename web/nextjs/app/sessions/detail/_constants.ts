@@ -1,6 +1,6 @@
 import type { SessionType } from "@/lib/api";
 
-export const VALID_TYPES: ReadonlyArray<SessionType> = ["claude", "codex", "gemini"];
+export const VALID_TYPES: ReadonlyArray<SessionType> = ["claude", "codex", "antigravity"];
 export const MAX_TILES = 6;
 
 export const COLLAPSE_LINE_THRESHOLD = 20;

@@ -52,7 +52,7 @@ const SOURCES: Array<{ type: string; label: string; countKey: keyof NonNullable<
   { type: "orphan_branch",       label: c("source.orphanBranch"), countKey: "orphan_branch" },
   { type: "claude_session_todo", label: c("source.claudeSession"), countKey: "claude_session_todo" },
   { type: "codex_session_todo",  label: c("source.codexSession"), countKey: "codex_session_todo" },
-  { type: "gemini_session_todo", label: c("source.geminiSession"), countKey: "gemini_session_todo" },
+  { type: "antigravity_session_todo", label: c("source.antigravitySession"), countKey: "antigravity_session_todo" },
   { type: "cursor_session_todo", label: c("source.cursorSession"), countKey: "cursor_session_todo" },
   { type: "agents_note",         label: c("source.agents"),       countKey: "agents_note" },
   { type: "manual",              label: c("source.manual"),       countKey: "manual" },

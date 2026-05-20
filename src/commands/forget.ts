@@ -11,7 +11,7 @@ export function runForget(opts: ForgetOptions): void {
   const SESSION_SOURCES = new Set([
     "claude_session_todo",
     "codex_session_todo",
-    "gemini_session_todo",
+    "antigravity_session_todo",
     "cursor_session_todo",
   ]);
   if (!SESSION_SOURCES.has(opts.source)) {

@@ -13,7 +13,7 @@ interface NewTaskDialogProps {
   onClose: () => void;
 }
 
-const ASSIGNEES = ["claude-code", "codex", "gemini", "self", "human-review"] as const;
+const ASSIGNEES = ["claude-code", "codex", "antigravity", "self", "human-review"] as const;
 
 export function NewTaskDialog({ open, onClose }: NewTaskDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -173,7 +173,7 @@ export function NewTaskDialog({ open, onClose }: NewTaskDialogProps) {
             </Field>
           </div>
 
-          {(assignee === "claude-code" || assignee === "codex" || assignee === "gemini") && (
+          {(assignee === "claude-code" || assignee === "codex" || assignee === "antigravity") && (
             <Field label="prompt">
               <textarea
                 value={prompt}

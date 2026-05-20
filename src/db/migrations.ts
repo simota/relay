@@ -74,6 +74,68 @@ export function runColumnMigrations(db: Database): void {
           AND json_extract(inverse, '$.unrecoverable') IS NULL`,
     );
   }
+
+  // schema_version 7: rename gemini → antigravity. Google's 2026 release
+  // replaces the Gemini CLI with Antigravity CLI (`agy`), so we re-key
+  // existing rows in place. Three INSERT-style UPDATEs cover everything the
+  // user-facing surface reads:
+  //   - tasks.source_type  : "gemini_session_todo" → "antigravity_session_todo"
+  //   - tasks.assignee     : "gemini" → "antigravity"
+  //   - sessions.type      : "gemini" → "antigravity"
+  // The UPDATEs are idempotent (WHERE clauses match only legacy values).
+  // No ALTER is required since both columns are TEXT and have always
+  // accepted free-form values; the enum lives in src/types.ts.
+  //
+  // tasks.source_type carries a UNIQUE(source_type, source_id) constraint,
+  // so the UPDATE is safe as long as no antigravity rows already exist for
+  // the same source_id. On a real user DB this is always true at v7-upgrade
+  // time (the adapter that writes antigravity_session_todo doesn't exist
+  // until this migration ships). For defense in depth we DELETE any rare
+  // collision (preferring the existing antigravity row) before the rename.
+  const hasTasksTable =
+    db
+      .prepare(
+        `SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'tasks' LIMIT 1`,
+      )
+      .get() !== undefined;
+  if (hasTasksTable) {
+    db.exec(
+      `DELETE FROM tasks
+        WHERE source_type = 'gemini_session_todo'
+          AND source_id IN (
+            SELECT source_id FROM tasks WHERE source_type = 'antigravity_session_todo'
+          )`,
+    );
+    db.exec(
+      `UPDATE tasks
+          SET source_type = 'antigravity_session_todo'
+        WHERE source_type = 'gemini_session_todo'`,
+    );
+    db.exec(
+      `UPDATE tasks
+          SET assignee = 'antigravity'
+        WHERE assignee = 'gemini'`,
+    );
+  }
+
+  const hasSessionsTable =
+    db
+      .prepare(
+        `SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'sessions' LIMIT 1`,
+      )
+      .get() !== undefined;
+  if (hasSessionsTable) {
+    db.exec(
+      `DELETE FROM sessions
+        WHERE type = 'gemini'
+          AND id IN (SELECT id FROM sessions WHERE type = 'antigravity')`,
+    );
+    db.exec(
+      `UPDATE sessions
+          SET type = 'antigravity'
+        WHERE type = 'gemini'`,
+    );
+  }
 }
 
 export function ensureQueueSchema(db: Database): void {

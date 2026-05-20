@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 sources (code TODOs via `rg`, GitHub issues/PRs via `gh`, Claude Code session
 `TodoWrite` blocks, `.agents/*.md` checkboxes, manual entries) into a single
 SQLite index, and treats each task as an executable `(repo, agent, prompt,
-files, context)` unit that can launch Claude Code / Codex / Gemini in the
+files, context)` unit that can launch Claude Code / Codex / Antigravity (`agy`) in the
 right repo.
 
 ## Documentation map
@@ -20,7 +20,7 @@ right repo.
 - `ARCHITECTURE.md` — layer diagram, sequences, on-disk layout.
 - `WEB_DESIGN.md` — Web UI design spec.
 - `HOTKEYS.md` — Web UI keybindings.
-- `AGENTS.md` — Codex CLI / Gemini CLI contributor guide (mirror of this file's scope-relevant parts in English).
+- `AGENTS.md` — Codex CLI / Antigravity CLI contributor guide (mirror of this file's scope-relevant parts in English).
 
 ## Runtime: Bun-first
 
@@ -192,7 +192,7 @@ For multi-day work, name sessions: `relay-<sprint>-<focus>`. Examples:
 
 - `relay-s1-sessions-table` (Sprint 1, F-1 sessions schema work)
 - `relay-s1-bidir-nav` (Sprint 1, F-4 task↔session navigation)
-- `relay-s2-codex-resume` (Sprint 2, F-2 Codex/Gemini `--resume` parity)
+- `relay-s2-codex-resume` (Sprint 2, F-2 Codex/Antigravity `--resume` parity)
 
 Resume via `claude --resume <name>`. The name doubles as the cache key for
 status line and notification.

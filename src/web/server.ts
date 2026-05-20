@@ -202,7 +202,7 @@ export function buildApp() {
       body: typeof body.body === "string" ? body.body : "",
       status: "open" as const,
       assignee: (typeof body.assignee === "string" ? body.assignee : "self") as
-        "claude-code" | "codex" | "gemini" | "self" | "human-review",
+        "claude-code" | "codex" | "antigravity" | "self" | "human-review",
       priority: typeof body.priority === "number" ? body.priority : 50,
       prompt: typeof body.prompt === "string" && body.prompt ? body.prompt : null,
       files: Array.isArray(body.files)
@@ -257,7 +257,7 @@ export function buildApp() {
   // --- Run Queue -------------------------------------------------------
   app.route("/api/queue", createQueueApi());
 
-  // --- Sessions (claude / codex / gemini live filesystem browser) ------
+  // --- Sessions (claude / codex / antigravity live filesystem browser) ------
   app.route("/api/sessions", createSessionsApi());
 
   // --- Scan (discover repos + tracked allowlist) -----------------------
@@ -472,7 +472,7 @@ function transitionStatus(c: Context, status: string) {
 const ASSIGNEES = new Set([
   "claude-code",
   "codex",
-  "gemini",
+  "antigravity",
   "self",
   "human-review",
 ]);

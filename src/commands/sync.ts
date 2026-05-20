@@ -132,10 +132,10 @@ export async function runSync(opts: SyncOptions = {}): Promise<SyncReport> {
       storeBody: cfg.codex_session.store_body,
       lookbackDays: cfg.codex_session.lookback_days,
     },
-    geminiSession: {
-      excludePatterns: cfg.gemini_session.exclude_patterns,
-      storeBody: cfg.gemini_session.store_body,
-      lookbackDays: cfg.gemini_session.lookback_days,
+    antigravitySession: {
+      excludePatterns: cfg.antigravity_session.exclude_patterns,
+      storeBody: cfg.antigravity_session.store_body,
+      lookbackDays: cfg.antigravity_session.lookback_days,
     },
     cursorSession: {
       excludePatterns: cfg.cursor_session.exclude_patterns,

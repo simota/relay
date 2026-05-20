@@ -1,7 +1,7 @@
 import type { SessionStatus, SessionSummary } from "@/lib/api";
 
 // Buckets we display in the donut/KPI band. "unknown" catches sessions whose
-// adapter (currently codex/gemini) doesn't compute a status yet.
+// adapter (currently codex/antigravity) doesn't compute a status yet.
 export type FlockStatusBucket =
   | "active"
   | "waiting_for_user"

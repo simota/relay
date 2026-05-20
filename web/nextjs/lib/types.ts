@@ -10,7 +10,7 @@ export type SourceType =
   | "orphan_branch"
   | "claude_session_todo"
   | "codex_session_todo"
-  | "gemini_session_todo"
+  | "antigravity_session_todo"
   | "cursor_session_todo"
   | "agents_note"
   | "manual";
@@ -25,7 +25,7 @@ export type Status =
 export type Assignee =
   | "claude-code"
   | "codex"
-  | "gemini"
+  | "antigravity"
   | "self"
   | "human-review";
 

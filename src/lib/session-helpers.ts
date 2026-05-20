@@ -1,6 +1,6 @@
 /**
  * Shared helpers for session-style adapters (claude-session, codex-session,
- * gemini-session, cursor-session) which all need: (a) exclude-pattern
+ * antigravity-session, cursor-session) which all need: (a) exclude-pattern
  * matching against a fully-qualified path, (b) extracting the first
  * non-empty line of a user message, (c) truncating long titles with an
  * ellipsis suffix, (d) normalizing per-adapter session metadata into the
@@ -84,7 +84,7 @@ export function truncate(s: string, max: number): string {
  *
  * Field semantics:
  *   - `id`:               session id unique within the `type` (UPSERT key).
- *   - `type`:             one of "claude" / "codex" / "gemini" / "cursor".
+ *   - `type`:             one of "claude" / "codex" / "antigravity" / "cursor".
  *   - `repo`:             on-disk repo name (resolved via `resolveRepoForCwd`).
  *                         null when the session is from a removed / unknown repo.
  *   - `cwd`:              absolute working directory at session start.
@@ -97,7 +97,7 @@ export function truncate(s: string, max: number): string {
  *                         `listSessions`. Adapters that can't cheaply count
  *                         pass 0.
  *   - `parentSessionId`:  parent uuid for Claude subagent sessions; null for
- *                         every other adapter (codex/gemini/cursor have no
+ *                         every other adapter (codex/antigravity/cursor have no
  *                         parent-child relationship).
  *   - `sourcePath`:       absolute path to the JSONL / plan file / store.db
  *                         the row was derived from. Needed by Phase D's

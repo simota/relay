@@ -3,8 +3,8 @@ import { agentsNoteAdapter } from "./agents-note.js";
 import { codeTodoAdapter } from "./code-todo.js";
 import { claudeSessionAdapter } from "./claude-session.js";
 import { codexSessionAdapter } from "./codex-session.js";
+import { antigravitySessionAdapter } from "./antigravity-session.js";
 import { cursorSessionAdapter } from "./cursor-session.js";
-import { geminiSessionAdapter } from "./gemini-session.js";
 import { ghNotificationAdapter } from "./gh-notification.js";
 import { ghProjectCardAdapter } from "./gh-project-card.js";
 import { ghRunFailureAdapter } from "./gh-run-failure.js";
@@ -18,7 +18,7 @@ export const allAdapters: Adapter[] = [
   codeTodoAdapter,
   claudeSessionAdapter,
   codexSessionAdapter,
-  geminiSessionAdapter,
+  antigravitySessionAdapter,
   cursorSessionAdapter,
   githubAdapter,
   ghNotificationAdapter,

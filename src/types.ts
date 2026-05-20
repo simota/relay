@@ -17,7 +17,7 @@ export const SOURCE_TYPES = [
   "orphan_branch",
   "claude_session_todo",
   "codex_session_todo",
-  "gemini_session_todo",
+  "antigravity_session_todo",
   "cursor_session_todo",
   "agents_note",
   "manual",
@@ -29,11 +29,11 @@ export type SourceType = (typeof SOURCE_TYPES)[number];
 /**
  * Single source of truth for the CLI session families persisted in the
  * `sessions` table (F-1 Phase A). Mirrors the on-disk adapters under
- * `src/adapters/{claude,codex,gemini,cursor}-session.ts`. Kept here (not in
- * `src/sessions/types.ts`) so the DB layer can depend on `types.ts` without
+ * `src/adapters/{claude,codex,antigravity,cursor}-session.ts`. Kept here (not
+ * in `src/sessions/types.ts`) so the DB layer can depend on `types.ts` without
  * pulling in the live-filesystem session reader module.
  */
-export const SESSION_TYPES = ["claude", "codex", "gemini", "cursor"] as const;
+export const SESSION_TYPES = ["claude", "codex", "antigravity", "cursor"] as const;
 export const SessionType = z.enum(SESSION_TYPES);
 export type SessionType = (typeof SESSION_TYPES)[number];
 
@@ -105,7 +105,7 @@ export type Status = z.infer<typeof Status>;
 export const Assignee = z.enum([
   "claude-code",
   "codex",
-  "gemini",
+  "antigravity",
   "self",
   "human-review",
 ]);
@@ -227,7 +227,7 @@ export interface AdapterContext {
     orphan_branch: boolean;
     claude_session: boolean;
     codex_session: boolean;
-    gemini_session: boolean;
+    antigravity_session: boolean;
     cursor_session: boolean;
     agents_note: boolean;
     manual: boolean;
@@ -242,7 +242,7 @@ export interface AdapterContext {
     storeBody: boolean;
     lookbackDays: number;
   };
-  geminiSession?: {
+  antigravitySession?: {
     excludePatterns: string[];
     storeBody: boolean;
     lookbackDays: number;

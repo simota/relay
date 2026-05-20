@@ -6,7 +6,7 @@ import { loadConfig } from "../config.js";
 import { resolveRepoPath } from "../repo-resolver.js";
 import type { Assignee, TaskInput } from "../types.js";
 
-const ASSIGNEES: Assignee[] = ["claude-code", "codex", "gemini", "self", "human-review"];
+const ASSIGNEES: Assignee[] = ["claude-code", "codex", "antigravity", "self", "human-review"];
 
 export interface AddOptions {
   repo?: string;
@@ -47,7 +47,7 @@ export async function runAdd(opts: AddOptions): Promise<void> {
         )).trim();
         if (ans && (ASSIGNEES as string[]).includes(ans)) assignee = ans as Assignee;
       }
-      if (!opts.prompt && (assignee === "claude-code" || assignee === "codex" || assignee === "gemini")) {
+      if (!opts.prompt && (assignee === "claude-code" || assignee === "codex" || assignee === "antigravity")) {
         const p = (await rl.question(`${chalk.gray("prompt")}   : `)).trim();
         if (p) prompt = p;
       }

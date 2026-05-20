@@ -49,8 +49,8 @@ export async function runRun(id: number, options: RunRunOptions = {}): Promise<v
 
   // Look up a context preamble. Skipped when an assignee will resume a
   // previous session (claude/codex with `session_id` and no `--no-resume`),
-  // since the agent already has its own conversation history. Gemini falls
-  // through to the preamble path because its CLI can't resume by UUID.
+  // since the agent already has its own conversation history. Antigravity
+  // falls through to the preamble path because `agy` can't resume by UUID.
   const willResume =
     Boolean(task.session_id) &&
     !options.noResume &&
@@ -132,7 +132,7 @@ export async function runRun(id: number, options: RunRunOptions = {}): Promise<v
       repoRoot,
       claudeBin: cfg.agents.claude_bin,
       codexBin: cfg.agents.codex_bin,
-      geminiBin: cfg.agents.gemini_bin,
+      antigravityBin: cfg.agents.antigravity_bin,
       contextPreamble: preamble,
       repoTemplate,
       noResume: options.noResume,

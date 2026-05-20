@@ -36,7 +36,7 @@ relay quickstart
 | **GitHub CLI** (`gh`) | 推奨 | github アダプタ (issue / pr / notification) | `brew install gh` → `gh auth login` |
 | **Claude Code** (`claude`) | 任意 | `relay run` で Claude を起動 / Stop hook 統合 | [公式手順](https://docs.claude.com/en/docs/claude-code) |
 | **Codex CLI** (`codex`) | 任意 | `relay run` で Codex 起動 (`--resume` パリティ) | OpenAI 公式手順 |
-| **Gemini CLI** (`gemini`) | 任意 | `relay run` で Gemini 起動 | Google 公式手順 |
+| **Antigravity CLI** (`agy`) | 任意 | `relay run` で Antigravity 起動 (Gemini CLI の 2026 後継) | Google 公式手順 |
 
 > **Node.js ではなく Bun が必要です**。`bun:sqlite` をネイティブに使うため、`node src/cli.ts` では起動しません。
 
@@ -98,7 +98,7 @@ relay --help
 
 ```bash
 relay init                 # ~/.relay/{db.sqlite, config.toml} を作成
-relay doctor               # rg / gh / claude / codex / gemini / git を点検
+relay doctor               # rg / gh / claude / codex / agy / git を点検
 relay quickstart           # 初回 sync + today
 ```
 

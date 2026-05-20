@@ -151,7 +151,7 @@ function MarkdownPlain({ text }: { text: string }) {
 }
 
 // ---------------------------------------------------------------------------
-// XML-style tag splitter. Claude/Codex/Gemini transcripts often contain blocks
+// XML-style tag splitter. Claude/Codex/Antigravity transcripts often contain blocks
 // like <thinking>…</thinking> or <commit_analysis>…</commit_analysis>. We
 // surface them as labeled, collapsible panels so the structure is legible
 // rather than vanishing into raw HTML pass-through.

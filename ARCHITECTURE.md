@@ -47,7 +47,7 @@
 │   run() → resolveRepoPath() → spawn(agent, cwd, prompt)            │
 │            ├─ claude-code → claude --resume <sid> | claude '<p>'   │
 │            ├─ codex       → codex '<prompt>'                       │
-│            ├─ gemini      → gemini '<prompt>'                      │
+│            ├─ antigravity → agy '<prompt>'                         │
 │            ├─ self        → $EDITOR <repo>                         │
 │            └─ human-review → open <github-url>                     │
 └────────────────────────────────────────────────────────────────────┘
@@ -77,7 +77,7 @@ relay/
 │   │   ├── orphan-branch.ts
 │   │   ├── claude-session.ts   # ~/.claude/projects/*/messages.jsonl
 │   │   ├── codex-session.ts
-│   │   ├── gemini-session.ts
+│   │   ├── antigravity-session.ts
 │   │   ├── cursor-session.ts
 │   │   ├── agents-note.ts      # <repo>/.agents/*.md checkbox lines
 │   │   └── manual.ts           # `relay add` entries
@@ -118,12 +118,12 @@ relay/
 │   │   ├── types.ts
 │   │   ├── claude.ts
 │   │   ├── codex.ts
-│   │   └── gemini.ts
+│   │   └── antigravity.ts
 │   ├── executor/               # spawn the assigned agent in repo cwd
 │   │   ├── index.ts
 │   │   ├── claude.ts
 │   │   ├── codex.ts            # --resume parity (F-2)
-│   │   └── gemini.ts
+│   │   └── antigravity.ts      # `agy`, preamble fallback (no UUID resume)
 │   ├── context/                # repo snapshot save/restore
 │   │   ├── git.ts              # rev-parse HEAD + status porcelain
 │   │   ├── transcript.ts       # session transcript materialization
@@ -143,7 +143,7 @@ relay/
 ├── WEB_DESIGN.md
 ├── HOTKEYS.md
 ├── CLAUDE.md             # AI agent guide (Claude Code)
-├── AGENTS.md             # AI agent guide (Codex / Gemini)
+├── AGENTS.md             # AI agent guide (Codex / Antigravity)
 ├── Makefile
 ├── docs/                 # GitHub Pages landing site (https://simota.github.io/relay/)
 ├── package.json

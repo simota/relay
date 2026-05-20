@@ -204,7 +204,7 @@ const syncAdapters: SourceType[] = [
   "code_todo",
   "claude_session_todo",
   "codex_session_todo",
-  "gemini_session_todo",
+  "antigravity_session_todo",
   "cursor_session_todo",
   "github_issue",
   "agents_note",

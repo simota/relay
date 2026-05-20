@@ -122,8 +122,9 @@ export const cursorSessionAdapter: Adapter = {
     const cursorMs = parseCursorMs(ctx.lastSyncCursor);
 
     // Build md5(cwd) → cwd reverse map by hashing every candidate path the user
-    // is plausibly working in. Same trick as gemini-session (sha256 over
-    // ~/.gemini/projects.json) but with md5 and the scan-roots enumeration.
+    // is plausibly working in. Antigravity CLI stores workspace paths in
+    // ~/.gemini/antigravity-cli/history.jsonl directly; cursor needs md5
+    // over the scan-roots enumeration since cursor chats don't carry a cwd.
     const hashToCwd = await buildCwdHashMap(ctx);
 
     const tasks: TaskInput[] = [];

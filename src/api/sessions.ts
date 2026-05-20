@@ -9,18 +9,18 @@ import type { SessionDetail } from "../sessions/types.js";
 import type { SessionRow, SessionStatus, SessionType } from "../types.js";
 
 // `SessionType` includes "cursor" (Phase A) but the live-fs readers only
-// know about claude/codex/gemini. The detail + SSE endpoints reject
+// know about claude/codex/antigravity. The detail + SSE endpoints reject
 // anything else; cursor sessions exist purely as DB rows for `/insights`
 // and the list endpoint can expose them on demand via `?type=cursor`.
-const FS_BACKED_TYPES = new Set<SessionType>(["claude", "codex", "gemini"]);
+const FS_BACKED_TYPES = new Set<SessionType>(["claude", "codex", "antigravity"]);
 // Default list types — matches the legacy fs-based listSessions which
 // never knew about cursor. Frontend type filters render only these
 // three, so they are also what we surface when `type` is unset.
-const DEFAULT_LIST_TYPES: readonly SessionType[] = ["claude", "codex", "gemini"];
+const DEFAULT_LIST_TYPES: readonly SessionType[] = ["claude", "codex", "antigravity"];
 const LIST_TYPES_WITH_CURSOR: ReadonlySet<SessionType> = new Set([
   "claude",
   "codex",
-  "gemini",
+  "antigravity",
   "cursor",
 ]);
 
@@ -81,7 +81,7 @@ export function createSessionsApi() {
     const typeRaw = c.req.query("type");
     const typeFilter = parseTypeFilter(typeRaw);
     if (typeFilter === "invalid") {
-      return c.json({ error: "type must be claude, codex, gemini, or cursor" }, 400);
+      return c.json({ error: "type must be claude, codex, antigravity, or cursor" }, 400);
     }
 
     const repo = c.req.query("repo") || undefined;
@@ -99,7 +99,7 @@ export function createSessionsApi() {
 
     // When `type` is set we honor it 1:1 (including cursor). When unset,
     // restrict to the legacy three so the frontend never sees rows it
-    // can't render (TypeBadge has hard-coded colors for claude/codex/gemini).
+    // can't render (TypeBadge has hard-coded colors for claude/codex/antigravity).
     const types: readonly SessionType[] = typeFilter ? [typeFilter] : DEFAULT_LIST_TYPES;
 
     // The legacy implementation queried each source separately and merged.
@@ -422,11 +422,11 @@ export function createSessionsApi() {
  *   - `title`        — the DB schema (Phase A) does not store a per-session
  *                      title, so we fall back to `cwd` basename when
  *                      available and `(no prompt)` otherwise. The legacy
- *                      codex/gemini readers already emitted `(no prompt)`
+ *                      codex/antigravity readers already emitted `(no prompt)`
  *                      when the first user message was empty, so this is
  *                      not a new sentinel.
  *   - `todos_count`  — the DB schema does not track todo counts. Returns 0.
- *                      Matches the legacy codex/gemini behavior already;
+ *                      Matches the legacy codex/antigravity behavior already;
  *                      only Claude sessions lose this badge value.
  *
  * Both are tracked as `#TODO(agent): add title/todos columns to sessions

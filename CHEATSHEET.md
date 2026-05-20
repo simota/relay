@@ -11,7 +11,7 @@ CLI と Web UI の早見表。インストールは `INSTALL.md`、Web UI 詳細
 | `relay setup [--force] [--skip-install] [--skip-build]` | root + `web/nextjs` の `bun install` と Next.js ビルドを一括実行 (冪等)。`--force` で全部やり直し。 |
 | `relay init [--force]` | `~/.relay/{db.sqlite, config.toml}` を作成。`--force` で再生成。 |
 | `relay quickstart [--no-sync]` | 初回 sync + today をワンショット。`--no-sync` で sync スキップ。 |
-| `relay doctor [--strict]` | `rg / gh / claude / codex / gemini / git` 検出。`--strict` で非ゼロ終了。 |
+| `relay doctor [--strict]` | `rg / gh / claude / codex / agy / git` 検出。`--strict` で非ゼロ終了。 |
 | `relay --help` / `relay <cmd> --help` | サブコマンドのフラグ一覧。 |
 
 ## Sync (ingest)
@@ -23,7 +23,7 @@ CLI と Web UI の早見表。インストールは `INSTALL.md`、Web UI 詳細
 | `relay sync --dry-run` | DB 書き込みなしで対象ファイル数だけ確認。 |
 | `relay sync --resume` | 1 時間以内に完了したアダプタをスキップして続き。 |
 
-主なソース名: `code_todo`, `github_issue`, `github_pr`, `github_notif`, `github_run_failure`, `github_project_card`, `git_interrupted`, `git_stash`, `git_orphan_branch`, `claude_session_todo`, `codex_session`, `gemini_session`, `cursor_session`, `agents_note`, `manual`.
+主なソース名: `code_todo`, `github_issue`, `github_pr`, `github_notif`, `github_run_failure`, `github_project_card`, `git_interrupted`, `git_stash`, `git_orphan_branch`, `claude_session_todo`, `codex_session`, `antigravity_session`, `cursor_session`, `agents_note`, `manual`.
 正規仕様は `SPEC.md §6`。
 
 ## Views
@@ -43,7 +43,7 @@ CLI と Web UI の早見表。インストールは `INSTALL.md`、Web UI 詳細
 | Command | 用途 |
 |---|---|
 | `relay add [--repo X --title "..." --assignee A --prompt "..." --files a,b --due YYYY-MM-DD --priority 0-100 --body "..."]` | 手動追加。引数なしで対話モード。 |
-| `relay assign <id> <agent>` | 担当変更 (`claude-code` / `codex` / `gemini` / `self` / `human-review`)。 |
+| `relay assign <id> <agent>` | 担当変更 (`claude-code` / `codex` / `antigravity` / `self` / `human-review`)。 |
 | `relay close <id>` | done に。 |
 | `relay snooze <id>` | snooze に。 |
 | `relay reopen <id>` | snooze / done → open に戻す。 |
@@ -55,7 +55,7 @@ CLI と Web UI の早見表。インストールは `INSTALL.md`、Web UI 詳細
 
 | Command | 用途 |
 |---|---|
-| `relay run <id>` | 担当エージェント (Claude / Codex / Gemini) を repo で起動。 |
+| `relay run <id>` | 担当エージェント (Claude / Codex / Antigravity) を repo で起動。 |
 | `relay run <id> --ask` | プロンプトをプレビューしてから起動確認。 |
 | `relay run <id> --dry-run` | プロンプトだけ表示、起動なし。 |
 | `relay run <id> --no-template` | `<repo>/.agents/RELAY_PROMPT.md` を使わず素プロンプト。 |

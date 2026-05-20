@@ -22,7 +22,7 @@ const LABEL_KEY: Partial<Record<SourceType, CopyKey>> = {
   orphan_branch: "source.orphanBranch",
   claude_session_todo: "source.claudeSession",
   codex_session_todo: "source.codexSession",
-  gemini_session_todo: "source.geminiSession",
+  antigravity_session_todo: "source.antigravitySession",
   cursor_session_todo: "source.cursorSession",
   agents_note: "source.agents",
   manual: "source.manual",

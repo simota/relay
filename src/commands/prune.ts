@@ -35,7 +35,7 @@ const ALL_SOURCES = [
   "github_pr",
   "claude_session_todo",
   "codex_session_todo",
-  "gemini_session_todo",
+  "antigravity_session_todo",
   "cursor_session_todo",
   "agents_note",
   "manual",

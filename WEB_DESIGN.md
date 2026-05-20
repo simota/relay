@@ -71,7 +71,7 @@ Next.js App Router (`web/nextjs/app/*/page.tsx`) — **path routes** (no hash). 
 |---|---|---|
 | `/tasks` (default) | Tasks | today / open / snoozed / done をクエリ (`?status=...`) で切替 |
 | `/agenda` | Agenda | 期日 / scheduled カレンダー + Overdue |
-| `/sessions` | Sessions | Claude / Codex / Gemini / Cursor セッション一覧 |
+| `/sessions` | Sessions | Claude / Codex / Antigravity / Cursor セッション一覧 |
 | `/sessions/detail` | Session Detail | セッション本体 (messages / todos / tool calls)、SSE 差分でハイライト |
 | `/repos` | Repos | repo 別カード + ドリルダウン (`/repos/detail`) |
 | `/contexts` | Contexts | repo snapshot 一覧 (`/contexts/graph` でグラフ表示) |

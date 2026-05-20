@@ -20,7 +20,7 @@ orgs = []
 default = "claude-code"
 claude_bin = "claude"
 codex_bin = "codex"
-gemini_bin = "gemini"
+antigravity_bin = "agy"
 
 [ui]
 default_view = "today"
@@ -37,7 +37,7 @@ github_issue = true
 github_pr = true
 claude_session = true
 codex_session = true
-gemini_session = true
+antigravity_session = true
 # Cursor adapter is OFF by default — Cursor chats can carry private prompts
 # and credentials. Enable explicitly after reading SPEC.md §6 \`cursor-session\`.
 cursor_session = false

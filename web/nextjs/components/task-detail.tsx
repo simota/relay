@@ -290,8 +290,8 @@ function sourceDetail(task: Task): { text: string; href?: string } {
       return { text: `session ${sourceId}` };
     case "codex_session_todo":
       return { text: `codex session ${sourceId}` };
-    case "gemini_session_todo":
-      return { text: `gemini session ${sourceId}` };
+    case "antigravity_session_todo":
+      return { text: `antigravity session ${sourceId}` };
     case "cursor_session_todo":
       return { text: `cursor session ${sourceId}` };
     case "agents_note":
@@ -308,7 +308,7 @@ function contextName(contextRow: { repo: string; branch: string; hash: string })
 const ASSIGNEE_OPTIONS = [
   "claude-code",
   "codex",
-  "gemini",
+  "antigravity",
   "self",
   "human-review",
 ] as const;
@@ -415,8 +415,8 @@ function sourceTypeToSessionType(source: SourceType): SessionType | null {
       return "claude";
     case "codex_session_todo":
       return "codex";
-    case "gemini_session_todo":
-      return "gemini";
+    case "antigravity_session_todo":
+      return "antigravity";
     case "cursor_session_todo":
       // Cursor sessions don't have a live SSE viewer (no JSONL on disk in the
       // same way), so the detail page would 400. Skip the link to avoid a

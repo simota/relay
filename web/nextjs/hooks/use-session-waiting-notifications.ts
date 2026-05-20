@@ -98,7 +98,7 @@ export function useSessionWaitingNotifications(opts: Options = {}): void {
     // sessions modified in the window (default 5 min). The plain list
     // endpoint serves DB-cached status that only updates on full sync,
     // so it would miss every transition that happened between syncs —
-    // exactly the case this hook needs to catch. Codex/Gemini have no
+    // exactly the case this hook needs to catch. Codex/Antigravity have no
     // detector yet and intentionally fall outside this scan.
     () => api.sessionsScanLive({ sinceMin: DEFAULT_SCAN_MIN }),
     {

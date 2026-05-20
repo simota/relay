@@ -41,7 +41,7 @@ const ConfigSchema = z.object({
       default: z.string().default("claude-code"),
       claude_bin: z.string().default("claude"),
       codex_bin: z.string().default("codex"),
-      gemini_bin: z.string().default("gemini"),
+      antigravity_bin: z.string().default("agy"),
     })
     .default({}),
   ui: z
@@ -76,7 +76,7 @@ const ConfigSchema = z.object({
       orphan_branch: z.boolean().default(true),
       claude_session: z.boolean().default(true),
       codex_session: z.boolean().default(true),
-      gemini_session: z.boolean().default(true),
+      antigravity_session: z.boolean().default(true),
       // Cursor adapter is OFF by default. Cursor chats can carry private
       // prompts / credentials in plain text on disk; users must opt in
       // explicitly. Same posture as the other "Cursor data is local-only
@@ -106,7 +106,7 @@ const ConfigSchema = z.object({
       lookback_days: z.number().int().positive().default(7),
     })
     .default({}),
-  gemini_session: z
+  antigravity_session: z
     .object({
       exclude_patterns: z.array(z.string()).default([]),
       store_body: z.boolean().default(true),
@@ -122,7 +122,7 @@ const ConfigSchema = z.object({
       // safest default is "no body, no chat-meta secondary tasks". Opt in
       // by setting `store_body = true`.
       store_body: z.boolean().default(false),
-      // 14 days vs 7 for codex/gemini because Cursor plans persist on disk
+      // 14 days vs 7 for codex/antigravity because Cursor plans persist on disk
       // until manually deleted, so a tighter window would still surface
       // months-old todos every sync.
       lookback_days: z.number().int().positive().default(14),

@@ -220,7 +220,7 @@ program
   .option("--repo <name>")
   .option("--title <text>")
   .option("--body <text>")
-  .option("--assignee <name>", "claude-code | codex | gemini | self | human-review")
+  .option("--assignee <name>", "claude-code | codex | antigravity | self | human-review")
   .option("--prompt <text>")
   .option("--files <list>", "comma-separated paths")
   .option("--due <date>", "YYYY-MM-DD or ISO datetime")
@@ -253,7 +253,7 @@ program
 
 program
   .command("assign <id> <agent>")
-  .description("Reassign a task. agent: claude-code | codex | gemini | self | human-review")
+  .description("Reassign a task. agent: claude-code | codex | antigravity | self | human-review")
   .action((id, agent) => {
     runAssign(Number(id), agent);
   });

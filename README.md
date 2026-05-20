@@ -10,11 +10,11 @@
 - **Code** — `rg` 全 scan による TODO / FIXME / HACK / XXX
 - **GitHub** — issue / PR / notifications / Actions failure / Project v2 cards
 - **Git states** — interrupted rebase・merge・cherry-pick、stash、PR の付いていない orphan branch
-- **AI CLI sessions** — Claude Code / Codex / Gemini / Cursor の TodoWrite・plan・chat
+- **AI CLI sessions** — Claude Code / Codex / Antigravity / Cursor の TodoWrite・plan・chat
 - **Project notes** — `.agents/*.md` の checkbox 行
 - **Manual** — `relay add` で直接登録
 
-ワンキーで該当 repo に Claude Code / Codex / Gemini を起動でき、セッション終了時にはコンテキストを退避して後日リジューム可能。Codex は `--resume` パリティ対応。
+ワンキーで該当 repo に Claude Code / Codex / Antigravity を起動でき、セッション終了時にはコンテキストを退避して後日リジューム可能。Codex は `--resume` パリティ対応 (Antigravity は CLI 側に UUID resume が無いため preamble fallback)。
 
 ## Why
 
@@ -47,7 +47,7 @@ relay init && relay doctor                 # 初期化 + 環境チェック
 relay quickstart                           # 初回 sync + 今日の view まで一気通貫
 relay today                                # 今日やる N 項目 (wait_on='self' 優先)
 relay web                                  # http://127.0.0.1:7340 (UI + API + /insights)
-relay run <task-id>                        # 該当 repo に agent を起動 (Claude/Codex/Gemini)
+relay run <task-id>                        # 該当 repo に agent を起動 (Claude/Codex/Antigravity)
 ```
 
 主要コマンドの早見表は [CHEATSHEET.md](./CHEATSHEET.md)、Web UI のキーバインドは [HOTKEYS.md](./HOTKEYS.md) を参照。
@@ -67,8 +67,8 @@ relay run <task-id>                        # 該当 repo に agent を起動 (Cl
 `v0.1` — CLI / Web (Next.js 15 + React 19) / Hono backend (Bun) が動作。
 実装済み:
 
-- **アダプタ 15 種** — code-todo / github (issue, pr, notification, run-failure, project-card) / git (interrupted, stash, orphan-branch) / AI sessions (claude, codex, gemini, cursor) / agents-note / manual
-- **実行系** — Claude / Codex / Gemini 起動、Codex `--resume` パリティ + `--no-resume` フラグ (F-2)
+- **アダプタ 15 種** — code-todo / github (issue, pr, notification, run-failure, project-card) / git (interrupted, stash, orphan-branch) / AI sessions (claude, codex, antigravity, cursor) / agents-note / manual
+- **実行系** — Claude / Codex / Antigravity (`agy`) 起動、Codex `--resume` パリティ + `--no-resume` フラグ (F-2)
 - **セッション統合** — `sessions` テーブル基盤 (F-1) と task↔session 双方向ナビ (F-4)、メッセージ単位の rendered/raw markdown トグル
 - **コンテキスト** — repo snapshot save / restore、Stop hook での自動退避、JSON export/import
 - **Web UI** — `/insights` アナリティクスダッシュボード、18 種のテーマプリセット (paper / mist / midnight / solar / washi / blueprint / nord / sakura / amber / hc-dark / hc-light など)、compositor-safe アニメーション、セッション詳細での新着メッセージハイライト + GFM テーブル / Mermaid レンダリング

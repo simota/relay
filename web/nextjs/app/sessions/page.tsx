@@ -17,7 +17,7 @@ const TYPE_FILTERS: ReadonlyArray<{ value: SessionType | "all"; label: string }>
   { value: "all", label: "all" },
   { value: "claude", label: "claude" },
   { value: "codex", label: "codex" },
-  { value: "gemini", label: "gemini" },
+  { value: "antigravity", label: "antigravity" },
 ];
 
 const LOOKBACK_OPTIONS = [
@@ -553,7 +553,7 @@ function TypeBadge({ type }: { type: SessionType }) {
   const color = {
     claude: "var(--color-accent)",
     codex: "var(--color-cool)",
-    gemini: "var(--color-warn, var(--color-fg))",
+    antigravity: "var(--color-warn, var(--color-fg))",
   }[type];
   return (
     <span

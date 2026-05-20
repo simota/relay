@@ -5,8 +5,8 @@
 // Re-export the canonical `SessionType` from `src/types.ts` so the DB
 // layer and the live-fs readers agree on the enum domain. The fs-side
 // readers in this directory currently handle three of the four members
-// (claude / codex / gemini); cursor sessions exist only as DB rows and
-// are filtered out by the API layer before reaching the fs readers.
+// (claude / codex / antigravity); cursor sessions exist only as DB rows
+// and are filtered out by the API layer before reaching the fs readers.
 import type { SessionStatus, SessionType } from "../types.js";
 export type { SessionStatus, SessionType };
 
@@ -31,7 +31,7 @@ export interface SessionSummary {
    * from the `sessions` table (refreshed on sync). The detail endpoint /
    * SSE stream re-computes it on every file change, so live sessions update
    * the indicator without waiting for the next sync. Omitted for sources
-   * whose adapter has not implemented detection yet (codex/gemini/cursor).
+   * whose adapter has not implemented detection yet (codex/antigravity/cursor).
    */
   status?: SessionStatus;
 }

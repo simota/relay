@@ -96,7 +96,7 @@ const messages = {
   "source.orphanBranch": "orphan branch",
   "source.claudeSession": "Claude session",
   "source.codexSession": "Codex session",
-  "source.geminiSession": "Gemini session",
+  "source.antigravitySession": "Antigravity session",
   "source.cursorSession": "Cursor session",
   "source.agents": ".agents",
   "source.manual": "manual",

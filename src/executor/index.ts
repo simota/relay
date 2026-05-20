@@ -7,7 +7,7 @@ export interface RunOptions {
   repoRoot: string;
   claudeBin?: string;
   codexBin?: string;
-  geminiBin?: string;
+  antigravityBin?: string;
   contextPreamble?: string;  // prepended to the prompt when no resume is available
   repoTemplate?: string;     // body of <repo>/.agents/RELAY_PROMPT.md, prepended before context
   /**
@@ -67,13 +67,14 @@ function resolveCommand(
       const prompt = buildPrompt(task.prompt, opts.contextPreamble, opts.repoTemplate);
       return { bin, args: prompt ? [prompt] : [] };
     }
-    case "gemini": {
-      const bin = opts.geminiBin ?? "gemini";
-      // Gemini's `--resume` takes an index or `"latest"`, not a UUID, so we
-      // can't address a specific historical session by its stored session_id.
-      // Gracefully degrade to a fresh prompt with context preamble — same
-      // behavior as if `session_id` were null. `#TODO(agent): if gemini ever
-      // adds UUID-based resume, wire it here.
+    case "antigravity": {
+      const bin = opts.antigravityBin ?? "agy";
+      // Antigravity CLI (`agy`) has no UUID-based resume command yet — the
+      // CLI re-attaches to whichever conversation matches the current
+      // workspace on launch. We can't deterministically pin a historical
+      // conversationId from outside, so we degrade to a fresh prompt with
+      // context preamble (same behavior as if `session_id` were null).
+      // #TODO(agent): if `agy` adds `agy resume <id>`, wire it here.
       const prompt = buildPrompt(task.prompt, opts.contextPreamble, opts.repoTemplate);
       return { bin, args: prompt ? [prompt] : [] };
     }

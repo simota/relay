@@ -1,6 +1,6 @@
+import { getAntigravityPath, getAntigravitySession } from "./antigravity.js";
 import { getClaudePath, getClaudeSession } from "./claude.js";
 import { getCodexPath, getCodexSession } from "./codex.js";
-import { getGeminiPath, getGeminiSession } from "./gemini.js";
 import type { SessionDetail, SessionType } from "./types.js";
 
 /**
@@ -21,8 +21,8 @@ export async function getSession(
       return getClaudeSession(id, roots);
     case "codex":
       return getCodexSession(id, roots);
-    case "gemini":
-      return getGeminiSession(id, roots);
+    case "antigravity":
+      return getAntigravitySession(id, roots);
     case "cursor":
       return null;
   }
@@ -42,8 +42,8 @@ export async function getSessionPath(
       return getClaudePath(id);
     case "codex":
       return getCodexPath(id);
-    case "gemini":
-      return getGeminiPath(id);
+    case "antigravity":
+      return getAntigravityPath(id);
     case "cursor":
       return null;
   }

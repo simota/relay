@@ -14,7 +14,7 @@ const SOURCE_TONE: Record<SourceType, string> = {
   orphan_branch: "text-[var(--color-warm)] border-[var(--color-warm)]/40",
   claude_session_todo: "text-[var(--color-accent)] border-[var(--color-accent)]/40",
   codex_session_todo: "text-[var(--color-cool)] border-[var(--color-cool)]/40",
-  gemini_session_todo: "text-[var(--color-warm)] border-[var(--color-warm)]/40",
+  antigravity_session_todo: "text-[var(--color-warm)] border-[var(--color-warm)]/40",
   cursor_session_todo: "text-[var(--color-fg-muted)] border-[var(--color-fg-muted)]/40",
   agents_note: "text-[var(--color-fg-dim)] border-[var(--color-border)]",
   manual: "text-[var(--color-fg)] border-[var(--color-fg-dim)]",

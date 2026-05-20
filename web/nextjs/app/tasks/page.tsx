@@ -28,7 +28,7 @@ const SOURCE_FILTERS: ReadonlyArray<{ value: SourceType | "all"; label: string }
   { value: "github_pr", label: "PR" },
   { value: "claude_session_todo", label: "claude" },
   { value: "codex_session_todo", label: "codex" },
-  { value: "gemini_session_todo", label: "gemini" },
+  { value: "antigravity_session_todo", label: "antigravity" },
   { value: "cursor_session_todo", label: "cursor" },
   { value: "agents_note", label: ".agents" },
   { value: "manual", label: "manual" },
