@@ -3,6 +3,7 @@
 import { Billboard, OrbitControls, Sparkles, Text } from "@react-three/drei";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { Bloom, EffectComposer } from "@react-three/postprocessing";
+import { Maximize2, Minimize2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
@@ -69,8 +70,31 @@ export function FleetCosmos3D({
     controlsRef.current?.reset();
   }, []);
 
+  // Fullscreen toggle — CSS-only fixed positioning rather than the
+  // native Fullscreen API so the surrounding chrome (header, page) can
+  // still render selection state and so the exit gesture matches the
+  // rest of relay (ESC + button, no browser-managed lifecycle).
+  const [fullscreen, setFullscreen] = useState(false);
+  const toggleFullscreen = useCallback(() => {
+    setFullscreen((f) => !f);
+  }, []);
+  useEffect(() => {
+    if (!fullscreen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setFullscreen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [fullscreen]);
+
   return (
-    <div className="h-full flex flex-col overflow-hidden">
+    <div
+      className={cn(
+        "h-full flex flex-col overflow-hidden",
+        fullscreen &&
+          "fixed inset-0 z-50 h-screen bg-black",
+      )}
+    >
       <div className="flex-shrink-0 px-6 py-2 flex items-center gap-2 flex-wrap text-[11px] font-mono text-[var(--color-fg-dim)] border-b border-[var(--color-border)]">
         <span>{cosmos?.points.length ?? 0} messages</span>
         <span>last 6h</span>
@@ -81,6 +105,20 @@ export function FleetCosmos3D({
           className="ml-auto px-2 h-5 rounded-[var(--radius-sm)] border border-[var(--color-border)] hover:text-[var(--color-fg)] hover:border-[var(--color-fg-muted)] transition-colors"
         >
           reset view
+        </button>
+        <button
+          type="button"
+          onClick={toggleFullscreen}
+          aria-pressed={fullscreen}
+          title={fullscreen ? "exit fullscreen (esc)" : "fullscreen"}
+          className="inline-flex items-center gap-1 px-2 h-5 rounded-[var(--radius-sm)] border border-[var(--color-border)] hover:text-[var(--color-fg)] hover:border-[var(--color-fg-muted)] transition-colors"
+        >
+          {fullscreen ? (
+            <Minimize2 className="w-3 h-3" aria-hidden />
+          ) : (
+            <Maximize2 className="w-3 h-3" aria-hidden />
+          )}
+          <span>{fullscreen ? "exit" : "fullscreen"}</span>
         </button>
         <span className="text-[10px]">
           drag: orbit · wheel: zoom · click: open

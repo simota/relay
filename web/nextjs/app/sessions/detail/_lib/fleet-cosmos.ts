@@ -47,6 +47,11 @@ const MIN_OPACITY = 0.15;
 // in blinking lights.
 const FRESH_MS = 5 * 60 * 1000;
 
+// Fresh messages start at this fraction of the full spread, then slide
+// outward to 1.0 as they age past FRESH_MS. 0.35 keeps the newest card
+// well within the camera's default framing so it can't drift off-screen.
+const CENTER_BIAS = 0.35;
+
 // Build the cosmos as a single integrated stream — every message gets a
 // space-wide deterministic X-Y position (no per-session clusters) so the
 // whole room fills evenly. Z still maps to age (front = new, back = old)
@@ -76,8 +81,18 @@ export function buildCosmos(
     const stream = collectStream(detail);
     for (const item of stream) {
       const seed = hashSeed(`${sKey}:${item.ts}:${item.kind}`);
-      const x = uniformAxis(seed, SPACE_X);
-      const y = uniformAxis(seed * 31 + 7, SPACE_Y);
+      // Fresh messages pull toward the center of the room so they can't
+      // land off-screen at the edges where the user might miss them.
+      // The spread grows linearly with age until FRESH_MS, then settles
+      // at the full uniform spread — so a card slides outward gradually
+      // rather than teleporting once it stops being "fresh".
+      const ageRatio = Math.min(
+        1,
+        Math.max(0, (win.now - item.ts) / FRESH_MS),
+      );
+      const spreadFactor = CENTER_BIAS + (1 - CENTER_BIAS) * ageRatio;
+      const x = uniformAxis(seed, SPACE_X * spreadFactor);
+      const y = uniformAxis(seed * 31 + 7, SPACE_Y * spreadFactor);
       const z = remapTsToZ(item.ts, win);
       points.push({
         key: `${sKey}::${item.kind}::${item.ts}::${item.summary.length}`,
