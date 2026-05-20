@@ -46,6 +46,10 @@ const HEARTBEAT_INTERVAL_MS = 8_000;
 const DEFAULT_SCAN_LIVE_SINCE_MIN = 5;
 const MAX_SCAN_LIVE_SINCE_MIN = 60;
 
+// Fleet stream poll cadence. 3s feels live without dragging the DB; the
+// snapshot is JSON-compared so identical polls only fire a heartbeat.
+const FLEET_POLL_INTERVAL_MS = 3_000;
+
 /**
  * Public shape returned from the list endpoint. Kept structurally
  * identical to the legacy `SessionSummary` (from `src/sessions/types.ts`)
@@ -90,61 +94,91 @@ export function createSessionsApi() {
     const includeSubagents = c.req.query("include") === "subagents";
     const parent = c.req.query("parent") || undefined;
 
-    // `parent` queries want every subagent under the named parent regardless
-    // of age — flock/tree/DAG views go incomplete when a 30-day cutoff hides
-    // older children. Top-level listings still pay the lookback cost.
-    const sinceLastActive = parent ? undefined : isoCutoff(lookbackDays);
-
     const db = new RelayDB();
-
-    // When `type` is set we honor it 1:1 (including cursor). When unset,
-    // restrict to the legacy three so the frontend never sees rows it
-    // can't render (TypeBadge has hard-coded colors for claude/codex/antigravity).
-    const types: readonly SessionType[] = typeFilter ? [typeFilter] : DEFAULT_LIST_TYPES;
-
-    // The legacy implementation queried each source separately and merged.
-    // We do the same to keep the per-type subagent_count aggregation simple
-    // (one SQL group-by per type), which is unmeasurably cheap for these
-    // table sizes.
-    const merged: SessionRow[] = [];
-    const subagentCountByType = new Map<SessionType, Map<string, number>>();
-    for (const t of types) {
-      // `parent` is meaningful per type — push the actual sub-query and let
-      // SQL handle filtering. Use a generous per-type slice; final cap is
-      // applied after the merged sort.
-      const perTypeRows = db.getSessions({
-        type: t,
+    try {
+      const items = collectSessionListItems(db, {
+        typeFilter,
         repo,
-        sinceLastActive,
-        limit: Math.min(limit, MAX_LIMIT),
-        // `parent` and `includeSubagents` semantics mirror the legacy
-        // listClaudeSessions: a `parent` query forces subagent inclusion
-        // because the caller is explicitly asking for that parent's children.
-        ...(parent ? { parent } : {}),
-        includeSubagents: includeSubagents || !!parent,
+        limit,
+        lookbackDays,
+        includeSubagents,
+        parent,
       });
-      merged.push(...perTypeRows);
-
-      // Aggregate subagent counts for every session type that may carry
-      // parent/child rows. Claude emits them via `agent-*` sub-rollouts;
-      // Codex emits them via `spawn_agent` (parent_thread_id on
-      // session_meta). The SQL filter `parent_session_id IS NOT NULL`
-      // naturally yields an empty map for types without parents.
-      subagentCountByType.set(t, db.countSubagentsByParent(t));
+      return c.json(items);
+    } finally {
+      db.close();
     }
+  });
 
-    // Merge-sort across types by last_active DESC, then cap at the
-    // user-requested limit. The per-type slice may have over-returned
-    // (limit applied per-type), so the cut here is what enforces the
-    // overall cap.
-    merged.sort((a, b) => b.last_active.localeCompare(a.last_active));
-    const capped = merged.slice(0, limit);
+  // F-realtime: fleet-wide SSE. Polls the sessions table on a short interval
+  // and pushes whenever the snapshot JSON changes. Same shape as GET / so
+  // the frontend can swap fetch+poll for EventSource without translation.
+  // Updates are driven by `relay sync` writes; if the user prefers tighter
+  // wall-clock freshness, enable `[daemon].enabled` so sync runs in the
+  // background.
+  app.get("/stream", (c) => {
+    const typeRaw = c.req.query("type");
+    const typeFilter = parseTypeFilter(typeRaw);
+    if (typeFilter === "invalid") {
+      return c.json({ error: "type must be claude, codex, antigravity, or cursor" }, 400);
+    }
+    const repo = c.req.query("repo") || undefined;
+    const limit = clampInt(c.req.query("limit"), DEFAULT_LIMIT, 1, MAX_LIMIT);
+    const lookbackDays = clampInt(c.req.query("lookback_days"), DEFAULT_LOOKBACK_DAYS, 1, 365);
+    const includeSubagents = c.req.query("include") === "subagents";
+    const parent = c.req.query("parent") || undefined;
+    const opts = { typeFilter, repo, limit, lookbackDays, includeSubagents, parent };
 
-    const items: SessionListItem[] = capped.map((row) =>
-      rowToListItem(row, subagentCountByType.get(row.type)),
-    );
+    return streamSSE(c, async (stream) => {
+      let closed = false;
+      let lastJson = "";
+      let heartbeat: ReturnType<typeof setInterval> | null = null;
+      let poller: ReturnType<typeof setInterval> | null = null;
 
-    return c.json(items);
+      const cleanup = () => {
+        closed = true;
+        if (heartbeat) clearInterval(heartbeat);
+        if (poller) clearInterval(poller);
+      };
+
+      const push = async (eventName: "snapshot" | "update") => {
+        if (closed) return;
+        const db = new RelayDB();
+        try {
+          const items = collectSessionListItems(db, opts);
+          const json = JSON.stringify(items);
+          if (json === lastJson && eventName === "update") return;
+          lastJson = json;
+          await stream.writeSSE({ event: eventName, data: json });
+        } catch (err) {
+          if (closed) return;
+          await stream
+            .writeSSE({ event: "error", data: JSON.stringify({ message: String(err) }) })
+            .catch(() => cleanup());
+        } finally {
+          db.close();
+        }
+      };
+
+      stream.onAbort(cleanup);
+      await push("snapshot");
+      if (closed) return;
+
+      poller = setInterval(() => void push("update"), FLEET_POLL_INTERVAL_MS);
+      heartbeat = setInterval(() => {
+        if (closed) return;
+        stream
+          .writeSSE({ event: "heartbeat", data: "{}" })
+          .catch(() => cleanup());
+      }, HEARTBEAT_INTERVAL_MS);
+
+      await new Promise<void>((resolve) => {
+        stream.onAbort(() => {
+          cleanup();
+          resolve();
+        });
+      });
+    });
   });
 
   // Live status scan for Claude sessions. Reads JSONLs modified in the
@@ -416,6 +450,44 @@ export function createSessionsApi() {
   });
 
   return app;
+}
+
+interface CollectOpts {
+  typeFilter: SessionType | null;
+  repo: string | undefined;
+  limit: number;
+  lookbackDays: number;
+  includeSubagents: boolean;
+  parent: string | undefined;
+}
+
+// Shared between GET / and GET /stream so both paths produce byte-identical
+// payloads (the SSE handler JSON-compares snapshots to suppress unchanged
+// pushes — any drift between paths would break that comparison).
+function collectSessionListItems(db: RelayDB, opts: CollectOpts): SessionListItem[] {
+  const { typeFilter, repo, limit, lookbackDays, includeSubagents, parent } = opts;
+  const sinceLastActive = parent ? undefined : isoCutoff(lookbackDays);
+  const types: readonly SessionType[] = typeFilter ? [typeFilter] : DEFAULT_LIST_TYPES;
+
+  const merged: SessionRow[] = [];
+  const subagentCountByType = new Map<SessionType, Map<string, number>>();
+  for (const t of types) {
+    const perTypeRows = db.getSessions({
+      type: t,
+      repo,
+      sinceLastActive,
+      limit: Math.min(limit, MAX_LIMIT),
+      ...(parent ? { parent } : {}),
+      includeSubagents: includeSubagents || !!parent,
+    });
+    merged.push(...perTypeRows);
+    subagentCountByType.set(t, db.countSubagentsByParent(t));
+  }
+
+  merged.sort((a, b) => b.last_active.localeCompare(a.last_active));
+  return merged
+    .slice(0, limit)
+    .map((row) => rowToListItem(row, subagentCountByType.get(row.type)));
 }
 
 /**
