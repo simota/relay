@@ -2,7 +2,7 @@ import { existsSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import chalk from "chalk";
 import { enabledAdapters, findAdapter } from "../adapters/index.js";
-import { loadConfig, resolveScanRoots } from "../config.js";
+import { loadConfig, migrateLegacyConfig, resolveScanRoots } from "../config.js";
 import { RelayDB } from "../db/client.js";
 import type {
   Adapter,
@@ -48,6 +48,10 @@ const RESUME_WINDOW_MS = 60 * 60 * 1000; // 1 hour
 
 export async function runSync(opts: SyncOptions = {}): Promise<SyncReport> {
   const log = opts.silent ? () => {} : (msg: string) => console.log(msg);
+  // Apply config migration before loadConfig so legacy gemini_session keys
+  // are honored on first upgrade-sync. Dry-run skips to keep --dry-run
+  // truly read-only.
+  if (!opts.dryRun) migrateLegacyConfig();
   const cfg = loadConfig();
   const db = new RelayDB();
 

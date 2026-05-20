@@ -202,6 +202,86 @@ export function resolveScanRoots(cfg: Config): string[] {
 }
 
 /**
+ * One-shot, idempotent migration for users upgrading from the gemini-era
+ * adapter to the antigravity-era adapter (schema_version 7 sibling on the
+ * config side). DB rename happens in `src/db/migrations.ts`; this handles
+ * the TOML side so an existing `[adapters].gemini_session = false` is not
+ * silently re-enabled and `[gemini_session].lookback_days` etc. are not
+ * silently reset to defaults.
+ *
+ * Renames performed:
+ *   - `[adapters].gemini_session`  → `[adapters].antigravity_session`
+ *   - `[agents].gemini_bin`        → `[agents].antigravity_bin` (only flips
+ *                                    the default value "gemini" → "agy";
+ *                                    custom user values are preserved
+ *                                    verbatim so a wrapper script still works)
+ *   - `[gemini_session]`           → `[antigravity_session]`
+ *
+ * When both the legacy and the new key are already present (rare —
+ * e.g., user re-added the old key by hand), the legacy key is dropped
+ * and the new key wins; this matches the DB migration's
+ * "DELETE-then-UPDATE" precedence.
+ *
+ * Returns true when at least one rename happened (caller may want to log
+ * or re-load), false when the config was already on the new schema.
+ */
+export function migrateLegacyConfig(path: string = CONFIG_PATH): boolean {
+  if (!existsSync(path)) return false;
+  let raw: toml.JsonMap;
+  try {
+    raw = toml.parse(readFileSync(path, "utf8")) as toml.JsonMap;
+  } catch {
+    return false;
+  }
+
+  let changed = false;
+
+  const adapters = raw["adapters"];
+  if (adapters && typeof adapters === "object" && !Array.isArray(adapters)) {
+    const a = adapters as toml.JsonMap;
+    if ("gemini_session" in a) {
+      if (!("antigravity_session" in a)) {
+        a["antigravity_session"] = a["gemini_session"];
+      }
+      delete a["gemini_session"];
+      changed = true;
+    }
+  }
+
+  const agents = raw["agents"];
+  if (agents && typeof agents === "object" && !Array.isArray(agents)) {
+    const a = agents as toml.JsonMap;
+    if ("gemini_bin" in a) {
+      if (!("antigravity_bin" in a)) {
+        const val = a["gemini_bin"];
+        a["antigravity_bin"] = val === "gemini" ? "agy" : val;
+      }
+      delete a["gemini_bin"];
+      changed = true;
+    }
+  }
+
+  if ("gemini_session" in raw) {
+    if (!("antigravity_session" in raw)) {
+      raw["antigravity_session"] = raw["gemini_session"];
+    }
+    delete raw["gemini_session"];
+    changed = true;
+  }
+
+  if (!changed) return false;
+
+  const serialized = toml.stringify(raw);
+  const tmpPath = `${path}.tmp`;
+  writeFileSync(tmpPath, serialized, "utf8");
+  renameSync(tmpPath, path);
+  process.stderr.write(
+    `[relay] migrated legacy config: gemini_session → antigravity_session (${path})\n`,
+  );
+  return true;
+}
+
+/**
  * Atomically update scan.tracked_repos in config.toml.
  * Uses @iarna/toml for round-trip parsing to preserve all other settings.
  * Writes to a tmp file then renames for atomic replacement.

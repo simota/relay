@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import chalk from "chalk";
+import { migrateLegacyConfig } from "../config.js";
 import { RelayDB } from "../db/client.js";
 import { CONFIG_PATH, DB_PATH, RELAY_HOME } from "../paths.js";
 
@@ -54,7 +55,13 @@ export function runInit(opts: { force?: boolean } = {}): void {
     writeFileSync(CONFIG_PATH, DEFAULT_CONFIG, "utf8");
     console.log(chalk.green(`✓ wrote ${CONFIG_PATH}`));
   } else {
-    console.log(chalk.gray(`- config exists: ${CONFIG_PATH} (use --force to overwrite)`));
+    // Upgrade existing config in place: rename legacy gemini_session keys
+    // to antigravity_session so users keep their opt-out / lookback overrides.
+    if (migrateLegacyConfig(CONFIG_PATH)) {
+      console.log(chalk.green(`✓ migrated legacy gemini_session keys in ${CONFIG_PATH}`));
+    } else {
+      console.log(chalk.gray(`- config exists: ${CONFIG_PATH} (use --force to overwrite)`));
+    }
   }
 
   const db = new RelayDB(DB_PATH);

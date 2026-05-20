@@ -7,6 +7,11 @@ dist/
 .relay-test/
 coverage/
 
+# Antigravity CLI (`agy`) drops a per-project symlink here on first open.
+# Target carries absolute personal paths + `allowWrite:true` and must never
+# reach a commit.
+.antigravitycli/
+
 # Next.js
 .next/
 out/
