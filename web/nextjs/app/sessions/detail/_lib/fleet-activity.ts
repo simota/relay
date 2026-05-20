@@ -103,7 +103,7 @@ function summaryFor(s: SessionSummary, kind: FleetEvent["kind"]): string {
   }
 }
 
-const PREVIEW_MAX = 240;
+const PREVIEW_MAX = 400;
 
 // Build the per-message activity feed. When detail is available for a
 // session we emit one event per message (user / assistant / tool / system)
@@ -219,4 +219,173 @@ function firstNonEmptyLine(s: string): string {
 function truncate(s: string, max: number): string {
   if (s.length <= max) return s;
   return s.slice(0, max - 1) + "…";
+}
+
+// ---------------------------------------------------------------------------
+// Feed-row helpers (timeline rendering)
+// ---------------------------------------------------------------------------
+
+// Two adjacent tool events from the same session collapse into a single
+// "burst" group when they land within this gap. 8s captures typical
+// Read / Read / Read / Bash bursts that otherwise dominate the feed.
+const TOOL_BURST_GAP_MS = 8_000;
+
+export type FeedRow =
+  | {
+      kind: "event";
+      ts: number;
+      sessionType: FleetEvent["sessionType"];
+      sessionId: string;
+      event: FleetEvent;
+    }
+  | {
+      kind: "tool-group";
+      ts: number;
+      sessionType: FleetEvent["sessionType"];
+      sessionId: string;
+      repo: string | null;
+      status: SessionStatus | undefined;
+      agentId?: string;
+      tools: FleetEvent[];
+      spanMs: number;
+    };
+
+export function buildFeedRows(events: readonly FleetEvent[]): FeedRow[] {
+  // Group in ascending time then flip back so adjacent events are processed
+  // in real chronological order. Cheaper than maintaining two passes.
+  const asc = [...events].sort((a, b) => a.ts - b.ts);
+  const rows: FeedRow[] = [];
+
+  let i = 0;
+  while (i < asc.length) {
+    const ev = asc[i];
+    if (!ev) {
+      i++;
+      continue;
+    }
+    if (ev.kind !== "tool") {
+      rows.push({
+        kind: "event",
+        ts: ev.ts,
+        sessionType: ev.sessionType,
+        sessionId: ev.sessionId,
+        event: ev,
+      });
+      i++;
+      continue;
+    }
+
+    const group: FleetEvent[] = [ev];
+    let j = i + 1;
+    while (j < asc.length) {
+      const nx = asc[j];
+      if (!nx) break;
+      if (nx.kind !== "tool") break;
+      if (
+        nx.sessionType !== ev.sessionType ||
+        nx.sessionId !== ev.sessionId
+      ) {
+        break;
+      }
+      const prev = group[group.length - 1];
+      if (!prev) break;
+      if (nx.ts - prev.ts > TOOL_BURST_GAP_MS) break;
+      group.push(nx);
+      j++;
+    }
+
+    if (group.length === 1) {
+      rows.push({
+        kind: "event",
+        ts: ev.ts,
+        sessionType: ev.sessionType,
+        sessionId: ev.sessionId,
+        event: ev,
+      });
+    } else {
+      const first = group[0];
+      const last = group[group.length - 1];
+      if (!first || !last) {
+        i = j;
+        continue;
+      }
+      rows.push({
+        kind: "tool-group",
+        ts: last.ts,
+        sessionType: ev.sessionType,
+        sessionId: ev.sessionId,
+        repo: ev.repo,
+        status: ev.status,
+        agentId: ev.agentId,
+        tools: group,
+        spanMs: last.ts - first.ts,
+      });
+    }
+    i = j;
+  }
+
+  rows.sort((a, b) => b.ts - a.ts);
+  return rows;
+}
+
+// Hue rotation shared between Feed and Cosmos so the same session lights up
+// with the same color across views (mnemonic continuity).
+const HUE_STEP = 47.5;
+
+export function buildHueMap(
+  sessions: readonly SessionSummary[],
+): Map<string, number> {
+  const out = new Map<string, number>();
+  const sorted = [...sessions].sort((a, b) =>
+    `${a.type}:${a.id}`.localeCompare(`${b.type}:${b.id}`),
+  );
+  for (let i = 0; i < sorted.length; i++) {
+    const s = sorted[i];
+    if (!s) continue;
+    out.set(`${s.type}:${s.id}`, (i * HUE_STEP) % 360);
+  }
+  return out;
+}
+
+export function hueForSession(
+  hueMap: ReadonlyMap<string, number>,
+  sessionType: string,
+  sessionId: string,
+): number {
+  return hueMap.get(`${sessionType}:${sessionId}`) ?? 0;
+}
+
+export function formatRelative(ts: number, now: number): string {
+  const diff = Math.max(0, now - ts);
+  if (diff < 45_000) return "now";
+  if (diff < 60_000) return `${Math.floor(diff / 1000)}s`;
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m`;
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h`;
+  return `${Math.floor(diff / 86_400_000)}d`;
+}
+
+// Calendar-day bucket key (YYYY-MM-DD in local time). Used to insert
+// day-separator headers in the feed.
+export function dateBucketKey(ts: number): string {
+  const d = new Date(ts);
+  return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+}
+
+export function dateBucketLabel(ts: number, now: number): string {
+  const d = new Date(ts);
+  const startOfDay = (t: number) => {
+    const x = new Date(t);
+    x.setHours(0, 0, 0, 0);
+    return x.getTime();
+  };
+  const today = startOfDay(now);
+  const yesterday = today - 86_400_000;
+  const eventDay = startOfDay(ts);
+  if (eventDay === today) return "Today";
+  if (eventDay === yesterday) return "Yesterday";
+  return d.toLocaleDateString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
 }
