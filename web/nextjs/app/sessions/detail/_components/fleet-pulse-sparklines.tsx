@@ -1,10 +1,10 @@
 "use client";
 
 import { AlertTriangle } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { api, type SessionDetail, type SessionSummary } from "@/lib/api";
+import { useEffect, useMemo, useState } from "react";
+import type { SessionDetail, SessionSummary } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { useFleetStream } from "../_hooks/use-fleet-stream";
+import { useSessionDetails } from "../_hooks/use-session-details";
 import {
   bucketizeMessages,
   maxBucket,
@@ -15,6 +15,7 @@ import {
 } from "../_lib/fleet-pulse";
 import { buildFleetRows, sessionKey, statusColor } from "../_lib/fleet-timeline";
 import type { TileSpec } from "../_types";
+import type { FleetViewData } from "./fleet-view";
 
 const RANGES: { key: PulseRange; label: string }[] = [
   { key: "1h", label: "1h" },
@@ -34,30 +35,22 @@ const DEFAULT_LIMIT = 8;
 const NOW_TICK_MS = 30_000;
 
 interface Props {
+  data: FleetViewData;
   selectedKeys: ReadonlySet<string>;
   onPickSession: (spec: TileSpec) => void;
   canAdd: boolean;
 }
 
 export function FleetPulseSparklines({
+  data,
   selectedKeys,
   onPickSession,
   canAdd,
 }: Props) {
   const [range, setRange] = useState<PulseRange>("24h");
-  const { sessions, status: streamStatus, error: listError } = useFleetStream({
-    lookbackDays: range === "7d" ? 7 : 1,
-    limit: 200,
-  });
-  const [details, setDetails] = useState<Map<string, SessionDetail>>(
-    () => new Map(),
-  );
+  const { sessions, streamStatus, error: listError } = data;
   const [limit, setLimit] = useState(DEFAULT_LIMIT);
   const [now, setNow] = useState(() => Date.now());
-  // Tracks the last_active timestamp we used when fetching each session's
-  // detail. When the fleet stream pushes a newer last_active for a session,
-  // we know its JSONL grew and re-fetch the detail to refresh its sparkline.
-  const detailVersionRef = useRef<Map<string, string>>(new Map());
 
   useEffect(() => {
     const handle = setInterval(() => setNow(Date.now()), NOW_TICK_MS);
@@ -65,53 +58,16 @@ export function FleetPulseSparklines({
   }, []);
 
   const visibleSessions = useMemo(() => {
-    if (!sessions) return [];
+    if (sessions.length === 0) return [];
     const rows = buildFleetRows(sessions);
     return rows.slice(0, limit);
   }, [sessions, limit]);
 
-  // Fetch detail for visible sessions whose last_active is unseen or newer
-  // than what we previously fetched. Parallelized; per-row failures are
-  // swallowed so one slow session doesn't block the others.
-  useEffect(() => {
-    if (visibleSessions.length === 0) return;
-    let cancelled = false;
-    const stale = visibleSessions.filter((r) => {
-      const key = sessionKey(r.session);
-      const fetched = detailVersionRef.current.get(key);
-      return fetched !== r.session.last_active;
-    });
-    if (stale.length === 0) return;
-    void Promise.all(
-      stale.map(async (r) => {
-        try {
-          const d = await api.session(r.session.type, r.session.id);
-          return {
-            key: sessionKey(r.session),
-            detail: d,
-            version: r.session.last_active,
-          };
-        } catch {
-          return null;
-        }
-      }),
-    ).then((results) => {
-      if (cancelled) return;
-      setDetails((prev) => {
-        const next = new Map(prev);
-        for (const r of results) {
-          if (r) {
-            next.set(r.key, r.detail);
-            detailVersionRef.current.set(r.key, r.version);
-          }
-        }
-        return next;
-      });
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [visibleSessions]);
+  const visibleSessionList = useMemo<SessionSummary[]>(
+    () => visibleSessions.map((r) => r.session),
+    [visibleSessions],
+  );
+  const details = useSessionDetails(visibleSessionList);
 
   const win = useMemo(() => pulseWindowFor(range, now), [range, now]);
   const ticks = useMemo(() => pulseTicks(win, 6), [win]);
@@ -133,12 +89,12 @@ export function FleetPulseSparklines({
     [bucketRows],
   );
 
-  const hasMore = sessions !== null && sessions.length > limit;
+  const hasMore = sessions.length > limit;
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
       <div className="flex-shrink-0 px-6 py-2 flex items-center gap-2 flex-wrap text-[11px] font-mono text-[var(--color-fg-dim)] border-b border-[var(--color-border)]">
-        <span>{visibleSessions.length}/{sessions?.length ?? 0} sessions</span>
+        <span>{visibleSessions.length}/{sessions.length} sessions</span>
         <StreamPill status={streamStatus} />
         <span>bucket: {bucketLabel(range)}</span>
         <div className="ml-auto flex items-center gap-1">
@@ -166,10 +122,10 @@ export function FleetPulseSparklines({
             list load failed: {listError}
           </div>
         )}
-        {!listError && sessions === null && (
+        {!listError && streamStatus === "connecting" && visibleSessions.length === 0 && (
           <div className="text-[12px] text-[var(--color-fg-dim)] py-2">loading sessions…</div>
         )}
-        {!listError && sessions !== null && visibleSessions.length === 0 && (
+        {!listError && streamStatus !== "connecting" && visibleSessions.length === 0 && (
           <div className="text-[12px] text-[var(--color-fg-dim)] py-2">
             no sessions to plot.
           </div>

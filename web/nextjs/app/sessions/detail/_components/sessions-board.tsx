@@ -21,7 +21,10 @@ function parseTopView(params: URLSearchParams): TopView {
 }
 
 function parseFleetSubview(params: URLSearchParams): FleetSubview {
-  return params.get("fv") === "pulse" ? "pulse" : "feed";
+  const v = params.get("fv");
+  if (v === "pulse") return "pulse";
+  if (v === "cosmos") return "cosmos";
+  return "feed";
 }
 
 // ---------------------------------------------------------------------------

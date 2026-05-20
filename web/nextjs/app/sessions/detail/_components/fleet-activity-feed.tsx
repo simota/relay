@@ -4,36 +4,54 @@ import {
   AlertTriangle,
   Check,
   MessageSquare,
+  Settings,
   Sparkles,
+  User,
+  Wrench,
   XCircle,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
-import { useFleetStream } from "../_hooks/use-fleet-stream";
+import { useSessionDetails } from "../_hooks/use-session-details";
 import {
-  buildActivityEvents,
-  type FleetEvent,
+  buildDetailEvents,
+  type FleetEventKind,
 } from "../_lib/fleet-activity";
 import { sessionKey, statusColor } from "../_lib/fleet-timeline";
 import type { TileSpec } from "../_types";
+import type { FleetViewData } from "./fleet-view";
+
+const KIND_FILTERS: ReadonlyArray<FleetEventKind | "all"> = [
+  "all",
+  "user",
+  "assistant",
+  "tool",
+  "waiting",
+  "ended",
+  "spawn",
+];
 
 interface Props {
+  data: FleetViewData;
   selectedKeys: ReadonlySet<string>;
   onPickSession: (spec: TileSpec) => void;
   canAdd: boolean;
 }
 
-export function FleetActivityFeed({ selectedKeys, onPickSession, canAdd }: Props) {
-  const { sessions, status: streamStatus, error } = useFleetStream({
-    lookbackDays: 7,
-    limit: 200,
-  });
+export function FleetActivityFeed({
+  data,
+  selectedKeys,
+  onPickSession,
+  canAdd,
+}: Props) {
+  const { sessions, streamStatus, error } = data;
   const [repoFilter, setRepoFilter] = useState<string>("");
-  const [kindFilter, setKindFilter] = useState<FleetEvent["kind"] | "all">("all");
+  const [kindFilter, setKindFilter] = useState<FleetEventKind | "all">("all");
+  const details = useSessionDetails(sessions);
 
   const events = useMemo(
-    () => (sessions ? buildActivityEvents(sessions) : []),
-    [sessions],
+    () => buildDetailEvents(sessions, details),
+    [sessions, details],
   );
   const repos = useMemo(() => {
     const set = new Set<string>();
@@ -65,8 +83,8 @@ export function FleetActivityFeed({ selectedKeys, onPickSession, canAdd }: Props
             <option key={r} value={r}>{r}</option>
           ))}
         </select>
-        <div className="flex items-center gap-1">
-          {(["all", "message", "waiting", "ended", "spawn", "interrupted"] as const).map((k) => (
+        <div className="flex items-center gap-1 flex-wrap">
+          {KIND_FILTERS.map((k) => (
             <button
               key={k}
               type="button"
@@ -90,10 +108,10 @@ export function FleetActivityFeed({ selectedKeys, onPickSession, canAdd }: Props
             feed load failed: {error}
           </div>
         )}
-        {!error && sessions === null && (
+        {!error && streamStatus === "connecting" && filtered.length === 0 && (
           <div className="text-[12px] text-[var(--color-fg-dim)] py-2">loading…</div>
         )}
-        {!error && sessions !== null && filtered.length === 0 && (
+        {!error && streamStatus !== "connecting" && filtered.length === 0 && (
           <div className="text-[12px] text-[var(--color-fg-dim)] py-2">
             no events to show.
           </div>
@@ -159,8 +177,16 @@ export function FleetActivityFeed({ selectedKeys, onPickSession, canAdd }: Props
   );
 }
 
-function EventIcon({ kind }: { kind: FleetEvent["kind"] }) {
+function EventIcon({ kind }: { kind: FleetEventKind }) {
   switch (kind) {
+    case "user":
+      return <User className="w-3.5 h-3.5" aria-hidden />;
+    case "assistant":
+      return <MessageSquare className="w-3.5 h-3.5" aria-hidden />;
+    case "tool":
+      return <Wrench className="w-3.5 h-3.5" aria-hidden />;
+    case "system":
+      return <Settings className="w-3.5 h-3.5" aria-hidden />;
     case "waiting":
       return <AlertTriangle className="w-3.5 h-3.5" aria-hidden />;
     case "ended":

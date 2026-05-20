@@ -1,14 +1,47 @@
 "use client";
 
-import { Activity, Rss } from "lucide-react";
+import { Activity, Orbit, Rss } from "lucide-react";
+import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useMemo } from "react";
+import type { SessionSummary } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { useFleetStream } from "../_hooks/use-fleet-stream";
+import { sessionKey } from "../_lib/fleet-timeline";
 import type { TileSpec } from "../_types";
 import { FleetActivityFeed } from "./fleet-activity-feed";
 import { FleetPulseSparklines } from "./fleet-pulse-sparklines";
 
-export type FleetSubview = "feed" | "pulse";
+// R3F + Three.js + postprocessing touch `window` / WebGL on mount, so they
+// cannot render during SSR. `ssr: false` keeps the rest of the page
+// server-renderable and defers ~700KB of WebGL JS to the moment the user
+// actually opens the Cosmos tab.
+const FleetCosmos3D = dynamic(
+  () => import("./fleet-cosmos-3d").then((m) => m.FleetCosmos3D),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="h-full flex items-center justify-center text-[12px] text-[var(--color-fg-dim)]">
+        loading cosmos…
+      </div>
+    ),
+  },
+);
+
+export type FleetSubview = "feed" | "pulse" | "cosmos";
+
+export type FleetStreamStatus =
+  | "connecting"
+  | "live"
+  | "reconnecting"
+  | "error"
+  | "idle";
+
+export interface FleetViewData {
+  sessions: SessionSummary[];
+  streamStatus: FleetStreamStatus;
+  error: string | null;
+}
 
 interface Props {
   subview: FleetSubview;
@@ -20,6 +53,23 @@ interface Props {
 export function FleetView({ subview, selectedKeys, onPickSession, canAdd }: Props) {
   const router = useRouter();
   const params = useSearchParams();
+
+  // Single fleet stream shared across feed/pulse/dag — no per-subview
+  // EventSource churn when the user switches tabs. The filtered view
+  // only includes sessions the user has open as tiles (Board selection
+  // = Fleet scope).
+  const { sessions: allSessions, status: streamStatus, error } = useFleetStream({
+    lookbackDays: 7,
+    limit: 500,
+  });
+
+  const data = useMemo<FleetViewData>(() => {
+    if (!allSessions) return { sessions: [], streamStatus, error };
+    const filtered = allSessions.filter((s) => selectedKeys.has(sessionKey(s)));
+    return { sessions: filtered, streamStatus, error };
+  }, [allSessions, streamStatus, error, selectedKeys]);
+
+  const empty = selectedKeys.size === 0;
 
   const goSub = useCallback(
     (sv: FleetSubview) => {
@@ -35,6 +85,7 @@ export function FleetView({ subview, selectedKeys, onPickSession, canAdd }: Prop
     () => [
       { key: "feed" as const, label: "Feed", icon: Rss },
       { key: "pulse" as const, label: "Pulse", icon: Activity },
+      { key: "cosmos" as const, label: "Cosmos", icon: Orbit },
     ],
     [],
   );
@@ -65,20 +116,50 @@ export function FleetView({ subview, selectedKeys, onPickSession, canAdd }: Prop
         })}
       </div>
       <div className="flex-1 min-h-0">
-        {subview === "feed" && (
-          <FleetActivityFeed
-            selectedKeys={selectedKeys}
-            onPickSession={onPickSession}
-            canAdd={canAdd}
-          />
+        {empty ? (
+          <EmptyScope />
+        ) : (
+          <>
+            {subview === "feed" && (
+              <FleetActivityFeed
+                data={data}
+                selectedKeys={selectedKeys}
+                onPickSession={onPickSession}
+                canAdd={canAdd}
+              />
+            )}
+            {subview === "pulse" && (
+              <FleetPulseSparklines
+                data={data}
+                selectedKeys={selectedKeys}
+                onPickSession={onPickSession}
+                canAdd={canAdd}
+              />
+            )}
+            {subview === "cosmos" && (
+              <FleetCosmos3D
+                data={data}
+                selectedKeys={selectedKeys}
+                onPickSession={onPickSession}
+                canAdd={canAdd}
+              />
+            )}
+          </>
         )}
-        {subview === "pulse" && (
-          <FleetPulseSparklines
-            selectedKeys={selectedKeys}
-            onPickSession={onPickSession}
-            canAdd={canAdd}
-          />
-        )}
+      </div>
+    </div>
+  );
+}
+
+function EmptyScope() {
+  return (
+    <div className="h-full flex flex-col items-center justify-center gap-2 text-center px-6">
+      <div className="text-[13px] text-[var(--color-fg-muted)]">
+        No sessions in scope.
+      </div>
+      <div className="text-[11px] text-[var(--color-fg-dim)] max-w-sm">
+        Open one or more sessions as tiles in the <span className="font-mono">Board</span> tab.
+        The Fleet view shows only what you have selected.
       </div>
     </div>
   );
