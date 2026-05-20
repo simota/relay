@@ -98,11 +98,11 @@ export function FleetCosmos3D({
             <pointLight position={[0, 0, 18]} intensity={1.2} color={0x9ec5ff} />
             <pointLight position={[-15, 12, -8]} intensity={0.6} color={0xff8fd6} />
             <Sparkles
-              count={240}
-              scale={[80, 56, 80]}
-              size={3}
+              count={350}
+              scale={[100, 70, 100]}
+              size={3.6}
               speed={0.25}
-              opacity={0.65}
+              opacity={0.7}
               color={0xb6ccff}
             />
             <OrbitControls
@@ -110,8 +110,6 @@ export function FleetCosmos3D({
               enableRotate
               enableZoom
               dampingFactor={0.08}
-              autoRotate
-              autoRotateSpeed={0.35}
             />
             <CosmosScene
               cosmos={cosmos}
@@ -122,13 +120,14 @@ export function FleetCosmos3D({
               onPickSession={onPickSession}
             />
             <EffectComposer>
-              {/* Bloom kept subtle so the white message cards don't
-                  blow out their text — the glow should accent the
-                  sparkles and lights, not the OS-style panels. */}
+              {/* Subtle bloom — only the brightest highlights (sparkles,
+                  the gold outline on fresh cards) catch the glow. Card
+                  bodies stay below threshold so their text reads
+                  cleanly. */}
               <Bloom
-                intensity={0.45}
+                intensity={0.55}
                 luminanceThreshold={0.85}
-                luminanceSmoothing={0.5}
+                luminanceSmoothing={0.45}
                 mipmapBlur
               />
             </EffectComposer>
@@ -224,7 +223,6 @@ function MessageWindow({
 }) {
   const groupRef = useRef<THREE.Group>(null);
   const freshRef = useRef<THREE.Group>(null);
-  const haloMatRef = useRef<THREE.MeshBasicMaterial>(null);
   // Stronger overshoot: card grows fast to 1.55, then eases back to 1.0
   // over ~800ms. Combined with the flash plane below, brand-new messages
   // make a clear "incoming" beat instead of just fading into the scene.
@@ -264,36 +262,55 @@ function MessageWindow({
   useFrame((state) => {
     const t = state.clock.elapsedTime;
     if (groupRef.current) {
-      const phase = point.position[0] * 0.5 + point.position[1] * 0.3;
+      // Three-axis drift so each card looks like it's swimming in the
+      // space rather than orbiting a fixed point. Per-card phases are
+      // derived from the seed position so neighbours don't sway in
+      // lockstep. Amplitudes are tuned to look alive without colliding.
+      const phaseX = point.position[0] * 0.31 + point.position[1] * 0.17;
+      const phaseY = point.position[0] * 0.5 + point.position[1] * 0.3;
+      const phaseZ = point.position[0] * 0.23 + point.position[1] * 0.41;
+      groupRef.current.position.x =
+        point.position[0] + Math.sin(t * 0.27 + phaseX) * 0.45;
       groupRef.current.position.y =
-        point.position[1] + Math.sin(t * 0.4 + phase) * 0.06;
-    }
-    if (point.isFresh) {
-      // Card pulse: subtle scale breath so the eye locks on without the
-      // whole scene flashing. ~ ±5% range at 1.6 Hz.
-      const breath = 1 + Math.sin(t * 3.2) * 0.05;
-      if (freshRef.current) freshRef.current.scale.setScalar(breath);
-      // Halo: stronger pulse on the surrounding glow plane.
-      if (haloMatRef.current) {
-        haloMatRef.current.opacity = 0.3 + Math.abs(Math.sin(t * 2.4)) * 0.55;
-      }
+        point.position[1] + Math.sin(t * 0.4 + phaseY) * 0.4;
+      groupRef.current.position.z =
+        point.position[2] + Math.sin(t * 0.31 + phaseZ) * 0.6;
     }
   });
 
   // Window geometry. Hover bumps the whole card so the text becomes
   // legible without the user having to dive in with the camera.
-  const W = 5.5;
-  const H = 3.5;
-  const HEADER_H = 0.5;
-  const scale = appear * (hovered ? 1.45 : selected ? 1.1 : 1);
-  const headerColor = hslColor(point.hue, 55, 80);
+  const W = 7.6;
+  const H = 4.8;
+  const HEADER_H = 0.7;
+  // Fresh cards render at 1.5x by default so the freshest activity
+  // dominates the scene physically, not just visually. Hover still
+  // wins so the user can pop *any* card into legibility.
+  const baseScale = hovered
+    ? 1.55
+    : point.isFresh
+      ? 1.5
+      : selected
+        ? 1.1
+        : 1;
+  const scale = appear * baseScale;
+  // Fresh cards swap the muted off-white body for a tinted wash and
+  // pull the header into stronger saturation so the freshness signal
+  // lives in color, not motion. The hue carries from the same per-
+  // session palette so the family identity stays readable.
+  const cardBg = point.isFresh ? hslColor(point.hue, 65, 92) : "#f4f4f4";
+  const headerColor = point.isFresh
+    ? hslColor(point.hue, 75, 55)
+    : hslColor(point.hue, 55, 80);
+  const headerTextColor = point.isFresh ? "#ffffff" : "#1f2937";
+  const headerTextSubColor = point.isFresh ? "#f3f4f6" : "#4b5563";
   const kindLabel = point.kind === "user" ? "USER" : "ASSISTANT";
   const typeLabel = displayType(point.sessionType);
   const headerRight = `${typeLabel} · ${point.sessionRepo ?? "—"} · ${formatHHMM(point.ts)}`;
-  // Hard cap at 160 chars / 6 lines so even all-CJK summaries (≈ 21 chars
-  // per line at fontSize 0.24, maxWidth ≈ 5.06) stay inside the card.
-  // Latin summaries usually exhaust the character budget first.
-  const body = truncateForCard(point.summary, { maxChars: 160, maxLines: 6 });
+  // Hard cap at 240 chars / 8 lines for the larger card (W=7.6 leaves
+  // ≈ 28 CJK / 50 Latin chars per line at fontSize 0.3). The smaller
+  // dimension wins so neither alphabet ever spills.
+  const body = truncateForCard(point.summary, { maxChars: 240, maxLines: 8 });
 
   // Hover pops the card back to full opacity so even very old cards
   // become readable on inspection. Otherwise the global age-based
@@ -333,29 +350,15 @@ function MessageWindow({
               />
             </mesh>
           )}
-          {/* Freshness halo — only rendered for cards within FRESH_MS so
-              older messages never compete for attention. Sits behind the
-              card body and pulses via useFrame opacity drives. */}
-          {point.isFresh && (
-            <mesh position={[0, 0, -0.01]}>
-              <planeGeometry args={[W + 0.7, H + 0.7]} />
-              <meshBasicMaterial
-                ref={haloMatRef}
-                color={headerColor}
-                transparent
-                opacity={0.5}
-                toneMapped={false}
-                depthWrite={false}
-              />
-            </mesh>
-          )}
-          {/* Card body */}
+          {/* Card body — neutral off-white normally, tinted hue when
+              fresh so the message reads as "alive" through color rather
+              than animation. */}
           <mesh>
             <planeGeometry args={[W, H]} />
             <meshBasicMaterial
-              color="#f4f4f4"
+              color={cardBg}
               transparent
-              opacity={op * 0.95}
+              opacity={op * 0.97}
               toneMapped={false}
               depthWrite={false}
             />
@@ -382,21 +385,35 @@ function MessageWindow({
               toneMapped={false}
             />
           </lineSegments>
+          {/* Fresh-only gold outline hugging the card. Static (no pulse
+              here) so it provides a steady "this is new" marker while
+              the white halo behind it does the blinking. */}
+          {point.isFresh && (
+            <lineSegments position={[0, 0, 0.0007]}>
+              <edgesGeometry args={[new THREE.PlaneGeometry(W + 0.06, H + 0.06)]} />
+              <lineBasicMaterial
+                color="#fcd34d"
+                transparent
+                opacity={0.95}
+                toneMapped={false}
+              />
+            </lineSegments>
+          )}
           {/* Header text — left-aligned like a real OS window title bar.
               maxWidth caps it at 32% of the card so the right-side meta
               never overlaps. */}
           <Text
-            position={[-W / 2 + 0.2, H / 2 - HEADER_H / 2, 0.01]}
+            position={[-W / 2 + 0.28, H / 2 - HEADER_H / 2, 0.01]}
             anchorX="left"
             anchorY="middle"
-            fontSize={0.24}
+            fontSize={0.34}
             maxWidth={W * 0.32}
             outlineWidth={0}
             overflowWrap="normal"
           >
             {`▣ ${kindLabel}`}
             <meshBasicMaterial
-              color="#1f2937"
+              color={headerTextColor}
               transparent
               opacity={op}
               toneMapped={false}
@@ -405,16 +422,16 @@ function MessageWindow({
           </Text>
           {/* Type / repo / clock on the right edge of the header. */}
           <Text
-            position={[W / 2 - 0.2, H / 2 - HEADER_H / 2, 0.01]}
+            position={[W / 2 - 0.28, H / 2 - HEADER_H / 2, 0.01]}
             anchorX="right"
             anchorY="middle"
-            fontSize={0.2}
+            fontSize={0.28}
             maxWidth={W * 0.66}
             overflowWrap="normal"
           >
             {headerRight}
             <meshBasicMaterial
-              color="#4b5563"
+              color={headerTextSubColor}
               transparent
               opacity={op}
               toneMapped={false}
@@ -426,11 +443,11 @@ function MessageWindow({
               caps the line count so the text never spills past either
               the horizontal or vertical card bounds. */}
           <Text
-            position={[-W / 2 + 0.24, H / 2 - HEADER_H - 0.22, 0.01]}
+            position={[-W / 2 + 0.32, H / 2 - HEADER_H - 0.3, 0.01]}
             anchorX="left"
             anchorY="top"
-            fontSize={0.22}
-            maxWidth={W - 0.48}
+            fontSize={0.3}
+            maxWidth={W - 0.64}
             lineHeight={1.3}
             textAlign="left"
             overflowWrap="break-word"

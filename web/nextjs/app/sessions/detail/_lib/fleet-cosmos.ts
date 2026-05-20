@@ -36,10 +36,10 @@ export interface Cosmos {
   bounds: { x: number; y: number; depth: number };
 }
 
-const SPACE_X = 34;
-const SPACE_Y = 22;
-const Z_FRONT = 14;
-const Z_BACK = -36;
+const SPACE_X = 44;
+const SPACE_Y = 28;
+const Z_FRONT = 18;
+const Z_BACK = -44;
 const MIN_OPACITY = 0.15;
 // Anything within this window from now() pulses to draw the eye to the
 // freshest activity. 5 min keeps the "live" badge meaningful — long
