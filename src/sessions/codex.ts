@@ -2,6 +2,7 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { resolveRepoForCwd } from "../lib/repo-from-cwd.js";
+import { detectCodexSessionStatus } from "../lib/session-status.js";
 import type {
   SessionDetail,
   SessionMessage,
@@ -105,6 +106,9 @@ async function readCodexSummary(
   if (!sessionId) return null;
 
   const lastIso = new Date(mtimeMs).toISOString();
+  // Live status detection — re-runs on each SSE detail tick so the UI flips
+  // to active/waiting_for_user/ended without waiting for the next sync.
+  const status = detectCodexSessionStatus(text);
   return {
     type: "codex",
     id: sessionId,
@@ -115,6 +119,7 @@ async function readCodexSummary(
     last_active: lastIso,
     message_count: messageCount,
     todos_count: 0,
+    status,
   };
 }
 

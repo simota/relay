@@ -255,3 +255,174 @@ function extractUserTexts(obj: Record<string, unknown>): string[] {
   }
   return out;
 }
+
+// ---------------------------------------------------------------------------
+// Codex session status detection.
+//
+// Codex JSONLs interleave four event families that matter for lifecycle:
+//   - `event_msg.payload.type === "user_message"`   : user input
+//   - `event_msg.payload.type === "agent_message"`  : assistant turn body
+//   - `event_msg.payload.type === "task_complete"`  : explicit end-of-turn
+//   - `response_item.payload.type === "function_call"` (with `call_id`)
+//     ↔ `response_item.payload.type === "function_call_output"` (with same `call_id`)
+// Plus noise we ignore for status:
+//   - `event_msg.payload.type === "token_count"`    : rate limit / usage info
+//   - `event_msg.payload.type === "task_started"`   : housekeeping
+//   - `response_item.payload.type === "reasoning"`  : thinking trace
+//
+// Pending function_calls (call_id not yet answered by a function_call_output)
+// signal "tool in flight" — analogous to Claude's pending tool_use. Past the
+// idle window we classify as waiting_for_user, otherwise active.
+// ---------------------------------------------------------------------------
+export function detectCodexSessionStatus(text: string, opts: DetectOptions = {}): SessionStatus {
+  if (!text) return "idle";
+
+  const now = opts.now ?? Date.now();
+  const idleMs = opts.idleMs ?? DEFAULT_IDLE_MS;
+
+  const lines = text.split("\n");
+  const pendingCallIds = new Set<string>();
+  const answeredCallIds = new Set<string>();
+  let lastMeaningfulType: string | null = null;
+  let lastMeaningfulTsMs: number | null = null;
+  let lastTimestampMs: number | null = null;
+
+  for (const line of lines) {
+    if (!line) continue;
+    const obj = safeParseLine(line);
+    if (!obj) continue;
+    const ts = parseTimestamp(obj);
+    if (ts !== null) lastTimestampMs = ts;
+
+    const outerType = obj.type;
+    const payload = (obj.payload as Record<string, unknown> | undefined) ?? {};
+    const innerType = payload.type;
+
+    if (outerType === "event_msg") {
+      // Skip pure observability events: token_count fires on every turn
+      // boundary including post-turn rate-limit refreshes, and task_started
+      // is the inverse of task_complete (it would mis-classify quiescent
+      // sessions as "just started").
+      if (innerType === "token_count" || innerType === "task_started") continue;
+      if (
+        innerType === "user_message" ||
+        innerType === "agent_message" ||
+        innerType === "task_complete"
+      ) {
+        lastMeaningfulType = `event_msg/${String(innerType)}`;
+        if (ts !== null) lastMeaningfulTsMs = ts;
+      }
+    } else if (outerType === "response_item") {
+      if (innerType === "reasoning") continue;
+      if (innerType === "function_call") {
+        const callId = payload.call_id;
+        if (typeof callId === "string") pendingCallIds.add(callId);
+        lastMeaningfulType = "response_item/function_call";
+        if (ts !== null) lastMeaningfulTsMs = ts;
+      } else if (innerType === "function_call_output") {
+        const callId = payload.call_id;
+        if (typeof callId === "string") answeredCallIds.add(callId);
+        lastMeaningfulType = "response_item/function_call_output";
+        if (ts !== null) lastMeaningfulTsMs = ts;
+      } else if (innerType === "message") {
+        lastMeaningfulType = "response_item/message";
+        if (ts !== null) lastMeaningfulTsMs = ts;
+      }
+    }
+  }
+
+  // Unanswered function_call ⇒ tool in flight. Mirror Claude's idle-window
+  // semantics: recent ⇒ active (CLI is probably still running the tool),
+  // stale ⇒ waiting_for_user (likely a permission prompt / hang).
+  let pending = 0;
+  for (const id of pendingCallIds) if (!answeredCallIds.has(id)) pending++;
+  if (pending > 0) {
+    const refTs = lastMeaningfulTsMs ?? lastTimestampMs;
+    if (refTs !== null && now - refTs < idleMs) return "active";
+    return "waiting_for_user";
+  }
+
+  // task_complete is Codex's explicit end-of-turn marker. We only honor it
+  // when it is the freshest meaningful event — a stray task_complete in the
+  // middle of the log followed by more activity should not pin the session
+  // to `ended`.
+  if (lastMeaningfulType === "event_msg/task_complete") return "ended";
+
+  return classifyByRecency(lastMeaningfulTsMs ?? lastTimestampMs, now, idleMs);
+}
+
+// ---------------------------------------------------------------------------
+// Antigravity session status detection.
+//
+// Antigravity transcripts ship a per-entry `status` field natively
+// ("DONE" / "RUNNING" / occasionally other), so we do not need to reconstruct
+// tool pairing the way Claude/Codex do. We classify on the last meaningful
+// entry's combination of `type`, `source`, and `status`:
+//   - last entry has `status: "RUNNING"`              → active
+//   - last entry is `type: USER_INPUT`                → active (user just typed)
+//   - last entry is `type: PLANNER_RESPONSE`, status "DONE", no tool_calls
+//                                                     → ended
+//   - otherwise                                       → classify by recency
+//
+// Entries with `type: CONVERSATION_HISTORY` are bookkeeping (parallel to a
+// Claude system event) and skipped for status classification.
+// ---------------------------------------------------------------------------
+
+interface TranscriptStatusEntry {
+  type?: string;
+  source?: string;
+  status?: string;
+  created_at?: string;
+  tool_calls?: unknown;
+}
+
+export function detectAntigravitySessionStatus(
+  text: string,
+  opts: DetectOptions = {},
+): SessionStatus {
+  if (!text) return "idle";
+
+  const now = opts.now ?? Date.now();
+  const idleMs = opts.idleMs ?? DEFAULT_IDLE_MS;
+
+  let lastTsMs: number | null = null;
+  let lastMeaningful: TranscriptStatusEntry | null = null;
+  let lastMeaningfulTsMs: number | null = null;
+
+  for (const line of text.split("\n")) {
+    if (!line) continue;
+    let entry: TranscriptStatusEntry | null = null;
+    try {
+      entry = JSON.parse(line) as TranscriptStatusEntry;
+    } catch {
+      continue;
+    }
+    if (!entry) continue;
+    const ts =
+      typeof entry.created_at === "string" ? Date.parse(entry.created_at) : Number.NaN;
+    if (Number.isFinite(ts)) lastTsMs = ts;
+
+    if (entry.type === "CONVERSATION_HISTORY") continue;
+    lastMeaningful = entry;
+    if (Number.isFinite(ts)) lastMeaningfulTsMs = ts;
+  }
+
+  if (!lastMeaningful) return classifyByRecency(lastTsMs, now, idleMs);
+
+  if (lastMeaningful.status === "RUNNING") return "active";
+  if (lastMeaningful.type === "USER_INPUT") return "active";
+
+  if (
+    lastMeaningful.type === "PLANNER_RESPONSE" &&
+    lastMeaningful.status === "DONE" &&
+    !hasToolCalls(lastMeaningful.tool_calls)
+  ) {
+    return "ended";
+  }
+
+  return classifyByRecency(lastMeaningfulTsMs ?? lastTsMs, now, idleMs);
+}
+
+function hasToolCalls(value: unknown): boolean {
+  return Array.isArray(value) && value.length > 0;
+}

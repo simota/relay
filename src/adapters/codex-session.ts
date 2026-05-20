@@ -9,7 +9,8 @@ import {
   toSessionRow,
   truncate,
 } from "../lib/session-helpers.js";
-import type { Adapter, AdapterContext, TaskInput } from "../types.js";
+import { detectCodexSessionStatus } from "../lib/session-status.js";
+import type { Adapter, AdapterContext, SessionStatus, TaskInput } from "../types.js";
 
 /**
  * Scans ~/.codex/sessions/<year>/<month>/<day>/rollout-*.jsonl and emits one
@@ -52,6 +53,13 @@ interface CodexParsed {
    * way they render Claude `agent-*` rollouts.
    */
   parentSessionId: string | null;
+  /**
+   * Lifecycle status derived from the JSONL tail. See
+   * `detectCodexSessionStatus()` for the heuristic (pending function_call,
+   * task_complete, recency window). Defaults to "idle" when the file has no
+   * meaningful events yet.
+   */
+  status: SessionStatus;
 }
 
 export const codexSessionAdapter: Adapter = {
@@ -137,6 +145,7 @@ export const codexSessionAdapter: Adapter = {
               sourcePath: c.path,
               lastMessageText: parsed.lastMessageText,
               parentSessionId: parsed.parentSessionId,
+              status: parsed.status,
             }),
           );
         } catch (err) {
@@ -230,6 +239,7 @@ async function parseCodexSession(path: string): Promise<CodexParsed> {
       messageCount: 0,
       lastMessageText: null,
       parentSessionId: null,
+      status: "idle",
     };
   }
 
@@ -293,6 +303,10 @@ async function parseCodexSession(path: string): Promise<CodexParsed> {
     }
   }
 
+  // Status detection reuses the same text we just walked — single readFile,
+  // single status pass, kept symmetric with the Claude adapter's parseSession.
+  const status = detectCodexSessionStatus(text);
+
   return {
     cwd,
     firstUserMessage,
@@ -301,6 +315,7 @@ async function parseCodexSession(path: string): Promise<CodexParsed> {
     messageCount,
     lastMessageText,
     parentSessionId,
+    status,
   };
 }
 
