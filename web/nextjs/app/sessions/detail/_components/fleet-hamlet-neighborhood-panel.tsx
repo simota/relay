@@ -111,8 +111,8 @@ function InteriorView({
   onClose,
 }: InteriorViewProps) {
   const parts = useMemo(
-    () => avatarPartsFromSeed(sim.avatarSeed),
-    [sim.avatarSeed],
+    () => avatarPartsFromSeed(sim.avatarSeed, sim.stage.key),
+    [sim.avatarSeed, sim.stage.key],
   );
   const grad = useMemo(() => moodGradient(sim.mood.key), [sim.mood.key]);
   const accessories = useMemo(

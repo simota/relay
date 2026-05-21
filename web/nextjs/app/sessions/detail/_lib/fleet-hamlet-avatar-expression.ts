@@ -15,20 +15,26 @@ export type EyeShape =
   | "half"   // short horizontal line (bored, half open)
   | "closed" // closed line + Zzz nearby (asleep)
   | "narrow" // thin horizontal slit (focused)
-  | "swirl"; // spiral (stressed / dizzy)
+  | "swirl"  // spiral (stressed / dizzy)
+  | "wide"   // big circular eyes (surprised / curious)
+  | "hearts"; // heart-shaped eyes (smitten — rare easter egg)
 
 export type MouthShape =
   | "small-smile" // small upward curve
   | "big-smile"   // big U
   | "flat"        // short straight line
   | "frown"       // downward curve
-  | "open-yawn";  // small open circle (asleep)
+  | "open-yawn"   // small open circle (asleep)
+  | "pucker"      // puckered lips (kiss / whistle)
+  | "wide-grin";  // teeth-baring grin
 
 export type BrowShape =
   | "none"
   | "angle-up"    // angled outward, stressed
   | "angle-down"  // angled inward, focused / determined
-  | "straight";   // flat focused
+  | "straight"    // flat focused
+  | "arch-asymmetric-left"  // left brow raised (skepticism)
+  | "arch-asymmetric-right"; // right brow raised (curiosity)
 
 export type AvatarPose =
   | "idle"          // default standing

@@ -615,7 +615,10 @@ export function SimCard({
   allSims,
   now,
 }: SimCardProps) {
-  const parts = useMemo(() => avatarPartsFromSeed(sim.avatarSeed), [sim.avatarSeed]);
+  const parts = useMemo(
+    () => avatarPartsFromSeed(sim.avatarSeed, sim.stage.key),
+    [sim.avatarSeed, sim.stage.key],
+  );
   const canOpen = !selected && canAdd;
   const grad = useMemo(() => moodGradient(sim.mood.key), [sim.mood.key]);
   const accessories = useMemo(() => deriveAccessories(sim, detail), [sim, detail]);

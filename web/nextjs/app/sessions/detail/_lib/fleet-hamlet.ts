@@ -466,6 +466,10 @@ export interface AvatarParts {
   blinkDelay: number;
   /** Animation delay (s) for the idle-breathe keyframe (same reason). */
   breatheDelay: number;
+  /** Head-to-body ratio (toushin) — 3.0 (chibi) → 7.5 (adult). Defaults
+   *  to 4.5 which matches the legacy avatar height proportions. The
+   *  renderer derives headR = totalHeight / (headRatio * 2). */
+  headRatio: number;
 }
 
 const REFINED_HAIR: readonly AvatarParts["hair"][] = [
@@ -477,7 +481,20 @@ const REFINED_HAIR: readonly AvatarParts["hair"][] = [
   "bald",
 ] as const;
 
-export function avatarPartsFromSeed(seed: number): AvatarParts {
+/** Head-to-body ratio categories (toushin). Lower = more chibi / cuter. */
+const TOUSHIN_BY_CATEGORY: Record<"chibi" | "kid" | "teen" | "adult", number> = {
+  chibi: 3.0,
+  kid: 4.0,
+  teen: 6.0,
+  adult: 7.5,
+};
+
+/** Optional lifestage to bias toushin selection so newborns/infants always
+ *  render as chibi regardless of seed, and elders always read as adults. */
+export function avatarPartsFromSeed(
+  seed: number,
+  lifestage?: LifeStageKey,
+): AvatarParts {
   // Slice the seed into 4 8-bit lanes; each lane drives one feature.
   const a = (seed >>> 0) & 0xff;
   const b = (seed >>> 8) & 0xff;
@@ -489,6 +506,30 @@ export function avatarPartsFromSeed(seed: number): AvatarParts {
   // Cheek hue is always in the warm pink band — keeps the village palette
   // consistent regardless of skin tone.
   const cheekHue = 350 + ((d >>> 1) % 20);
+  // Head-ratio selection: lifestage hard-locks the bucket when available,
+  // otherwise seed picks from the four categories so the village shows a
+  // visible mix of chibi / kid / teen / adult body proportions.
+  let headRatio: number;
+  if (lifestage === "newborn" || lifestage === "infant") {
+    headRatio = TOUSHIN_BY_CATEGORY.chibi;
+  } else if (lifestage === "toddler") {
+    headRatio = TOUSHIN_BY_CATEGORY.kid;
+  } else if (lifestage === "elder") {
+    headRatio = TOUSHIN_BY_CATEGORY.adult;
+  } else if (lifestage === "adult") {
+    headRatio = (d & 0x1) === 0 ? TOUSHIN_BY_CATEGORY.teen : TOUSHIN_BY_CATEGORY.adult;
+  } else {
+    // No lifestage hint — seed picks across all four categories uniformly.
+    const bucket = (d >>> 2) & 0x3;
+    headRatio =
+      bucket === 0
+        ? TOUSHIN_BY_CATEGORY.chibi
+        : bucket === 1
+          ? TOUSHIN_BY_CATEGORY.kid
+          : bucket === 2
+            ? TOUSHIN_BY_CATEGORY.teen
+            : TOUSHIN_BY_CATEGORY.adult;
+  }
   return {
     skinHue: (a * 360) >>> 8,
     hairHue: (b * 360) >>> 8,
@@ -500,6 +541,7 @@ export function avatarPartsFromSeed(seed: number): AvatarParts {
     // Stagger delays across [-4, 0)s so neighbours animate out of phase.
     blinkDelay: -((a % 80) / 10),
     breatheDelay: -((b % 40) / 10),
+    headRatio,
   };
 }
 

@@ -85,10 +85,20 @@ function WalkingSim({
       <span
         style={{
           display: "inline-block",
-          animation: "relayHamletWalkBob 0.6s ease-in-out infinite",
+          // 4-frame steps() walk gives a sprite-style cadence. We keep
+          // the existing walkBob keyframe as the cushion bounce on a
+          // second wrapper so the rhythm reads as "step + breathe".
+          animation: "relayHamletWalk4Frame 0.6s steps(4, end) infinite",
         }}
       >
-        <MiniSimAvatar agentKind={spec.sim.sessionType} hue={spec.sim.hue} sim={spec.sim} />
+        <span
+          style={{
+            display: "inline-block",
+            animation: "relayHamletWalkBob 0.6s ease-in-out infinite",
+          }}
+        >
+          <MiniSimAvatar agentKind={spec.sim.sessionType} hue={spec.sim.hue} sim={spec.sim} />
+        </span>
       </span>
     </span>
   );
@@ -108,7 +118,8 @@ function MiniSimAvatar({
   // Derive a deterministic seed even if the caller didn't pass a sim
   // (street walkers re-use the agentKind+hue to keep the look stable).
   const seed = sim?.avatarSeed ?? hashStringToInt(`${agentKind}:${hue}`);
-  const parts = useMemo(() => avatarPartsFromSeed(seed), [seed]);
+  const stage = sim?.stage.key;
+  const parts = useMemo(() => avatarPartsFromSeed(seed, stage), [seed, stage]);
   const moodKey = sim?.mood.key ?? "happy";
   const expression = useMemo(() => getExpressionForMood(moodKey), [moodKey]);
   const clothes = clothingForAgent(agentKind);
@@ -815,6 +826,24 @@ export const PARTICLE_CSS = `
 @keyframes relayHamletWindowGlow {
   0%, 100% { fill-opacity: 0.85; filter: drop-shadow(0 0 1px currentColor); }
   50%      { fill-opacity: 1;    filter: drop-shadow(0 0 3px currentColor); }
+}
+@media (prefers-reduced-motion: reduce) {
+  /* Stops every Hamlet particle / walker / weather animation when the
+     OS-level "reduce motion" preference is on. */
+  [style*="relayHamletWalkPath"],
+  [style*="relayHamletWalkBob"],
+  [style*="relayHamletRain"],
+  [style*="relayHamletLightning"],
+  [style*="relayHamletPetal"],
+  [style*="relayHamletLeaf"],
+  [style*="relayHamletSnow"],
+  [style*="relayHamletEmber"],
+  [style*="relayHamletGhost"],
+  [style*="relayHamletStarBurst"],
+  [style*="relayHamletCheckBloom"],
+  [style*="relayHamletWindowGlow"] {
+    animation: none !important;
+  }
 }
 ${HAMLET_AVATAR_CSS}
 `;

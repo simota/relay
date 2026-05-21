@@ -18,7 +18,7 @@
 //          `BodyTorso` = barrel torso + collar + arms + legs + shoes,
 //                        with a `pose` prop that translates to limb angle.
 
-import type { ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 import type { SimCardModel } from "../_lib/fleet-hamlet";
 import type { AvatarParts } from "../_lib/fleet-hamlet";
 import {
@@ -42,6 +42,7 @@ import {
   MustacheSvg,
   ScarfSvg,
 } from "./fleet-hamlet-avatar-accessories";
+import { useEyeTrack } from "./fleet-hamlet-avatar-eye-track";
 
 // ---------------------------------------------------------------------------
 // Shared palette helpers
@@ -101,11 +102,22 @@ export interface HeadFaceProps {
   enableBlink?: boolean;
   /** Skip the cheek blush (used at very small sizes where 2 px blobs blur into the face). */
   enableCheeks?: boolean;
+  /** Toggle the atan2 cursor-tracking pupil offset. Default true. Forced
+   *  off when the eye expression is closed/narrow/half/swirl (no visible
+   *  pupil to move) or when the host is in prefers-reduced-motion. */
+  enableEyeTrack?: boolean;
   /** Open-Peeps-inspired accessories — all optional, default "none". */
   glasses?: GlassesKind;
   mustache?: MustacheKind;
   beard?: BeardKind;
   earring?: EarringKind;
+}
+
+/** Eye shapes that render a visible pupil — eye-tracking only applies to
+ *  these. Closed/narrow/half/swirl are stylised glyphs that would look
+ *  wrong sliding around. */
+function eyeShapeCanTrack(eye: EyeShape): boolean {
+  return eye === "normal" || eye === "wide" || eye === "hearts";
 }
 
 export function HeadFace({
@@ -115,11 +127,18 @@ export function HeadFace({
   haloColor,
   enableBlink = true,
   enableCheeks = true,
+  enableEyeTrack = true,
   glasses = "none",
   mustache = "none",
   beard = "none",
   earring = "none",
 }: HeadFaceProps) {
+  const headRef = useRef<SVGGElement>(null);
+  // Pupil offset is capped at ~10% of the eye radius so it never escapes
+  // the eye-white. Larger values look googly.
+  const maxPupilOffset = radius * 0.1;
+  const trackingActive = enableEyeTrack && eyeShapeCanTrack(expression.eye);
+  const pupilOffset = useEyeTrack(headRef, maxPupilOffset, trackingActive);
   const skin = `hsl(${parts.skinHue}, 45%, 72%)`;
   const skinShadow = `hsl(${parts.skinHue}, 50%, 58%)`;
   const hair = `hsl(${parts.hairHue}, 50%, 30%)`;
@@ -132,7 +151,7 @@ export function HeadFace({
   // ring — mood is conveyed via expression (eyes/mouth/brow) instead.
   void haloColor;
   return (
-    <g aria-hidden>
+    <g aria-hidden ref={headRef}>
       {/* Ears — render behind the face oval so the hair / face front
           covers them when hair style hides them. */}
       {parts.hasEars && (
@@ -190,7 +209,11 @@ export function HeadFace({
             : undefined
         }
       >
-        <Eyes eye={expression.eye} radius={radius} />
+        <Eyes
+          eye={expression.eye}
+          radius={radius}
+          pupilOffset={trackingActive ? pupilOffset : undefined}
+        />
       </g>
       {/* Mouth */}
       <Mouth mouth={expression.mouth} radius={radius} />
@@ -366,21 +389,63 @@ function HairShape({
   }
 }
 
-function Eyes({ eye, radius }: { eye: EyeShape; radius: number }) {
+function Eyes({
+  eye,
+  radius,
+  pupilOffset,
+}: {
+  eye: EyeShape;
+  radius: number;
+  pupilOffset?: { dx: number; dy: number };
+}) {
   const r = radius;
   const ex = r * 0.4; // eye horizontal offset from center
   const ey = -r * 0.05; // eye vertical position
+  const pdx = pupilOffset?.dx ?? 0;
+  const pdy = pupilOffset?.dy ?? 0;
   switch (eye) {
     case "normal":
       return (
         <g>
-          <circle cx={-ex} cy={ey} r={r * 0.13} fill="#1a1a1a" />
-          <circle cx={ex} cy={ey} r={r * 0.13} fill="#1a1a1a" />
-          {/* white catchlights */}
-          <circle cx={-ex + r * 0.05} cy={ey - r * 0.04} r={r * 0.04} fill="#FFFFFF" />
-          <circle cx={ex + r * 0.05} cy={ey - r * 0.04} r={r * 0.04} fill="#FFFFFF" />
+          <circle cx={-ex + pdx} cy={ey + pdy} r={r * 0.13} fill="#1a1a1a" />
+          <circle cx={ex + pdx} cy={ey + pdy} r={r * 0.13} fill="#1a1a1a" />
+          {/* white catchlights — also follow the pupil so the highlight
+              reads as part of the eye, not a static reflection. */}
+          <circle cx={-ex + pdx + r * 0.05} cy={ey + pdy - r * 0.04} r={r * 0.04} fill="#FFFFFF" />
+          <circle cx={ex + pdx + r * 0.05} cy={ey + pdy - r * 0.04} r={r * 0.04} fill="#FFFFFF" />
         </g>
       );
+    case "wide":
+      // Surprised / curious — large white-ringed eyes with small pupil
+      // that tracks the cursor for extra reactivity.
+      return (
+        <g>
+          <circle cx={-ex} cy={ey} r={r * 0.22} fill="#FFFFFF" stroke="#1a1a1a" strokeWidth={Math.max(0.6, r * 0.05)} />
+          <circle cx={ex} cy={ey} r={r * 0.22} fill="#FFFFFF" stroke="#1a1a1a" strokeWidth={Math.max(0.6, r * 0.05)} />
+          <circle cx={-ex + pdx} cy={ey + pdy} r={r * 0.1} fill="#1a1a1a" />
+          <circle cx={ex + pdx} cy={ey + pdy} r={r * 0.1} fill="#1a1a1a" />
+          <circle cx={-ex + pdx + r * 0.04} cy={ey + pdy - r * 0.05} r={r * 0.035} fill="#FFFFFF" />
+          <circle cx={ex + pdx + r * 0.04} cy={ey + pdy - r * 0.05} r={r * 0.035} fill="#FFFFFF" />
+        </g>
+      );
+    case "hearts": {
+      // Easter-egg heart eyes — pupils are heart paths offset by tracking.
+      const heart = (cx: number, cy: number) => {
+        const s = r * 0.18;
+        // Heart as two semicircles + a triangle, in a [-1,1] unit box scaled by s.
+        return `M ${cx} ${cy - s * 0.25}
+                C ${cx} ${cy - s * 0.6}, ${cx - s * 0.6} ${cy - s * 0.6}, ${cx - s * 0.6} ${cy - s * 0.2}
+                C ${cx - s * 0.6} ${cy + s * 0.15}, ${cx} ${cy + s * 0.4}, ${cx} ${cy + s * 0.55}
+                C ${cx} ${cy + s * 0.4}, ${cx + s * 0.6} ${cy + s * 0.15}, ${cx + s * 0.6} ${cy - s * 0.2}
+                C ${cx + s * 0.6} ${cy - s * 0.6}, ${cx} ${cy - s * 0.6}, ${cx} ${cy - s * 0.25} Z`;
+      };
+      return (
+        <g fill="#E04F6A">
+          <path d={heart(-ex + pdx * 0.5, ey + pdy * 0.5)} />
+          <path d={heart(ex + pdx * 0.5, ey + pdy * 0.5)} />
+        </g>
+      );
+    }
     case "smile":
       // Inverted U
       return (
@@ -481,6 +546,42 @@ function Mouth({ mouth, radius }: { mouth: MouthShape; radius: number }) {
           fill="#3A2A1F"
         />
       );
+    case "pucker":
+      // Puckered "o" — small vertical ellipse with a pink lip overlay so
+      // it reads as lips rather than a mouth-hole.
+      return (
+        <g>
+          <ellipse cx={0} cy={my + r * 0.02} rx={r * 0.08} ry={r * 0.12} fill="#A24658" />
+          <ellipse cx={0} cy={my} rx={r * 0.05} ry={r * 0.07} fill="#5A2D1F" opacity={0.65} />
+        </g>
+      );
+    case "wide-grin":
+      // Big toothy grin — top arc is the lip, white rect is the teeth row.
+      return (
+        <g>
+          <path
+            d={`M ${-r * 0.34} ${my - r * 0.04}
+                Q 0 ${my + r * 0.34} ${r * 0.34} ${my - r * 0.04}
+                L ${r * 0.3} ${my - r * 0.08}
+                L ${-r * 0.3} ${my - r * 0.08} Z`}
+            fill="#5A2D1F"
+          />
+          <rect
+            x={-r * 0.26}
+            y={my - r * 0.04}
+            width={r * 0.52}
+            height={r * 0.13}
+            rx={r * 0.04}
+            fill="#FBFCF4"
+          />
+          {/* vertical hairlines hint at separate teeth */}
+          <g stroke="#C8B8A0" strokeWidth={Math.max(0.4, r * 0.025)} opacity={0.8}>
+            <line x1={-r * 0.12} y1={my - r * 0.02} x2={-r * 0.12} y2={my + r * 0.07} />
+            <line x1={0} y1={my - r * 0.02} x2={0} y2={my + r * 0.07} />
+            <line x1={r * 0.12} y1={my - r * 0.02} x2={r * 0.12} y2={my + r * 0.07} />
+          </g>
+        </g>
+      );
   }
 }
 
@@ -501,6 +602,33 @@ function Brows({ brow, radius }: { brow: BrowShape; radius: number }) {
   } else if (brow === "angle-down") {
     leftDx = r * 0.12;
     rightDx = -r * 0.12;
+  }
+  // Asymmetric arches — one brow lifted, the other stays flat. Conveys
+  // skepticism / curiosity. Lift = ~0.18r of additional rise on the
+  // raised end with a slight arch via Q control.
+  if (brow === "arch-asymmetric-left" || brow === "arch-asymmetric-right") {
+    const liftLeft = brow === "arch-asymmetric-left";
+    return (
+      <g stroke="#3A2A1F" strokeWidth={sw} strokeLinecap="round" fill="none">
+        {liftLeft ? (
+          <>
+            <path
+              d={`M ${-ex - len / 2} ${by + r * 0.05}
+                  Q ${-ex} ${by - r * 0.2} ${-ex + len / 2} ${by - r * 0.05}`}
+            />
+            <line x1={ex - len / 2} y1={by} x2={ex + len / 2} y2={by} />
+          </>
+        ) : (
+          <>
+            <line x1={-ex - len / 2} y1={by} x2={-ex + len / 2} y2={by} />
+            <path
+              d={`M ${ex - len / 2} ${by - r * 0.05}
+                  Q ${ex} ${by - r * 0.2} ${ex + len / 2} ${by + r * 0.05}`}
+            />
+          </>
+        )}
+      </g>
+    );
   }
   return (
     <g stroke="#3A2A1F" strokeWidth={sw} strokeLinecap="round">
@@ -674,6 +802,40 @@ export function BodyTorso({
       {/* Two front buttons */}
       <circle cx={0} cy={h * 0.32} r={Math.max(0.5, w * 0.04)} fill={clothing.shirtDark} />
       <circle cx={0} cy={h * 0.48} r={Math.max(0.5, w * 0.04)} fill={clothing.shirtDark} />
+      {/* Stitching seams + a single vertical shirt wrinkle. Drawn with
+          stroke-dasharray to add fabric texture without bumping the SVG
+          node budget (3 paths total). currentColor + low opacity keeps
+          the seam visible on every shirt palette. */}
+      {enableRim && (
+        <g stroke={clothing.shirtDark} fill="none" strokeLinecap="round" opacity={0.55}>
+          {/* Collar seam — dashed line tracing the V. */}
+          <path
+            d={`M ${-topW / 2 + w * 0.03} ${torsoTop + h * 0.01}
+                L 0 ${h * 0.13}
+                L ${topW / 2 - w * 0.03} ${torsoTop + h * 0.01}`}
+            strokeWidth={Math.max(0.35, w * 0.03)}
+            strokeDasharray="2 1"
+          />
+          {/* Button placket — dashed vertical line between the two buttons. */}
+          <line
+            x1={0}
+            y1={h * 0.2}
+            x2={0}
+            y2={h * 0.6}
+            strokeWidth={Math.max(0.3, w * 0.025)}
+            strokeDasharray="2 1.5"
+            opacity={0.7}
+          />
+          {/* Side-front wrinkle — subtle long-dash stroke. */}
+          <path
+            d={`M ${-topW / 2 + w * 0.18} ${h * 0.18}
+                Q ${-topW / 2 + w * 0.22} ${h * 0.4} ${-topW / 2 + w * 0.2} ${torsoBottom - h * 0.05}`}
+            strokeWidth={Math.max(0.3, w * 0.03)}
+            strokeDasharray="4 2"
+            opacity={0.4}
+          />
+        </g>
+      )}
       {/* Scarf — wraps the neck/collar; rendered after the torso/collar so
           it sits in front. Arms are drawn after, so they remain in front
           of the scarf as if dangling outside it. */}
@@ -791,25 +953,45 @@ export function HamletAvatar({
   earring = "none",
   scarf = "none",
 }: HamletAvatarProps) {
-  // Head radius is ~22% of total height (slightly larger than realistic to
-  // read as "cute character" at small sizes).
-  const headR = height * 0.22;
-  const bodyH = height * 0.62;
+  // Head radius derives from the toushin (head-body) ratio embedded in
+  // parts. Default chibi readout (~4.5 toushin) keeps the legacy 22%-of-
+  // height proportion; higher toushin slims the head and elongates the
+  // body so adults read taller and more realistic next to children.
+  //
+  //   total height = 2 * headR + neck + bodyH
+  //   headRatio    = total height / headR  (≈ "n-heads tall")
+  //
+  // We solve for headR with a small neck gap (~5% of height) and a body
+  // that fills the remainder.
+  const safeRatio = parts.headRatio > 0 ? parts.headRatio : 4.5;
+  // Uses the recipe's convention "height / headR ≈ N-heads tall".
+  // Legacy avatar = 4.5, chibi = 3.0, kid = 4.0, teen = 6.0, adult = 7.5.
+  const headR = Math.max(4, height / safeRatio);
+  const neckH = Math.max(1, headR * 0.2);
+  const bodyH = Math.max(8, height - headR * 2 - neckH);
   // Vertical layout: head centered at headR + small neck gap, body below.
   const headCy = headR + 1;
   const bodyTopY = headCy + headR * 0.95; // neck base
+  // Energized pose gets a squash & stretch jump cycle on top of the idle
+  // breathe. The bottom-center origin keeps the feet planted while the
+  // body squashes/stretches.
+  const energized = expression.pose === "step-forward";
+  const breatheStyle = enableBreathe
+    ? {
+        animation: `relayHamletIdleBreathe 4s ease-in-out ${parts.breatheDelay}s infinite`,
+        transformOrigin: "center",
+      }
+    : undefined;
+  const energizedStyle = energized
+    ? {
+        animation: `relayHamletSquashStretchJump 1.4s ease-in-out ${parts.breatheDelay}s infinite`,
+        transformOrigin: `0px ${headCy + headR + neckH + bodyH}px`,
+      }
+    : undefined;
   return (
     <g transform={transform} aria-hidden>
-      <g
-        style={
-          enableBreathe
-            ? {
-                animation: `relayHamletIdleBreathe 4s ease-in-out ${parts.breatheDelay}s infinite`,
-                transformOrigin: "center",
-              }
-            : undefined
-        }
-      >
+      <g style={energizedStyle}>
+      <g style={breatheStyle}>
         {/* Neck — small rect between head and torso */}
         <rect
           x={-headR * 0.2}
@@ -841,6 +1023,7 @@ export function HamletAvatar({
           />
         </g>
       </g>
+      </g>
       {children}
     </g>
   );
@@ -871,5 +1054,47 @@ export const HAMLET_AVATAR_CSS = `
 @keyframes relayHamletWaveHand {
   0%, 100% { transform: rotate(-12deg); }
   50%      { transform: rotate(18deg); }
+}
+/* 4-frame steps() sprite-style walk cycle — used by WalkingSim walkers. */
+@keyframes relayHamletWalk4Frame {
+  0%   { transform: translateY(0)    rotate(0deg); }
+  25%  { transform: translateY(-1.5px) rotate(-2deg); }
+  50%  { transform: translateY(0)    rotate(0deg); }
+  75%  { transform: translateY(-1.5px) rotate(2deg); }
+  100% { transform: translateY(0)    rotate(0deg); }
+}
+/* Squash & stretch jump — energized mood emphasis. Anticipation squash,
+   stretch ascend, apex, squash on landing, restore. transform-origin is
+   set to bottom center by the consumer wrapper so the feet stay planted. */
+@keyframes relayHamletSquashStretchJump {
+  0%   { transform: scale(1, 1)       translateY(0); }
+  10%  { transform: scale(1.1, 0.85)  translateY(0); }
+  30%  { transform: scale(0.9, 1.15)  translateY(-6px); }
+  60%  { transform: scale(1, 1)       translateY(-2px); }
+  80%  { transform: scale(1.1, 0.85)  translateY(0); }
+  100% { transform: scale(1, 1)       translateY(0); }
+}
+/* Reduce-motion fallback — caller animations all reference these
+   keyframes, so disabling animation here removes every Hamlet avatar
+   motion at the OS-level "reduce motion" preference. */
+@media (prefers-reduced-motion: reduce) {
+  [style*="relayHamletIdleBreathe"],
+  [style*="relayHamletBlink"],
+  [style*="relayHamletSweat"],
+  [style*="relayHamletSleepZ"],
+  [style*="relayHamletWaveHand"],
+  [style*="relayHamletWalk4Frame"],
+  [style*="relayHamletSquashStretchJump"] {
+    animation: none !important;
+  }
+}
+/* When animation-timeline:view() is supported, only run idle motion
+   while the avatar is on-screen. This is a no-op in Firefox today, but
+   doesn't break the keyframes there because @supports gates the rule. */
+@supports (animation-timeline: view()) {
+  .relay-hamlet-onscreen-anim {
+    animation-timeline: view();
+    animation-range: entry 10% exit 90%;
+  }
 }
 `;

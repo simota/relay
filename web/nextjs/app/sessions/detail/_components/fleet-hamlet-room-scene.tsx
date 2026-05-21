@@ -787,7 +787,10 @@ function RoomAvatar({
   card: SimCardModel;
   detail: SessionDetail | undefined;
 }) {
-  const parts = useMemo(() => avatarPartsFromSeed(card.avatarSeed), [card.avatarSeed]);
+  const parts = useMemo(
+    () => avatarPartsFromSeed(card.avatarSeed, card.stage.key),
+    [card.avatarSeed, card.stage.key],
+  );
   const expression = useMemo(() => getExpressionForMood(card.mood.key), [card.mood.key]);
   const clothes = clothingForAgent(card.sessionType);
   const accessories = useMemo(() => deriveAccessories(card, detail), [card, detail]);

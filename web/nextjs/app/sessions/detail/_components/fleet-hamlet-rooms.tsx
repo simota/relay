@@ -126,8 +126,8 @@ function RoomGridCell({
   onEnterHouse,
 }: RoomGridCellProps) {
   const parts = useMemo(
-    () => avatarPartsFromSeed(sim.avatarSeed),
-    [sim.avatarSeed],
+    () => avatarPartsFromSeed(sim.avatarSeed, sim.stage.key),
+    [sim.avatarSeed, sim.stage.key],
   );
   const expression = useMemo(
     () => getExpressionForMood(sim.mood.key),
