@@ -126,45 +126,14 @@ function InteriorView({
 
   return (
     <>
-      {/* Compact header */}
+      {/* Compact header — avatar is rendered in the Room Scene, so the
+          header carries only identity text + mood/lifestage chips. */}
       <header
         className="shrink-0 px-3 py-2 border-b border-[var(--color-border)] flex items-start gap-2.5"
         style={{
           backgroundImage: `${grad.bg}, linear-gradient(0deg, var(--color-bg), var(--color-bg))`,
         }}
       >
-        <div className="shrink-0 flex flex-col items-center relative">
-          {accessories.crown && (
-            <span
-              aria-hidden
-              style={{
-                position: "absolute",
-                top: -6,
-                left: "50%",
-                marginLeft: -9,
-                zIndex: 2,
-                animation: "relayHamletTwinkle 2s ease-in-out infinite",
-              }}
-            >
-              <CrownSvg />
-            </span>
-          )}
-          {!accessories.crown && accessories.hat !== "none" && (
-            <span
-              aria-hidden
-              style={{
-                position: "absolute",
-                top: -4,
-                left: "50%",
-                marginLeft: -10,
-                zIndex: 2,
-              }}
-            >
-              <HatSvg kind={accessories.hat} />
-            </span>
-          )}
-          <HeaderAvatar parts={parts} sim={sim} />
-        </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-baseline gap-1.5 flex-wrap">
             <span
@@ -230,27 +199,30 @@ function InteriorView({
         </button>
       </header>
 
-      {/* Body — Room Scene (top, ~58%) + Chat Bubbles (bottom, ~42%) */}
+      {/* Body — compact Room Scene (top, ~42%) + Chat Bubbles (bottom,
+          ~58%). The room is decorative context; chat is what scrolls. */}
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
         <div
-          className="shrink-0 px-2 pt-2"
-          style={{ flexBasis: "58%", flexGrow: 0, minHeight: 0 }}
+          className="px-2 pt-2 pb-2 overflow-hidden"
+          style={{ flexBasis: "42%", flexShrink: 0, flexGrow: 0, minHeight: 0 }}
         >
-          <RoomScene
-            card={sim}
-            detail={detail}
-            allCards={allSims}
-            now={now}
-            weather={weather}
-          />
+          <div className="w-full h-full overflow-hidden rounded-md flex items-stretch">
+            <RoomScene
+              card={sim}
+              detail={detail}
+              allCards={allSims}
+              now={now}
+              weather={weather}
+            />
+          </div>
         </div>
         <div
-          className="flex-1 min-h-0 border-t border-[var(--color-border)] mt-2 overflow-hidden flex flex-col"
+          className="flex-1 min-h-0 border-t border-[var(--color-border)] overflow-hidden flex flex-col bg-[var(--color-bg)]"
         >
           <div className="px-3 pt-1.5 pb-0.5 text-[9px] font-mono uppercase tracking-wider text-[var(--color-fg-dim)] shrink-0">
             Recent chatter
           </div>
-          <div className="flex-1 min-h-0">
+          <div className="flex-1 min-h-0 overflow-hidden">
             <ChatBubbleStream
               messages={detail?.messages ?? []}
               now={now}

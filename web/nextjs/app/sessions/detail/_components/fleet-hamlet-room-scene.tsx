@@ -201,8 +201,8 @@ export function RoomScene({
 
   return (
     <div
-      className="relative w-full overflow-hidden rounded-[var(--radius-md)] border border-[var(--color-border)]"
-      style={{ aspectRatio: `${SCENE_W} / ${SCENE_H}`, background: palette.wallBottom }}
+      className="relative w-full h-full overflow-hidden rounded-[var(--radius-md)] border border-[var(--color-border)]"
+      style={{ background: palette.wallBottom, minHeight: 160 }}
       role="img"
       aria-label={`${roomKindLabel(roomKind)} interior view`}
     >
@@ -210,7 +210,7 @@ export function RoomScene({
         viewBox={`0 0 ${SCENE_W} ${SCENE_H}`}
         width="100%"
         height="100%"
-        preserveAspectRatio="xMidYMid slice"
+        preserveAspectRatio="xMidYMid meet"
         aria-hidden
       >
         <RoomBackWall palette={palette} isDark={isDark} />
