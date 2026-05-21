@@ -81,6 +81,10 @@ import {
   ROOM_CONTAINERS_CSS,
 } from "./fleet-hamlet-room-containers";
 import { WindowSceneView } from "./fleet-hamlet-room-window-scene";
+import {
+  DIORAMA_DEFS,
+  DIORAMA_ROOM,
+} from "../_lib/fleet-hamlet-diorama-tokens";
 
 // ---------------------------------------------------------------------------
 // Public
@@ -363,6 +367,24 @@ function RoomBackWall({ palette, isDark }: { palette: RoomPalette; isDark: boole
       </defs>
       <rect x="0" y="0" width={SCENE_W} height="120" fill={`url(#${wallId})`} />
       <rect x="0" y="0" width={SCENE_W} height="120" fill={`url(#${dotsId})`} opacity={0.55} />
+      {/* D2 — soft shadow band on the lamp's away side (left column). */}
+      <rect
+        x="0"
+        y="0"
+        width={SCENE_W}
+        height="120"
+        fill={`url(#${DIORAMA_DEFS.roomWallShadowBand})`}
+        opacity={DIORAMA_ROOM.wallShadowOpacity}
+      />
+      {/* D2 — soft highlight band on the lit side (right column, under lamp). */}
+      <rect
+        x="0"
+        y="0"
+        width={SCENE_W}
+        height="120"
+        fill={`url(#${DIORAMA_DEFS.roomWallHighlightBand})`}
+        opacity={DIORAMA_ROOM.wallHighlightOpacity}
+      />
       {isDark && (
         <rect x="0" y="0" width={SCENE_W} height="120" fill="rgba(20, 25, 60, 0.28)" />
       )}
@@ -371,18 +393,36 @@ function RoomBackWall({ palette, isDark }: { palette: RoomPalette; isDark: boole
 }
 
 function RoomSideWall({ palette }: { palette: RoomPalette }) {
-  // A thin right-side wall slice to give the room a cubic feel.
+  // A thin right-side wall slice to give the room a cubic feel. D2 — apply
+  // depth fog so the far end desaturates a touch and the seam reads as
+  // deeper space.
   return (
-    <polygon
-      points={`${SCENE_W - 20},0 ${SCENE_W},0 ${SCENE_W},${SCENE_H} ${SCENE_W - 32},${SCENE_H}`}
-      fill={palette.wallBottom}
-      opacity={0.85}
-    />
+    <g aria-hidden>
+      <polygon
+        points={`${SCENE_W - 20},0 ${SCENE_W},0 ${SCENE_W},${SCENE_H} ${SCENE_W - 32},${SCENE_H}`}
+        fill={palette.wallBottom}
+        opacity={0.85}
+      />
+      {/* Depth fog — a cool wash darker at the far end. */}
+      <polygon
+        points={`${SCENE_W - 20},0 ${SCENE_W},0 ${SCENE_W},${SCENE_H} ${SCENE_W - 32},${SCENE_H}`}
+        fill="rgba(20, 30, 60, 0.18)"
+      />
+      {/* Edge shadow at the corner seam. */}
+      <rect
+        x={SCENE_W - 22}
+        y={0}
+        width={2.5}
+        height={SCENE_H}
+        fill="rgba(0,0,0,0.28)"
+      />
+    </g>
   );
 }
 
 function RoomFloor({ palette }: { palette: RoomPalette }) {
   const gradId = "relay-room-floor-grad";
+  const beamClip = "relay-room-floor-beam-clip";
   return (
     <>
       <defs>
@@ -390,15 +430,28 @@ function RoomFloor({ palette }: { palette: RoomPalette }) {
           <stop offset="0%" stopColor={palette.floorFar} />
           <stop offset="100%" stopColor={palette.floorNear} />
         </linearGradient>
+        {/* Beam shape is clipped to the floor polygon. */}
+        <clipPath id={beamClip}>
+          <polygon
+            points={`40,120 ${SCENE_W - 40},120 ${SCENE_W},${SCENE_H} 0,${SCENE_H}`}
+          />
+        </clipPath>
       </defs>
       {/* Trapezoid floor: narrow at the back, wide at the front. */}
       <polygon
         points={`40,120 ${SCENE_W - 40},120 ${SCENE_W},${SCENE_H} 0,${SCENE_H}`}
         fill={`url(#${gradId})`}
       />
-      {/* Subtle plank stripes for wood / tile feel. */}
+      {/* Plank stripes — 3-tone (lit / mid / shadow) alternation. */}
       {Array.from({ length: 5 }).map((_, i) => {
         const y = 130 + i * 18;
+        // i=0 darkest (back), tones cycle to lend depth
+        const stroke =
+          i % 3 === 0
+            ? "rgba(0,0,0,0.28)"
+            : i % 3 === 1
+              ? "rgba(255,240,210,0.16)"
+              : "rgba(0,0,0,0.16)";
         return (
           <line
             key={i}
@@ -406,11 +459,21 @@ function RoomFloor({ palette }: { palette: RoomPalette }) {
             y1={y}
             x2={SCENE_W}
             y2={y}
-            stroke="rgba(0,0,0,0.18)"
-            strokeWidth={0.8}
+            stroke={stroke}
+            strokeWidth={i % 3 === 1 ? 0.6 : 0.9}
           />
         );
       })}
+      {/* D2 — Diagonal window light beam projected on the floor. The window
+          sits at x=60..144, y=18..82. The beam is a parallelogram dropping
+          down-right toward the foreground, clipped to the floor. */}
+      <g clipPath={`url(#${beamClip})`}>
+        <polygon
+          points={`78,120 146,120 196,${SCENE_H - 8} 104,${SCENE_H - 8}`}
+          fill={`url(#${DIORAMA_DEFS.roomFloorBeam})`}
+          opacity={DIORAMA_ROOM.floorBeamOpacity}
+        />
+      </g>
     </>
   );
 }
@@ -463,13 +526,51 @@ function RoomWindow({
         fill={sky.luminary === "moon" ? "#F5E9C5" : tod === "evening" ? "#FF7043" : "#FFD27E"}
         opacity={0.95}
       />
+      {/* D2 — glass reflection sheen (upper-left corner). */}
+      <polygon
+        points={`${x},${y} ${x + w * 0.4},${y} ${x + w * 0.18},${y + h * 0.65} ${x},${y + h * 0.55}`}
+        fill={`url(#${DIORAMA_DEFS.roomWindowReflection})`}
+      />
       {/* Mullions — cross */}
       <line x1={x + w / 2} y1={y} x2={x + w / 2} y2={y + h} stroke="#FAF6EC" strokeWidth={2} />
       <line x1={x} y1={y + h / 2} x2={x + w} y2={y + h / 2} stroke="#FAF6EC" strokeWidth={2} />
+      {/* D2 — inner sash frame (slightly inset, gives the window depth). */}
+      <rect
+        x={x + 2}
+        y={y + 2}
+        width={w - 4}
+        height={h - 4}
+        fill="none"
+        stroke="#E4D8B6"
+        strokeWidth={0.8}
+        opacity={0.85}
+      />
       {/* Outer frame */}
       <rect x={x} y={y} width={w} height={h} fill="none" stroke="#FAF6EC" strokeWidth={3} />
-      {/* Sill */}
+      {/* D2 — curtain drapes on left/right edges. Very thin so they don't
+          eat the window content but suggest fabric volume. */}
+      <path
+        d={`M ${x - 6} ${y - 2}
+            Q ${x - 4} ${y + h * 0.5} ${x - 6} ${y + h + 2}
+            L ${x - 1} ${y + h + 2}
+            Q ${x - 0.5} ${y + h * 0.5} ${x - 1} ${y - 2} Z`}
+        fill="rgba(220, 90, 90, 0.5)"
+        stroke="rgba(120, 40, 40, 0.55)"
+        strokeWidth={0.4}
+      />
+      <path
+        d={`M ${x + w + 1} ${y - 2}
+            Q ${x + w + 0.5} ${y + h * 0.5} ${x + w + 1} ${y + h + 2}
+            L ${x + w + 6} ${y + h + 2}
+            Q ${x + w + 4} ${y + h * 0.5} ${x + w + 6} ${y - 2} Z`}
+        fill="rgba(220, 90, 90, 0.5)"
+        stroke="rgba(120, 40, 40, 0.55)"
+        strokeWidth={0.4}
+      />
+      {/* Sill — top highlight band + main board + cast shadow below. */}
       <rect x={x - 4} y={y + h} width={w + 8} height={4} fill="#E4D8B6" />
+      <rect x={x - 4} y={y + h} width={w + 8} height={1} fill="rgba(255,250,225,0.85)" />
+      <rect x={x - 4} y={y + h + 4} width={w + 8} height={1.2} fill="rgba(0,0,0,0.30)" />
       {/* Storm raindrops — small inside the window for accent. */}
       {isStormy && (
         <g>
@@ -497,15 +598,35 @@ function RoomLighting({ isDark, accent }: { isDark: boolean; accent: string }) {
   return (
     <g>
       <line x1={cx} y1={0} x2={cx} y2={cy + 6} stroke="#3A2A1F" strokeWidth={1.5} />
+      {/* Shade — D2: highlight band on top, shadow on the underside. */}
       <ellipse cx={cx} cy={cy + 8} rx={10} ry={5} fill="#4A3320" />
+      <ellipse cx={cx - 1.5} cy={cy + 6.5} rx={6} ry={1.4} fill="rgba(255,235,200,0.55)" />
+      <ellipse cx={cx} cy={cy + 10} rx={9} ry={1.2} fill="rgba(0,0,0,0.35)" />
       <circle cx={cx} cy={cy + 11} r={3.6} fill={isDark ? "#FFE9A5" : "#FFD27E"} />
       {isDark && (
         <>
+          {/* Outer halo */}
           <circle cx={cx} cy={cy + 11} r={9} fill="#FFE9A5" opacity={0.22} />
+          {/* D2 — volumetric light cone falling down to the floor. */}
+          <polygon
+            points={`${cx - 10},${cy + 12} ${cx + 10},${cy + 12} ${cx + 56},${SCENE_H - 6} ${cx - 56},${SCENE_H - 6}`}
+            fill={`url(#${DIORAMA_DEFS.roomLampCone})`}
+            opacity={DIORAMA_ROOM.lampConeOpacity}
+          />
+          {/* D2 — warm pocket where the cone hits the floor. */}
+          <ellipse
+            cx={cx}
+            cy={SCENE_H - 18}
+            rx={48}
+            ry={10}
+            fill={`url(#${DIORAMA_DEFS.roomLampWarmPocket})`}
+            opacity={DIORAMA_ROOM.lampWarmOpacity}
+          />
+          {/* Accent halo (mood-tinted). */}
           <polygon
             points={`${cx - 14},${cy + 14} ${cx + 14},${cy + 14} ${cx + 70},${SCENE_H} ${cx - 70},${SCENE_H}`}
             fill={accent}
-            opacity={0.08}
+            opacity={0.07}
           />
         </>
       )}
@@ -514,15 +635,19 @@ function RoomLighting({ isDark, accent }: { isDark: boolean; accent: string }) {
 }
 
 function NightTint() {
-  // Subtle bluish overlay to make night-time rooms read as evening.
+  // Subtle bluish overlay to make night-time rooms read as evening. D2 —
+  // includes a localized warm pocket under the lamp so cool night doesn't
+  // wash out the lit zone.
   return (
-    <rect
-      x="0"
-      y="0"
-      width={SCENE_W}
-      height={SCENE_H}
-      fill="rgba(20, 28, 70, 0.18)"
-    />
+    <g aria-hidden>
+      <rect
+        x="0"
+        y="0"
+        width={SCENE_W}
+        height={SCENE_H}
+        fill="rgba(20, 28, 70, 0.18)"
+      />
+    </g>
   );
 }
 
@@ -540,6 +665,9 @@ function FurnitureLayer({
   // The floor's y=0 (back wall) maps to scene y=120, y=1 (front) to y=215.
   // Wall-slot items are positioned along the back wall area instead.
   const filtered = items.filter((it) => it.slot === layer);
+  // D2 — floor-anchored items get a small shadow ellipse under their feet.
+  const hasFloorShadow =
+    layer === "floor-back" || layer === "floor-mid" || layer === "floor-front" || layer === "corner";
   return (
     <g>
       {filtered.map((it, i) => {
@@ -550,8 +678,21 @@ function FurnitureLayer({
           ? 1.0
           : 0.85 + it.y * 0.35;
         const fontSize = 22 * it.scale * depthScale;
+        // Shadow ellipse — sized to the emoji footprint.
+        const shadowRx = fontSize * 0.42;
+        const shadowRy = Math.max(1.2, fontSize * 0.10);
         return (
           <g key={`${layer}-${i}`} transform={`translate(${sx}, ${sy})`}>
+            {hasFloorShadow && (
+              <ellipse
+                cx={0}
+                cy={fontSize * 0.42}
+                rx={shadowRx}
+                ry={shadowRy}
+                fill="rgba(0,0,0,0.22)"
+                opacity={DIORAMA_ROOM.furnitureShadowOpacity}
+              />
+            )}
             <text
               x={0}
               y={0}

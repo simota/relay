@@ -9,6 +9,7 @@
 // existing whiteboard slot.
 
 import type { ContainerContents } from "../_lib/fleet-hamlet-room-containers";
+import { DIORAMA_DEFS } from "../_lib/fleet-hamlet-diorama-tokens";
 
 // ---------------------------------------------------------------------------
 // Slot mapping helpers
@@ -66,6 +67,8 @@ export function Bookshelf({
   });
   return (
     <g aria-hidden>
+      {/* D2 — cast shadow on the wall behind the unit. */}
+      <rect x={x + 0.6} y={y + 0.8} width={w} height={h} fill="rgba(0,0,0,0.30)" />
       {/* Frame */}
       <rect
         x={x}
@@ -76,8 +79,12 @@ export function Bookshelf({
         stroke="rgba(0,0,0,0.45)"
         strokeWidth={0.8}
       />
-      {/* Inner back panel — slightly lighter so books pop */}
+      {/* D2 — frame top-edge highlight + bottom-edge shadow. */}
+      <rect x={x} y={y} width={w} height={0.5} fill="rgba(255,235,200,0.55)" />
+      <rect x={x} y={y + h - 0.5} width={w} height={0.5} fill="rgba(0,0,0,0.45)" />
+      {/* Inner back panel — darker shadow at the back of the unit. */}
       <rect x={x + 1.5} y={y + 1.5} width={w - 3} height={h - 3} fill="#5A3F2C" />
+      <rect x={x + 1.5} y={y + 1.5} width={w - 3} height={1} fill="rgba(0,0,0,0.45)" />
       {/* Shelf dividers + books per row */}
       {Array.from({ length: shelves }).map((_, row) => {
         const rowY = y + row * rowH;
@@ -86,13 +93,20 @@ export function Bookshelf({
         const bookW = Math.max(1.4, Math.min(3.2, usableW / Math.max(rowBooks, 4)));
         return (
           <g key={row}>
-            {/* shelf plank */}
+            {/* shelf plank — 3-tone (top highlight, body, bottom shadow). */}
             <rect
               x={x + 1}
               y={rowY + rowH - 1.2}
               width={w - 2}
               height={1.2}
               fill="#2A1B12"
+            />
+            <rect
+              x={x + 1}
+              y={rowY + rowH - 1.2}
+              width={w - 2}
+              height={0.3}
+              fill="rgba(255,220,180,0.45)"
             />
             {/* books */}
             {Array.from({ length: rowBooks }).map((__, i) => {
@@ -121,13 +135,20 @@ export function Bookshelf({
                     stroke="rgba(0,0,0,0.4)"
                     strokeWidth={0.3}
                   />
-                  {/* spine highlight */}
+                  {/* D2 — left spine highlight + right edge shadow. */}
                   <rect
                     x={bx + 0.2}
                     y={by + 1}
                     width={0.4}
                     height={bookH - 2}
                     fill="rgba(255,255,255,0.35)"
+                  />
+                  <rect
+                    x={bx + bookW * 0.9 - 0.4}
+                    y={by + 1}
+                    width={0.4}
+                    height={bookH - 2}
+                    fill="rgba(0,0,0,0.30)"
                   />
                 </g>
               );
@@ -195,6 +216,16 @@ export function Fridge({
         strokeWidth={0.4}
         rx={0.8}
       />
+      {/* D2 — appliance gloss on the freezer door. */}
+      <rect
+        x={x}
+        y={y}
+        width={w}
+        height={topH}
+        fill={`url(#${DIORAMA_DEFS.roomGloss})`}
+        opacity={0.5}
+        rx={0.8}
+      />
       <line
         x1={x}
         y1={y + topH}
@@ -203,14 +234,20 @@ export function Fridge({
         stroke="rgba(0,0,0,0.45)"
         strokeWidth={0.5}
       />
-      {/* Handles */}
-      <rect x={handleX} y={y + topH * 0.25} width={0.8} height={topH * 0.5} fill="#B7B5AE" />
+      {/* Handles — silver metal gradient + small highlight stripe. */}
+      <rect
+        x={handleX}
+        y={y + topH * 0.25}
+        width={0.8}
+        height={topH * 0.5}
+        fill={`url(#${DIORAMA_DEFS.roomMetalSilver})`}
+      />
       <rect
         x={handleX}
         y={y + topH + (h - topH) * 0.3}
         width={0.8}
         height={(h - topH) * 0.4}
-        fill="#B7B5AE"
+        fill={`url(#${DIORAMA_DEFS.roomMetalSilver})`}
       />
       {/* Bottom door — slightly transparent so the items "show through" the
           ajar gap; gives the empty-vs-stocked read without drawing a second
@@ -224,6 +261,22 @@ export function Fridge({
         opacity={0.78}
         stroke="rgba(0,0,0,0.4)"
         strokeWidth={0.4}
+      />
+      {/* D2 — bottom door gloss + door-panel groove. */}
+      <rect
+        x={x}
+        y={y + topH}
+        width={w}
+        height={h - topH}
+        fill={`url(#${DIORAMA_DEFS.roomGloss})`}
+        opacity={0.45}
+      />
+      <rect
+        x={x + w * 0.15}
+        y={y + topH + (h - topH) * 0.08}
+        width={w * 0.7}
+        height={0.3}
+        fill="rgba(0,0,0,0.20)"
       />
       {/* Interior shelves */}
       <line

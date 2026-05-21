@@ -27,6 +27,7 @@ import type {
   ToolPropKind,
   WhiteboardItem,
 } from "../_lib/fleet-hamlet-room-state";
+import { DIORAMA_DEFS } from "../_lib/fleet-hamlet-diorama-tokens";
 
 // ---------------------------------------------------------------------------
 // Coordinate mapping helpers
@@ -87,6 +88,8 @@ export function ToolPropSvg({ kind, slot, accent = "#37474F" }: ToolPropProps) {
   // floating in front of the face.
   return (
     <g transform={`translate(${sx}, ${sy})`}>
+      {/* D2 — soft ground shadow ellipse beneath the prop. */}
+      <ellipse cx={0} cy={9} rx={9} ry={1.4} fill="rgba(0,0,0,0.22)" />
       <g style={{ animation: "relayHamletToolBob 4.6s ease-in-out infinite", transformOrigin: "center" }}>
         <ToolPropShape kind={kind} accent={accent} />
       </g>
@@ -110,6 +113,9 @@ function ToolPropShape({
           <rect x={-8} y={-6} width={16} height={11} fill="#7E5A3A" stroke={accent} strokeWidth={0.6} rx={1} />
           <rect x={-7} y={-5} width={14} height={9} fill="#F4ECD8" />
           <line x1={0} y1={-5} x2={0} y2={4} stroke={accent} strokeWidth={0.5} />
+          {/* D2 — top edge highlight + bottom edge shadow */}
+          <line x1={-7} y1={-5.6} x2={7} y2={-5.6} stroke="rgba(255,240,210,0.65)" strokeWidth={0.5} />
+          <line x1={-8} y1={5} x2={8} y2={5} stroke="rgba(0,0,0,0.35)" strokeWidth={0.4} />
         </g>
       );
     case "monitor":
@@ -117,21 +123,30 @@ function ToolPropShape({
         <g>
           <rect x={-9} y={-9} width={18} height={11} fill="#1E2638" stroke={accent} strokeWidth={0.6} rx={1.2} />
           <rect x={-7.5} y={-7.5} width={15} height={8} fill="#3DDC97" opacity={0.85} />
+          {/* D2 — screen reflection highlight (top-left). */}
+          <polygon points="-7.5,-7.5 -2,-7.5 -5,-3.5 -7.5,-3.5" fill="rgba(255,255,255,0.30)" />
           <rect x={-1.5} y={2.2} width={3} height={1.6} fill={accent} />
           <rect x={-5} y={3.6} width={10} height={1.4} fill={accent} rx={0.4} />
+          {/* Bezel rim highlight */}
+          <line x1={-8.5} y1={-8.5} x2={8.5} y2={-8.5} stroke="rgba(255,255,255,0.4)" strokeWidth={0.4} />
         </g>
       );
     case "magnifier":
       return (
         <g>
           <circle cx={-1.5} cy={-2} r={5.5} fill="rgba(180,210,235,0.45)" stroke={accent} strokeWidth={1.2} />
+          {/* D2 — lens rim highlight + glass reflection */}
+          <path d="M -4.5 -4.5 A 5.5 5.5 0 0 1 0 -6" stroke="rgba(255,255,255,0.85)" strokeWidth={0.6} fill="none" />
           <line x1={2.5} y1={2} x2={7} y2={6.5} stroke={accent} strokeWidth={2} strokeLinecap="round" />
+          <line x1={3} y1={2.5} x2={6.5} y2={6} stroke="rgba(255,255,255,0.4)" strokeWidth={0.4} strokeLinecap="round" />
         </g>
       );
     case "terminal":
       return (
         <g>
           <rect x={-9} y={-7} width={18} height={12} fill="#0A0F1A" stroke={accent} strokeWidth={0.6} rx={1} />
+          {/* D2 — screen glow halo */}
+          <rect x={-8.5} y={-6.5} width={17} height={11} fill="rgba(124,255,178,0.06)" rx={0.8} />
           <text
             x={-6}
             y={-1.5}
@@ -142,23 +157,31 @@ function ToolPropShape({
             ▌
           </text>
           <line x1={-6} y1={2} x2={3} y2={2} stroke="#7CFFB2" strokeWidth={0.6} opacity={0.7} />
+          <line x1={-9} y1={-7} x2={9} y2={-7} stroke="rgba(255,255,255,0.3)" strokeWidth={0.4} />
         </g>
       );
     case "telescope":
       return (
         <g>
           <rect x={-10} y={-3} width={14} height={4} fill="#5C6B7A" stroke={accent} strokeWidth={0.5} rx={1} transform="rotate(-18)" />
+          {/* D2 — barrel highlight stripe */}
+          <rect x={-10} y={-3} width={14} height={0.9} fill="rgba(255,255,255,0.45)" rx={0.4} transform="rotate(-18)" />
           <circle cx={5.5} cy={-4.5} r={2.5} fill="#1A2840" stroke={accent} strokeWidth={0.6} />
+          <circle cx={4.8} cy={-5.2} r={0.8} fill="rgba(180,210,255,0.85)" />
           <line x1={-9} y1={3.5} x2={-12} y2={9} stroke={accent} strokeWidth={1.2} strokeLinecap="round" />
         </g>
       );
     case "staff":
       return (
         <g>
-          <circle cx={-3} cy={-5} r={3} fill="#FFD27E" stroke={accent} strokeWidth={0.5} />
+          {/* D2 — metal grad on the two orbs via gold/silver gradients. */}
+          <circle cx={-3} cy={-5} r={3} fill={`url(#${DIORAMA_DEFS.roomMetalGold})`} stroke={accent} strokeWidth={0.5} />
           <circle cx={3} cy={-5} r={3} fill="#A6CFFF" stroke={accent} strokeWidth={0.5} />
+          <circle cx={3.6} cy={-5.7} r={0.7} fill="rgba(255,255,255,0.9)" />
           <rect x={-5} y={-2} width={4} height={5} fill={accent} rx={0.6} />
           <rect x={1} y={-2} width={4} height={5} fill={accent} rx={0.6} />
+          <rect x={-5} y={-2} width={4} height={0.8} fill="rgba(255,255,255,0.35)" />
+          <rect x={1} y={-2} width={4} height={0.8} fill="rgba(255,255,255,0.35)" />
         </g>
       );
     case "pen":
@@ -168,7 +191,11 @@ function ToolPropShape({
           <rect x={-6} y={-5} width={12} height={9} fill="#FAF6EC" stroke={accent} strokeWidth={0.5} />
           <line x1={-4} y1={-2} x2={4} y2={-2} stroke={accent} strokeWidth={0.4} opacity={0.7} />
           <line x1={-4} y1={1} x2={2} y2={1} stroke={accent} strokeWidth={0.4} opacity={0.7} />
+          {/* D2 — paper top edge highlight + corner fold shadow */}
+          <line x1={-6} y1={-5} x2={6} y2={-5} stroke="rgba(255,255,255,0.85)" strokeWidth={0.4} />
+          <polygon points="3,-5 6,-5 6,-2" fill="rgba(0,0,0,0.12)" />
           <rect x={3} y={-9} width={1.6} height={9} fill="#2A3340" transform="rotate(20, 3.8, -4.5)" />
+          <rect x={3.2} y={-9} width={0.4} height={9} fill="rgba(255,255,255,0.45)" transform="rotate(20, 3.8, -4.5)" />
         </g>
       );
   }
@@ -245,11 +272,24 @@ export function MessLayer({ level, errorBoost, slots, seed }: MessLayerProps) {
         // Knocked chair gets a strong rotate so it reads as "fallen".
         const isKnocked = item.glyph === "🪑";
         const angle = isKnocked ? 78 : rot;
+        const sz = item.scale * 14;
+        // D2 — small reflective highlight overlays per glyph type.
+        const overlay = item.glyph === "☕"
+          ? (
+              <ellipse cx={-sz * 0.18} cy={-sz * 0.18} rx={sz * 0.18} ry={sz * 0.06} fill="rgba(255,255,255,0.45)" />
+            )
+          : item.glyph === "🍕"
+            ? (
+                <ellipse cx={-sz * 0.16} cy={-sz * 0.20} rx={sz * 0.22} ry={sz * 0.05} fill="rgba(255,235,180,0.45)" />
+              )
+            : null;
         return (
           <g
             key={`mess-${i}`}
             transform={`translate(${sx}, ${sy}) rotate(${angle})`}
           >
+            {/* D2 — soft floor shadow under the mess piece. */}
+            <ellipse cx={0} cy={sz * 0.42} rx={sz * 0.36} ry={Math.max(0.8, sz * 0.06)} fill="rgba(0,0,0,0.20)" />
             <g
               style={
                 item.fluttering
@@ -261,13 +301,14 @@ export function MessLayer({ level, errorBoost, slots, seed }: MessLayerProps) {
               }
             >
               <text
-                fontSize={item.scale * 14}
+                fontSize={sz}
                 textAnchor="middle"
                 dominantBaseline="middle"
                 style={{ filter: "drop-shadow(0 1px 1px rgba(0,0,0,0.3))" }}
               >
                 {item.glyph}
               </text>
+              {overlay}
             </g>
           </g>
         );
@@ -403,18 +444,25 @@ export function EventDecorLayer({
             : m.slot.anchor === "ceiling"
               ? mapCeiling(m.slot.x, m.slot.y)
               : mapFloor(m.slot.x, m.slot.y);
+        // D2 — per-glyph richness overlays. Most decorations get a small
+        // highlight glint; floor pieces also get a faint shadow ellipse.
+        const onFloor = m.slot.anchor === "floor";
+        const isCelebrate = m.celebrate;
         return (
           <g
             key={`event-${m.idx}`}
             transform={`translate(${pos.sx}, ${pos.sy})`}
             style={
-              m.celebrate
+              isCelebrate
                 ? {
                     animation: `relayHamletEventGlow 2.4s ease-in-out ${m.idx * 0.25}s infinite`,
                   }
                 : undefined
             }
           >
+            {onFloor && (
+              <ellipse cx={0} cy={9} rx={7.5} ry={1.4} fill="rgba(0,0,0,0.22)" />
+            )}
             <text
               fontSize={16}
               textAnchor="middle"
@@ -423,6 +471,10 @@ export function EventDecorLayer({
             >
               {m.glyph}
             </text>
+            {/* D2 — sparkle / glow ring on celebratory marks. */}
+            {isCelebrate && (
+              <circle cx={0} cy={0} r={9} fill="none" stroke="rgba(255,220,140,0.45)" strokeWidth={0.6} />
+            )}
           </g>
         );
       })}
@@ -454,6 +506,8 @@ export function RoomWhiteboard({
   const rowH = (h - headerH - 4) / Math.max(1, items.length);
   return (
     <g aria-hidden style={{ animation: "relayHamletWhiteboardShimmer 5.2s ease-in-out infinite" }}>
+      {/* D2 — cast shadow behind the frame. */}
+      <rect x={x} y={y + 1.5} width={w + 2} height={h + 2} fill="rgba(0,0,0,0.22)" rx={1.4} />
       {/* Frame */}
       <rect
         x={x - 1}
@@ -463,9 +517,21 @@ export function RoomWhiteboard({
         fill="#3A2A1F"
         rx={1.4}
       />
+      {/* Frame inner highlight (top edge). */}
+      <rect x={x - 1} y={y - 1} width={w + 2} height={0.6} fill="rgba(255,235,200,0.55)" />
       <rect x={x} y={y} width={w} height={h} fill="#FAFAF5" />
+      {/* D2 — diagonal gloss sheen on the board surface. */}
+      <rect
+        x={x}
+        y={y}
+        width={w}
+        height={h}
+        fill={`url(#${DIORAMA_DEFS.roomGloss})`}
+        opacity={0.55}
+      />
       {/* Header strip */}
       <rect x={x} y={y} width={w} height={headerH} fill={accent} opacity={0.85} />
+      <rect x={x} y={y} width={w} height={0.6} fill="rgba(255,255,255,0.4)" />
       <text
         x={x + 4}
         y={y + headerH / 2 + 0.5}

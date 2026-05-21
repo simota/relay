@@ -74,6 +74,41 @@ export const DIORAMA_DEFS = {
   windowGlassLit: "hamletWindowGlassLit",
   lampGlow: "hamletLampGlow",
   bubblePaper: "hamletBubblePaper",
+  // Room-scene-specific gradients (D2 interior pass)
+  roomWallHighlightBand: "hamletRoomWallHighBand",
+  roomWallShadowBand: "hamletRoomWallShadowBand",
+  roomFloorBeam: "hamletRoomFloorBeam",
+  roomLampCone: "hamletRoomLampCone",
+  roomLampWarmPocket: "hamletRoomLampWarmPocket",
+  roomWindowReflection: "hamletRoomWindowRefl",
+  roomMetalGold: "hamletRoomMetalGold",
+  roomMetalSilver: "hamletRoomMetalSilver",
+  roomGloss: "hamletRoomGloss",
+  roomGlass: "hamletRoomGlass",
+} as const;
+
+// ---------------------------------------------------------------------------
+// Room-scene interior tokens (D2 indoor pass)
+//
+// Interior lighting flips the dominant light direction slightly: pendant
+// lamps sit near the upper-right of the back wall, so highlight bands sit
+// on the right column and shadow bands on the left. Window light comes
+// from the upper-left of the back wall, so the floor beam tilts down-right.
+// ---------------------------------------------------------------------------
+
+export const DIORAMA_ROOM = {
+  /** Opacity of the highlight band on the lit wall side. */
+  wallHighlightOpacity: 0.16,
+  /** Opacity of the shadow band on the dark wall side. */
+  wallShadowOpacity: 0.18,
+  /** Opacity of the floor light beam from the window. */
+  floorBeamOpacity: 0.18,
+  /** Opacity of the under-emoji shadow ellipse. */
+  furnitureShadowOpacity: 0.22,
+  /** Opacity of the volumetric pendant lamp cone (only at night). */
+  lampConeOpacity: 0.18,
+  /** Opacity of the warm pocket under the lamp (night only). */
+  lampWarmOpacity: 0.22,
 } as const;
 
 // ---------------------------------------------------------------------------

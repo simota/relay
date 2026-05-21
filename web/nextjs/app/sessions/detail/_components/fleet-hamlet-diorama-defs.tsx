@@ -169,6 +169,81 @@ export function HamletDioramaDefs() {
           <stop offset="40%" stopColor="rgba(255, 255, 255, 0.0)" />
           <stop offset="100%" stopColor="rgba(0, 0, 0, 0.04)" />
         </linearGradient>
+
+        {/* ----------------------------------------------------------- */}
+        {/* Room-Scene (interior D2) gradients                          */}
+        {/* ----------------------------------------------------------- */}
+        {/* Wall highlight band — bright on the lit (right) column. */}
+        <linearGradient id={D.roomWallHighlightBand} x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" stopColor="rgba(255, 250, 230, 0)" />
+          <stop offset="55%" stopColor="rgba(255, 250, 230, 0)" />
+          <stop offset="80%" stopColor="rgba(255, 250, 230, 0.45)" />
+          <stop offset="100%" stopColor="rgba(255, 250, 230, 0.05)" />
+        </linearGradient>
+
+        {/* Wall shadow band — soft darkening on the left column. */}
+        <linearGradient id={D.roomWallShadowBand} x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" stopColor="rgba(20, 24, 50, 0.45)" />
+          <stop offset="35%" stopColor="rgba(20, 24, 50, 0.0)" />
+          <stop offset="100%" stopColor="rgba(20, 24, 50, 0)" />
+        </linearGradient>
+
+        {/* Window light beam on the floor — diagonal yellow streak. */}
+        <linearGradient id={D.roomFloorBeam} x1="0%" y1="0%" x2="0%" y2="100%">
+          <stop offset="0%" stopColor="rgba(255, 234, 160, 0.55)" />
+          <stop offset="65%" stopColor="rgba(255, 234, 160, 0.20)" />
+          <stop offset="100%" stopColor="rgba(255, 234, 160, 0)" />
+        </linearGradient>
+
+        {/* Pendant lamp volumetric cone — top bright, fading to nothing. */}
+        <linearGradient id={D.roomLampCone} x1="50%" y1="0%" x2="50%" y2="100%">
+          <stop offset="0%" stopColor="rgba(255, 232, 168, 0.55)" />
+          <stop offset="40%" stopColor="rgba(255, 226, 150, 0.22)" />
+          <stop offset="100%" stopColor="rgba(255, 220, 140, 0)" />
+        </linearGradient>
+
+        {/* Warm pocket under the lamp (radial). */}
+        <radialGradient id={D.roomLampWarmPocket} cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stopColor="rgba(255, 196, 120, 0.55)" />
+          <stop offset="60%" stopColor="rgba(255, 170, 90, 0.18)" />
+          <stop offset="100%" stopColor="rgba(255, 140, 70, 0)" />
+        </radialGradient>
+
+        {/* Window glass reflection — small upper-left highlight. */}
+        <linearGradient id={D.roomWindowReflection} x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="rgba(255, 255, 255, 0.5)" />
+          <stop offset="40%" stopColor="rgba(255, 255, 255, 0.12)" />
+          <stop offset="100%" stopColor="rgba(255, 255, 255, 0)" />
+        </linearGradient>
+
+        {/* Gold metal — used by trophies, frames, crown plinth. */}
+        <linearGradient id={D.roomMetalGold} x1="0%" y1="0%" x2="0%" y2="100%">
+          <stop offset="0%" stopColor="#F8DD8A" />
+          <stop offset="40%" stopColor="#E5B14B" />
+          <stop offset="70%" stopColor="#B98620" />
+          <stop offset="100%" stopColor="#8B6914" />
+        </linearGradient>
+
+        {/* Silver metal — fan blades, fridge handles. */}
+        <linearGradient id={D.roomMetalSilver} x1="0%" y1="0%" x2="0%" y2="100%">
+          <stop offset="0%" stopColor="#F2F2F0" />
+          <stop offset="50%" stopColor="#C0BEB8" />
+          <stop offset="100%" stopColor="#7E7C75" />
+        </linearGradient>
+
+        {/* Surface gloss — diagonal sheen for whiteboard / appliance fronts. */}
+        <linearGradient id={D.roomGloss} x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="rgba(255, 255, 255, 0.65)" />
+          <stop offset="35%" stopColor="rgba(255, 255, 255, 0.10)" />
+          <stop offset="100%" stopColor="rgba(255, 255, 255, 0)" />
+        </linearGradient>
+
+        {/* Glass — for vases / fishbowls / spring-blossom vessel. */}
+        <linearGradient id={D.roomGlass} x1="0%" y1="0%" x2="0%" y2="100%">
+          <stop offset="0%" stopColor="rgba(255, 255, 255, 0.7)" />
+          <stop offset="45%" stopColor="rgba(220, 235, 245, 0.45)" />
+          <stop offset="100%" stopColor="rgba(180, 200, 220, 0.55)" />
+        </linearGradient>
       </defs>
     </svg>
   );

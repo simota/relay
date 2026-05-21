@@ -121,12 +121,17 @@ function ChatBubble({ message, now, accentColor, fresh }: ChatBubbleProps) {
       <div
         className={cn(
           "relative max-w-[78%] min-w-0 px-2 py-1 rounded-[10px] text-[10.5px] font-mono leading-snug",
-          "shadow-sm",
         )}
         style={{
-          background: bg,
+          // D2 — pastel base + paper-noise speckle (matches HouseChatBubble).
+          background: `${bg}, radial-gradient(circle at 30% 20%, rgba(255,255,255,0.55) 0.5px, transparent 1.5px), radial-gradient(circle at 70% 60%, rgba(0,0,0,0.04) 0.5px, transparent 1.5px)`,
+          backgroundSize: "auto, 7px 7px, 9px 9px",
           border: `1px solid ${borderColor}`,
           color: "#1A1F2E",
+          // D2 — 4-layer drop shadow + inset highlight so the bubble reads
+          // as paper resting on the panel surface.
+          boxShadow:
+            "0 5px 10px -4px rgba(0,0,0,0.32), 0 3px 5px -2px rgba(0,0,0,0.18), 0 1px 2px rgba(0,0,0,0.10), inset 0 1px 0 rgba(255,255,255,0.55), inset 0 -1px 0 rgba(0,0,0,0.05)",
           // Tail nibs are added via CSS clip-path on a pseudo-ish absolute
           // element below; we keep the bubble itself rectangular-rounded.
         }}

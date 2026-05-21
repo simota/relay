@@ -17,6 +17,7 @@ import type {
   AchievementSlot,
   FrameSlot,
 } from "../_lib/fleet-hamlet-room-furniture";
+import { DIORAMA_DEFS } from "../_lib/fleet-hamlet-diorama-tokens";
 
 // ---------------------------------------------------------------------------
 // Scene constants — kept in sync with fleet-hamlet-room-scene.tsx
@@ -112,17 +113,32 @@ function AchievementFrame({
         : undefined;
   return (
     <g transform={`translate(${sx}, ${sy})`} style={animation ? { animation } : undefined}>
-      {/* Frame outer */}
+      {/* D2 — cast shadow on the wall behind the frame. */}
+      <rect
+        x={-w / 2 - 1}
+        y={-h / 2 + 0.5}
+        width={w + 2}
+        height={h + 2}
+        fill="rgba(0,0,0,0.30)"
+        rx={1}
+      />
+      {/* Frame outer — gold tier uses metal gradient. */}
       <rect
         x={-w / 2 - 1}
         y={-h / 2 - 1}
         width={w + 2}
         height={h + 2}
-        fill={frameColor}
+        fill={goldTier ? `url(#${DIORAMA_DEFS.roomMetalGold})` : frameColor}
         rx={1}
       />
+      {/* D2 — frame top-edge highlight + bottom-edge shadow (3-tone). */}
+      <rect x={-w / 2 - 1} y={-h / 2 - 1} width={w + 2} height={0.6} fill="rgba(255,250,220,0.65)" />
+      <rect x={-w / 2 - 1} y={h / 2 + 0.4} width={w + 2} height={0.6} fill="rgba(0,0,0,0.45)" />
       {/* Mat */}
       <rect x={-w / 2} y={-h / 2} width={w} height={h} fill={matColor} />
+      {/* D2 — inner mat lip shadow (gives the frame depth). */}
+      <rect x={-w / 2} y={-h / 2} width={w} height={0.7} fill="rgba(0,0,0,0.18)" />
+      <rect x={-w / 2} y={h / 2 - 0.7} width={w} height={0.7} fill="rgba(255,255,255,0.30)" />
       {/* Icon */}
       <text
         x={-w / 2 + 5}
@@ -184,13 +200,19 @@ export function TrophyShelf({ slot, large = false }: TrophyShelfProps) {
   const scale = large ? 1.4 : 1;
   return (
     <g transform={`translate(${sx}, ${sy}) scale(${scale})`} aria-hidden>
+      {/* D2 — base shadow on the floor. */}
+      <ellipse cx={0} cy={6} rx={8} ry={1.2} fill="rgba(0,0,0,0.30)" />
       <rect x={-6} y={2} width={12} height={3} fill="#5C3A1A" rx={0.5} />
+      <rect x={-6} y={2} width={12} height={0.7} fill="rgba(255,235,180,0.45)" />
+      {/* Cup body — metal gradient. */}
       <path
         d="M -5 -7 L 5 -7 L 4 0 L -4 0 Z"
-        fill="#E5B14B"
+        fill={`url(#${DIORAMA_DEFS.roomMetalGold})`}
         stroke="#8B6914"
         strokeWidth={0.6}
       />
+      {/* D2 — vertical highlight stripe down the front. */}
+      <line x1={-1.5} y1={-6.5} x2={-1.5} y2={-0.5} stroke="rgba(255,255,255,0.6)" strokeWidth={0.6} />
       <path d="M -7 -5 Q -8 -2 -5 -1" stroke="#8B6914" strokeWidth={0.6} fill="none" />
       <path d="M 7 -5 Q 8 -2 5 -1" stroke="#8B6914" strokeWidth={0.6} fill="none" />
       <text
@@ -230,8 +252,10 @@ export function CrownDisplay({ slot }: CrownDisplayProps) {
       style={{ animation: "relayHamletCrownPulse 2.4s ease-in-out infinite" }}
       aria-hidden
     >
-      <rect x={-9} y={3} width={18} height={4} fill="#7A5A28" rx={0.8} />
-      <rect x={-10} y={6} width={20} height={1.2} fill="rgba(0,0,0,0.35)" />
+      {/* D2 — plinth uses gold metal gradient + edge highlight + cast shadow. */}
+      <rect x={-9} y={3} width={18} height={4} fill={`url(#${DIORAMA_DEFS.roomMetalGold})`} rx={0.8} />
+      <rect x={-9} y={3} width={18} height={0.7} fill="rgba(255,250,220,0.7)" />
+      <rect x={-10} y={6} width={20} height={1.2} fill="rgba(0,0,0,0.45)" />
       <text
         x={0}
         y={-2}
@@ -241,6 +265,9 @@ export function CrownDisplay({ slot }: CrownDisplayProps) {
       >
         👑
       </text>
+      {/* D2 — sparkle dots on either side of the crown */}
+      <circle cx={-8} cy={-4} r={0.6} fill="rgba(255,250,200,0.85)" />
+      <circle cx={8} cy={-5} r={0.5} fill="rgba(255,250,200,0.85)" />
     </g>
   );
 }
@@ -255,11 +282,29 @@ export function RedCarpet({ visible }: RedCarpetProps) {
   // Trapezoid stretched along the floor — back narrow, front wide.
   return (
     <g aria-hidden>
+      {/* Base */}
       <polygon
         points={`130,150 230,150 270,210 90,210`}
         fill="#B3261E"
         opacity={0.85}
       />
+      {/* D2 — center highlight strip + edge depth shadows + 3 pile bands. */}
+      <polygon
+        points={`170,150 190,150 200,210 160,210`}
+        fill="rgba(255,160,140,0.30)"
+      />
+      <polygon
+        points={`130,150 135,150 95,210 90,210`}
+        fill="rgba(0,0,0,0.32)"
+      />
+      <polygon
+        points={`225,150 230,150 270,210 265,210`}
+        fill="rgba(0,0,0,0.32)"
+      />
+      {/* Pile bands — subtle horizontal striations. */}
+      <line x1={108} y1={172} x2={252} y2={172} stroke="rgba(255,255,255,0.06)" strokeWidth={0.6} />
+      <line x1={100} y1={192} x2={260} y2={192} stroke="rgba(255,255,255,0.06)" strokeWidth={0.6} />
+      {/* Gold inner border */}
       <polygon
         points={`140,155 220,155 252,205 108,205`}
         fill="none"
@@ -267,6 +312,11 @@ export function RedCarpet({ visible }: RedCarpetProps) {
         strokeWidth={1.2}
         opacity={0.85}
       />
+      {/* Tassels at the front edge */}
+      <circle cx={96} cy={210} r={2} fill="#E8C547" />
+      <circle cx={264} cy={210} r={2} fill="#E8C547" />
+      <line x1={96} y1={211} x2={96} y2={216} stroke="#E8C547" strokeWidth={0.8} />
+      <line x1={264} y1={211} x2={264} y2={216} stroke="#E8C547" strokeWidth={0.8} />
     </g>
   );
 }
@@ -317,6 +367,8 @@ function PhotoFrame({
   const innerH = Math.max(6, h - 4);
   return (
     <g transform={`translate(${cx}, ${cy})`}>
+      {/* D2 — cast shadow behind frame. */}
+      <rect x={-w / 2 + 0.4} y={-h / 2 + 0.8} width={w} height={h} fill="rgba(0,0,0,0.28)" rx={0.8} />
       {/* Wooden frame */}
       <rect
         x={-w / 2}
@@ -326,6 +378,9 @@ function PhotoFrame({
         fill="#7A5A36"
         rx={0.8}
       />
+      {/* D2 — top edge highlight + bottom edge shadow on the frame. */}
+      <rect x={-w / 2} y={-h / 2} width={w} height={0.6} fill="rgba(255,235,200,0.6)" />
+      <rect x={-w / 2} y={h / 2 - 0.6} width={w} height={0.6} fill="rgba(0,0,0,0.40)" />
       {/* Mat */}
       <rect
         x={-innerW / 2}
@@ -333,6 +388,14 @@ function PhotoFrame({
         width={innerW}
         height={innerH}
         fill="#FAFAF5"
+      />
+      {/* D2 — silhouette background gradient (subtle vignette inside the photo). */}
+      <ellipse
+        cx={0}
+        cy={-h / 2 + innerH * 0.5}
+        rx={innerW * 0.42}
+        ry={innerH * 0.42}
+        fill={`hsla(${frame.hue}, 40%, 90%, 0.55)`}
       />
       {/* Silhouette — circle head + shoulders */}
       <g transform={`translate(0, ${-h / 2 + innerH * 0.45})`}>

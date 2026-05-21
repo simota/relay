@@ -95,30 +95,67 @@ function DistantHouseSvg({
   cx: number;
   cy: number;
 }) {
-  const roof = `hsl(${hue}, 55%, 42%)`;
-  const wall = `hsl(${hue}, 18%, 78%)`;
+  // D2 — 3-tone shading: lit wall (left), shadow wall (right strip), roof
+  // with highlight stripe + dark eave underside.
+  const roofLit = `hsl(${hue}, 55%, 46%)`;
+  const roofShadow = `hsl(${hue}, 55%, 32%)`;
+  const wallLit = `hsl(${hue}, 18%, 82%)`;
+  const wallShadow = `hsl(${hue}, 18%, 64%)`;
   const W = 14;
   const H = 10;
+  const wallShadowX = cx + W / 2 - W * 0.32;
   return (
     <g>
       {/* shadow on the hill */}
       <ellipse cx={cx} cy={cy + H * 0.55} rx={W * 0.55} ry={1.2} fill="rgba(0,0,0,0.25)" />
-      {/* body */}
+      {/* body — lit base */}
       <rect
         x={cx - W / 2}
         y={cy - H * 0.4}
         width={W}
         height={H * 0.8}
-        fill={wall}
+        fill={wallLit}
         stroke="rgba(0,0,0,0.35)"
         strokeWidth={0.4}
       />
-      {/* roof */}
+      {/* shadow strip on the right side */}
+      <rect
+        x={wallShadowX}
+        y={cy - H * 0.4}
+        width={W * 0.32}
+        height={H * 0.8}
+        fill={wallShadow}
+      />
+      {/* roof — lit half */}
       <polygon
-        points={`${cx - W / 2 - 1},${cy - H * 0.4} ${cx + W / 2 + 1},${cy - H * 0.4} ${cx},${cy - H}`}
-        fill={roof}
+        points={`${cx - W / 2 - 1},${cy - H * 0.4} ${cx},${cy - H * 0.4} ${cx},${cy - H}`}
+        fill={roofLit}
         stroke="rgba(0,0,0,0.4)"
         strokeWidth={0.4}
+      />
+      {/* roof — shadow half */}
+      <polygon
+        points={`${cx},${cy - H * 0.4} ${cx + W / 2 + 1},${cy - H * 0.4} ${cx},${cy - H}`}
+        fill={roofShadow}
+        stroke="rgba(0,0,0,0.4)"
+        strokeWidth={0.4}
+      />
+      {/* roof highlight ridge */}
+      <line
+        x1={cx - W / 2 - 0.5}
+        y1={cy - H * 0.4}
+        x2={cx + 0.2}
+        y2={cy - H + 0.5}
+        stroke="rgba(255,235,200,0.6)"
+        strokeWidth={0.4}
+      />
+      {/* eave shadow under the roof */}
+      <rect
+        x={cx - W / 2}
+        y={cy - H * 0.4}
+        width={W}
+        height={0.8}
+        fill="rgba(0,0,0,0.30)"
       />
       {/* tiny window glow */}
       <rect
@@ -128,6 +165,13 @@ function DistantHouseSvg({
         height={2.6}
         fill="#FFE9A5"
         opacity={0.85}
+      />
+      <rect
+        x={cx - 1.4}
+        y={cy - H * 0.15}
+        width={2.8}
+        height={0.4}
+        fill="rgba(255,255,255,0.65)"
       />
     </g>
   );
@@ -152,6 +196,8 @@ function PlayingChildSvg({
   const shirt = `hsl(${hue}, 55%, 52%)`;
   return (
     <g transform={`translate(${cx}, ${cy})`}>
+      {/* D2 — ground shadow under the child. */}
+      <ellipse cx={0} cy={0.5} rx={2.8} ry={0.6} fill="rgba(0,0,0,0.30)" />
       <g
         style={{
           animation: `relayHamletChildPlay 2s ease-in-out ${delay}s infinite`,
@@ -162,8 +208,12 @@ function PlayingChildSvg({
         <rect x={0.3} y={-3.5} width={1.1} height={3.5} fill="#3A2C24" />
         {/* torso */}
         <rect x={-2.5} y={-7.5} width={5} height={4.2} fill={shirt} rx={1} />
+        {/* D2 — torso rim light (left edge). */}
+        <rect x={-2.5} y={-7.5} width={0.6} height={4.2} fill="rgba(255,255,255,0.40)" />
         {/* head */}
         <circle cx={0} cy={-9.5} r={2.4} fill={skin} stroke="rgba(0,0,0,0.35)" strokeWidth={0.3} />
+        {/* D2 — small cheek/forehead highlight */}
+        <circle cx={-0.9} cy={-10.2} r={0.6} fill="rgba(255,250,235,0.55)" />
         {/* tiny eye dots */}
         <circle cx={-0.7} cy={-9.7} r={0.3} fill="#1a1a1a" />
         <circle cx={0.7} cy={-9.7} r={0.3} fill="#1a1a1a" />
@@ -206,10 +256,14 @@ function PassingFriendSvg({
         {/* legs */}
         <rect x={-1.6} y={4} width={1.2} height={6} fill="#1f1d2a" />
         <rect x={0.4} y={4} width={1.2} height={6} fill="#1f1d2a" />
-        {/* torso */}
+        {/* torso — gradient via inline linear stops simulated with two layers
+            (front shadow + back highlight strip). */}
         <rect x={-3} y={-2} width={6} height={7} fill={shirt} opacity={0.85} rx={1} />
+        <rect x={-3} y={-2} width={1} height={7} fill="rgba(255,255,255,0.30)" rx={1} />
+        <rect x={1.6} y={-2} width={1.4} height={7} fill="rgba(0,0,0,0.30)" rx={1} />
         {/* head */}
         <circle cx={0} cy={-4.5} r={2.6} fill={headSkin} opacity={0.85} />
+        <circle cx={-0.9} cy={-5.2} r={0.7} fill="rgba(255,255,255,0.35)" />
       </g>
     </g>
   );

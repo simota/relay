@@ -62,7 +62,15 @@ export function PetSvg({ pet, slot }: PetSvgProps) {
   const lay = pet.state === "asleep" ? 70 : 0;
   return (
     <g transform={`translate(${sx}, ${sy})`} aria-hidden>
-      <ellipse cx={0} cy={4} rx={6} ry={1.4} fill="rgba(0,0,0,0.28)" />
+      {/* D2 — ground shadow + soft secondary halo (lying pets get a longer
+          shadow to suggest body length). */}
+      <ellipse
+        cx={0}
+        cy={4}
+        rx={pet.state === "asleep" ? 7.5 : 6}
+        ry={pet.state === "asleep" ? 1.1 : 1.4}
+        fill="rgba(0,0,0,0.28)"
+      />
       <g
         style={{
           animation: baseAnim,
@@ -80,6 +88,11 @@ export function PetSvg({ pet, slot }: PetSvgProps) {
           >
             {text}
           </text>
+          {/* D2 — tiny eye highlight dot on awake pets (placement is
+              approximate but reads as alive). */}
+          {pet.state !== "asleep" && (
+            <circle cx={1.5} cy={-2.2} r={0.4} fill="rgba(255,255,255,0.85)" />
+          )}
         </g>
       </g>
       {pet.state === "asleep" && (
@@ -150,6 +163,16 @@ export function MoodWallpaper({ palette }: MoodWallpaperProps) {
         height={120}
         fill={`url(#${gradId})`}
         opacity={0.78}
+      />
+      {/* D2 — micro highlight strip along the upper third of the wall to
+          give the mood overlay a soft volumetric feel without obscuring
+          underlying wallpaper detail. */}
+      <rect
+        x={0}
+        y={6}
+        width={SCENE_W}
+        height={2}
+        fill="rgba(255,255,255,0.10)"
       />
       {palette.dimOverlay && (
         <rect
