@@ -72,6 +72,8 @@ import {
   PARK_RESIDENT_CSS,
   ParkResidentLayer,
 } from "./fleet-hamlet-park-residents";
+import { HOUSE_CHAT_CSS, HouseChatLayer } from "./fleet-hamlet-house-chat";
+import { pickHousesWithBubbles } from "../_lib/fleet-hamlet-last-message";
 import {
   EventBurst,
   LightningOverlay,
@@ -283,6 +285,20 @@ export function FleetHamletNeighborhood({
     }
     return out;
   }, [sims, visibleActive, activeSlots, activeCellW, activeCellH]);
+
+  // House overhead chat bubbles — last user/assistant message per active
+  // house within a 60s freshness window. We only feed visible active sims
+  // so park residents (silent by definition) stay quiet, and we cap to 8
+  // simultaneous bubbles to keep the scene readable. Tiny mode is the
+  // information-overload tier so we suppress the whole layer there.
+  const houseBubbles = useMemo(() => {
+    if (fit.useTiny) return new Map();
+    return pickHousesWithBubbles(visibleActive, detailByKey, now, 8, {
+      selectedKey: selectedSessionId
+        ? visibleActive.find((s) => s.sessionId === selectedSessionId)?.key ?? null
+        : null,
+    });
+  }, [fit.useTiny, visibleActive, detailByKey, now, selectedSessionId]);
 
   // Sky + ground scenery layers. Time-of-day is re-evaluated on each
   // `now` tick so dusk → night transitions appear without a reload.
@@ -561,6 +577,20 @@ export function FleetHamletNeighborhood({
             </div>
           )}
 
+          {/* House overhead chat bubbles — fresh messages float above active
+              houses. Suppressed in tiny mode. */}
+          {!fit.useTiny && houseBubbles.size > 0 && (
+            <HouseChatLayer
+              bubbles={houseBubbles}
+              cards={visibleActive}
+              slots={activeSlots}
+              cellW={activeCellW}
+              cellH={activeCellH}
+              width={activeW}
+              height={activeH}
+            />
+          )}
+
           {/* Houses — only the *visible* slice from the fit solver. */}
           {visibleActive.map((sim) => {
             const slot = activeSlots.get(sim.key);
@@ -767,6 +797,7 @@ export function FleetHamletNeighborhood({
       <style>{PARTICLE_CSS}</style>
       <style>{BUSTLE_CSS}</style>
       <style>{PARK_RESIDENT_CSS}</style>
+      <style>{HOUSE_CHAT_CSS}</style>
     </div>
   );
 }
@@ -810,15 +841,19 @@ function HouseLabel({
       className={cn(
         "mt-1 max-w-full text-[10px] font-mono truncate text-center px-1",
         compact ? "text-[9px]" : "",
-        selected ? "text-[var(--color-accent)]" : "text-[var(--color-fg-muted)]",
+        selected ? "font-bold" : "",
       )}
+      style={{ color: "#0a0a0a" }}
       title={sim.repo ?? "—"}
     >
       <span className="truncate inline-block max-w-full align-bottom">
         {sim.repo ?? "—"}
       </span>
       {sim.agentId && !compact && (
-        <span className="ml-1 text-[9px] text-[var(--color-fg-dim)] truncate">
+        <span
+          className="ml-1 text-[9px] truncate"
+          style={{ color: "#374151" }}
+        >
           {sim.agentId.slice(0, 6)}
         </span>
       )}
