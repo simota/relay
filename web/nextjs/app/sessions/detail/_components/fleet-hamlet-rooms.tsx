@@ -9,7 +9,7 @@
 // (anywhere outside the footer button) also drills into House Plan.
 
 import { DoorOpen } from "lucide-react";
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import type { SessionDetail } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import {
@@ -43,10 +43,38 @@ export function FleetHamletRooms({
   onEnterHouse,
   weather = "clear",
 }: FleetHamletRoomsProps) {
+  // Freeze the display order while the tab is mounted so live mood /
+  // activity churn doesn't constantly reshuffle the cells (which is
+  // visually jarring). Existing keys keep their slot; new sessions get
+  // appended at the end; removed sessions drop out.
+  const orderRef = useRef<string[]>([]);
+  const frozenSims = useMemo(() => {
+    const byKey = new Map(sims.map((s) => [s.key, s] as const));
+    const result: SimCardModel[] = [];
+    const seen = new Set<string>();
+    for (const key of orderRef.current) {
+      const s = byKey.get(key);
+      if (s) {
+        result.push(s);
+        seen.add(key);
+      }
+    }
+    for (const s of sims) {
+      if (!seen.has(s.key)) {
+        result.push(s);
+        seen.add(s.key);
+      }
+    }
+    return result;
+  }, [sims]);
+  useEffect(() => {
+    orderRef.current = frozenSims.map((s) => s.key);
+  }, [frozenSims]);
+
   // Layout target: up to 4 sessions per row, distributed evenly to fill
   // the browser width. Fewer than 4 sessions stretch to fill; more than
   // 4 wrap to the next row at 4 cells wide.
-  const colCount = Math.min(Math.max(1, sims.length), 4);
+  const colCount = Math.min(Math.max(1, frozenSims.length), 4);
   return (
     <div className="h-full overflow-y-auto">
       <style>{DECOR_CSS}</style>
@@ -60,7 +88,7 @@ export function FleetHamletRooms({
           gridTemplateColumns: `repeat(${colCount}, minmax(0, 1fr))`,
         }}
       >
-        {sims.map((sim) => (
+        {frozenSims.map((sim) => (
           <RoomGridCell
             key={sim.key}
             sim={sim}

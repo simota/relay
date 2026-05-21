@@ -9,7 +9,7 @@
 // color. The newest bubble fades+slides in from the bottom so new
 // activity feels alive without redirecting attention.
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import type { SessionMessage } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -45,6 +45,18 @@ export function ChatBubbleStream({
     return filtered.slice(-maxBubbles);
   }, [messages, maxBubbles]);
 
+  // Auto-scroll to the bottom whenever a new message arrives so the
+  // freshest chatter is always visible without manual scrolling. Keyed
+  // off the newest timestamp + visible count so a re-render that doesn't
+  // change the conversation doesn't jam the scroll back to the floor.
+  const listRef = useRef<HTMLOListElement | null>(null);
+  const newestTs = visible[visible.length - 1]?.timestamp ?? "";
+  useEffect(() => {
+    const el = listRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [newestTs, visible.length]);
+
   if (visible.length === 0) {
     return (
       <div className="h-full w-full flex items-center justify-center px-4 py-3">
@@ -58,6 +70,7 @@ export function ChatBubbleStream({
 
   return (
     <ol
+      ref={listRef}
       className="flex flex-col gap-1.5 px-2 py-2 overflow-y-auto h-full"
       aria-label="recent conversation"
     >
