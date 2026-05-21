@@ -27,6 +27,8 @@ import {
 } from "../_lib/fleet-hamlet";
 import { moodGradient } from "../_lib/fleet-hamlet-decor";
 import { AvatarBody, DECOR_CSS } from "./fleet-hamlet-decor";
+import { HAMLET_AVATAR_CSS, HeadFace } from "./fleet-hamlet-avatar";
+import { getExpressionForMood } from "../_lib/fleet-hamlet-avatar-expression";
 import { CrownSvg, HatSvg, PARTICLE_CSS } from "./fleet-hamlet-particles";
 import { deriveAccessories } from "../_lib/fleet-hamlet-particles";
 import { sessionKey, statusColor } from "../_lib/fleet-timeline";
@@ -727,6 +729,7 @@ export function SimCard({
     >
       <style>{DECOR_CSS}</style>
       <style>{PARTICLE_CSS}</style>
+      <style>{HAMLET_AVATAR_CSS}</style>
       <div className="flex items-start gap-2.5 relative z-[1]">
         <div className="shrink-0 flex flex-col items-center relative">
           {accessories.crown && (
@@ -758,8 +761,8 @@ export function SimCard({
               <HatSvg kind={accessories.hat} />
             </span>
           )}
-          <SimAvatar parts={parts} moodColor={sim.mood.color} />
-          <AvatarBody agentKind={sim.sessionType} width={44} height={18} />
+          <SimAvatar parts={parts} mood={sim.mood} />
+          <AvatarBody agentKind={sim.sessionType} width={44} height={18} mood={sim.mood.key} />
           {accessories.badge && (
             <span
               className="mt-0.5 px-1 text-[8px] font-mono rounded border"
@@ -927,11 +930,12 @@ function NeedBar({ label, value }: { label: string; value: number }) {
   );
 }
 
-// Minimal deterministic avatar: head circle, simple hair shape, two eyes,
-// mood-colored halo. No external dep. The face is centered in a 48×48 box.
-function SimAvatar({ parts, moodColor }: { parts: AvatarParts; moodColor: string }) {
-  const skin = `hsl(${parts.skinHue}, 45%, 70%)`;
-  const hair = `hsl(${parts.hairHue}, 50%, 30%)`;
+// Refined avatar head: egg-shaped face, 6 hair styles, ears, cheek blush,
+// mood-driven eyes / mouth / brows, idle blink, sweat / Zzz overlays. The
+// face is centered in a 48×48 box. Body is rendered separately by the
+// caller via AvatarBody.
+function SimAvatar({ parts, mood }: { parts: AvatarParts; mood: SimCardModel["mood"] }) {
+  const expression = useMemo(() => getExpressionForMood(mood.key), [mood.key]);
   return (
     <svg
       width={48}
@@ -939,55 +943,22 @@ function SimAvatar({ parts, moodColor }: { parts: AvatarParts; moodColor: string
       viewBox="0 0 48 48"
       aria-hidden
       className="shrink-0"
+      overflow="visible"
     >
-      {/* mood halo */}
-      <circle cx={24} cy={24} r={22} fill="none" stroke={moodColor} strokeOpacity={0.55} strokeWidth={1.5} />
-      {/* head */}
-      <circle cx={24} cy={26} r={14} fill={skin} />
-      {/* hair — 4 silhouette options */}
-      {parts.hairStyle === 0 && (
-        // bowl
-        <path d={`M10 24 A 14 14 0 0 1 38 24 L 38 18 L 10 18 Z`} fill={hair} />
-      )}
-      {parts.hairStyle === 1 && (
-        // bun on top
-        <>
-          <circle cx={24} cy={11} r={5} fill={hair} />
-          <path d={`M11 22 A 14 14 0 0 1 37 22 L 37 18 L 11 18 Z`} fill={hair} />
-        </>
-      )}
-      {parts.hairStyle === 2 && (
-        // shaggy long
-        <path
-          d={`M10 22 Q 12 6 24 6 Q 36 6 38 22 L 39 38 L 33 28 L 30 36 L 27 28 L 24 36 L 21 28 L 18 36 L 15 28 L 9 38 Z`}
-          fill={hair}
+      <g
+        transform={`translate(24, 26) rotate(${expression.leanDeg})`}
+        style={{
+          animation: `relayHamletIdleBreathe 4s ease-in-out ${parts.breatheDelay}s infinite`,
+          transformOrigin: "24px 26px",
+        }}
+      >
+        <HeadFace
+          parts={parts}
+          expression={expression}
+          radius={14}
+          haloColor={mood.color}
         />
-      )}
-      {parts.hairStyle === 3 && (
-        // mohawk strip
-        <rect x={21} y={6} width={6} height={16} fill={hair} rx={2} />
-      )}
-      {/* eyes — 3 shape options */}
-      {parts.eyeShape === 0 && (
-        <>
-          <circle cx={19} cy={27} r={1.6} fill="#1a1a1a" />
-          <circle cx={29} cy={27} r={1.6} fill="#1a1a1a" />
-        </>
-      )}
-      {parts.eyeShape === 1 && (
-        <>
-          <rect x={17.5} y={26.5} width={3} height={1.4} fill="#1a1a1a" rx={0.7} />
-          <rect x={27.5} y={26.5} width={3} height={1.4} fill="#1a1a1a" rx={0.7} />
-        </>
-      )}
-      {parts.eyeShape === 2 && (
-        <>
-          <path d="M17 27 Q 19 25 21 27" stroke="#1a1a1a" strokeWidth={1.2} fill="none" />
-          <path d="M27 27 Q 29 25 31 27" stroke="#1a1a1a" strokeWidth={1.2} fill="none" />
-        </>
-      )}
-      {/* mouth */}
-      <path d="M20 32 Q 24 34 28 32" stroke="#3a2a2a" strokeWidth={1.1} fill="none" strokeLinecap="round" />
+      </g>
     </svg>
   );
 }

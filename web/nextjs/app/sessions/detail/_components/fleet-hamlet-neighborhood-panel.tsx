@@ -16,12 +16,18 @@ import { DoorOpen, MousePointerClick, X } from "lucide-react";
 import { useMemo } from "react";
 import type { SessionDetail } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { avatarPartsFromSeed, type SimCardModel } from "../_lib/fleet-hamlet";
+import {
+  avatarPartsFromSeed,
+  type AvatarParts,
+  type SimCardModel,
+} from "../_lib/fleet-hamlet";
 import { moodGradient } from "../_lib/fleet-hamlet-decor";
 import type { WeatherKind } from "../_lib/fleet-hamlet-layout";
 import { deriveAccessories } from "../_lib/fleet-hamlet-particles";
 import { statusColor } from "../_lib/fleet-timeline";
 import { AvatarBody, DECOR_CSS } from "./fleet-hamlet-decor";
+import { HAMLET_AVATAR_CSS, HeadFace } from "./fleet-hamlet-avatar";
+import { getExpressionForMood } from "../_lib/fleet-hamlet-avatar-expression";
 import {
   CHAT_BUBBLE_CSS,
   ChatBubbleStream,
@@ -57,6 +63,7 @@ export function FleetHamletNeighborhoodPanel({
     <aside className="h-full w-full flex flex-col overflow-hidden bg-[var(--color-bg)]/95">
       <style>{DECOR_CSS}</style>
       <style>{PARTICLE_CSS}</style>
+      <style>{HAMLET_AVATAR_CSS}</style>
       <style>{ROOM_SCENE_CSS}</style>
       <style>{CHAT_BUBBLE_CSS}</style>
       {selectedSim ? (
@@ -152,14 +159,8 @@ function InteriorView({
               <HatSvg kind={accessories.hat} />
             </span>
           )}
-          <HeaderAvatar
-            skinHue={parts.skinHue}
-            hairHue={parts.hairHue}
-            hairStyle={parts.hairStyle}
-            eyeShape={parts.eyeShape}
-            moodColor={sim.mood.color}
-          />
-          <AvatarBody agentKind={sim.sessionType} width={42} height={16} />
+          <HeaderAvatar parts={parts} mood={sim.mood} />
+          <AvatarBody agentKind={sim.sessionType} width={42} height={16} mood={sim.mood.key} />
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-baseline gap-1.5 flex-wrap">
@@ -363,24 +364,19 @@ function EmptyState({
 }
 
 // ---------------------------------------------------------------------------
-// Header avatar — compact 48px version used in the panel header
+// Header avatar — compact 48px version used in the panel header. Wraps
+// the shared HeadFace so the resident's expression / hair / cheeks / ears
+// match the Sim Card and Room Scene renderings.
 // ---------------------------------------------------------------------------
 
 function HeaderAvatar({
-  skinHue,
-  hairHue,
-  hairStyle,
-  eyeShape,
-  moodColor,
+  parts,
+  mood,
 }: {
-  skinHue: number;
-  hairHue: number;
-  hairStyle: number;
-  eyeShape: number;
-  moodColor: string;
+  parts: AvatarParts;
+  mood: SimCardModel["mood"];
 }) {
-  const skin = `hsl(${skinHue}, 45%, 70%)`;
-  const hair = `hsl(${hairHue}, 50%, 30%)`;
+  const expression = useMemo(() => getExpressionForMood(mood.key), [mood.key]);
   return (
     <svg
       width={48}
@@ -388,87 +384,22 @@ function HeaderAvatar({
       viewBox="0 0 48 48"
       aria-hidden
       className="shrink-0"
+      overflow="visible"
     >
-      <circle
-        cx={24}
-        cy={24}
-        r={22}
-        fill="none"
-        stroke={moodColor}
-        strokeOpacity={0.55}
-        strokeWidth={1.4}
-      />
-      <circle cx={24} cy={26} r={13} fill={skin} />
-      {hairStyle === 0 && (
-        <path d={`M11 24 A 13 13 0 0 1 37 24 L 37 19 L 11 19 Z`} fill={hair} />
-      )}
-      {hairStyle === 1 && (
-        <>
-          <circle cx={24} cy={12} r={4.5} fill={hair} />
-          <path
-            d={`M12 22 A 13 13 0 0 1 36 22 L 36 19 L 12 19 Z`}
-            fill={hair}
-          />
-        </>
-      )}
-      {hairStyle === 2 && (
-        <path
-          d="M11 22 Q 13 7 24 7 Q 35 7 37 22 L 38 36 L 33 28 L 30 34 L 27 28 L 24 34 L 21 28 L 18 34 L 15 28 L 10 36 Z"
-          fill={hair}
+      <g
+        transform={`translate(24, 24) rotate(${expression.leanDeg})`}
+        style={{
+          animation: `relayHamletIdleBreathe 4s ease-in-out ${parts.breatheDelay}s infinite`,
+          transformOrigin: "24px 24px",
+        }}
+      >
+        <HeadFace
+          parts={parts}
+          expression={expression}
+          radius={14}
+          haloColor={mood.color}
         />
-      )}
-      {hairStyle === 3 && (
-        <rect x={21} y={7} width={6} height={15} fill={hair} rx={2} />
-      )}
-      {eyeShape === 0 && (
-        <>
-          <circle cx={19.5} cy={27} r={1.5} fill="#1a1a1a" />
-          <circle cx={28.5} cy={27} r={1.5} fill="#1a1a1a" />
-        </>
-      )}
-      {eyeShape === 1 && (
-        <>
-          <rect
-            x={18}
-            y={26.5}
-            width={3}
-            height={1.3}
-            fill="#1a1a1a"
-            rx={0.6}
-          />
-          <rect
-            x={27}
-            y={26.5}
-            width={3}
-            height={1.3}
-            fill="#1a1a1a"
-            rx={0.6}
-          />
-        </>
-      )}
-      {eyeShape === 2 && (
-        <>
-          <path
-            d="M17.5 27 Q 19.5 25 21.5 27"
-            stroke="#1a1a1a"
-            strokeWidth={1.1}
-            fill="none"
-          />
-          <path
-            d="M26.5 27 Q 28.5 25 30.5 27"
-            stroke="#1a1a1a"
-            strokeWidth={1.1}
-            fill="none"
-          />
-        </>
-      )}
-      <path
-        d="M20 31 Q 24 33 28 31"
-        stroke="#3a2a2a"
-        strokeWidth={1.1}
-        fill="none"
-        strokeLinecap="round"
-      />
+      </g>
     </svg>
   );
 }

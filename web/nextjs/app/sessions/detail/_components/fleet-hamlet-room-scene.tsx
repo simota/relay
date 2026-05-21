@@ -20,6 +20,12 @@ import {
   hashStringToInt,
   type SimCardModel,
 } from "../_lib/fleet-hamlet";
+import { getExpressionForMood } from "../_lib/fleet-hamlet-avatar-expression";
+import {
+  HAMLET_AVATAR_CSS,
+  HamletAvatar,
+  clothingForAgent,
+} from "./fleet-hamlet-avatar";
 import {
   skyPalette,
   timeOfDay,
@@ -726,89 +732,30 @@ function FurnitureLayer({
 }
 
 // ---------------------------------------------------------------------------
-// Avatar — stand-alone SVG figure sized for the room
+// Avatar — full-body figure sized for the room, using the shared
+// HamletAvatar primitives so face + body match the rest of the village.
 // ---------------------------------------------------------------------------
 
 function RoomAvatar({ card }: { card: SimCardModel }) {
   const parts = useMemo(() => avatarPartsFromSeed(card.avatarSeed), [card.avatarSeed]);
+  const expression = useMemo(() => getExpressionForMood(card.mood.key), [card.mood.key]);
+  const clothes = clothingForAgent(card.sessionType);
   // Stand the avatar at the center-front, slightly off-center to leave
   // room for the sofa / desk / bed on the mid layer.
   const cx = SCENE_W * 0.62;
-  const groundY = 195;
-  const skin = `hsl(${parts.skinHue}, 45%, 70%)`;
-  const hair = `hsl(${parts.hairHue}, 50%, 30%)`;
-  const clothes = clothingColor(card.sessionType);
-  // Stressed → slight forward lean; Bored → slight back lean.
-  const lean =
-    card.mood.key === "stressed" ? -3 : card.mood.key === "bored" ? 2 : 0;
+  const groundY = 200;
+  const totalH = 70; // matches the legacy ~60-70px standing figure
   return (
-    <g transform={`translate(${cx}, ${groundY})`}>
-      {/* shadow */}
-      <ellipse cx={0} cy={2} rx={16} ry={3.5} fill="rgba(0,0,0,0.28)" />
-      <g transform={`rotate(${lean}) translate(0, -2)`}>
-        {/* legs */}
-        <rect x={-7} y={-22} width={5.5} height={22} fill="#3A2C24" rx={1.5} />
-        <rect x={1.5} y={-22} width={5.5} height={22} fill="#3A2C24" rx={1.5} />
-        {/* torso */}
-        <path
-          d="M -12 -22 L -8 -42 L 8 -42 L 12 -22 Z"
-          fill={clothes.shirt}
-        />
-        <path d="M -8 -42 L 0 -36 L 8 -42 Z" fill={clothes.accent} />
-        {/* arms */}
-        <rect x={-15} y={-40} width={4} height={18} fill={clothes.shirtDark} rx={1.5} />
-        <rect x={11} y={-40} width={4} height={18} fill={clothes.shirtDark} rx={1.5} />
-        {/* neck */}
-        <rect x={-3} y={-46} width={6} height={5} fill={skin} />
-        {/* head */}
-        <circle cx={0} cy={-54} r={10} fill={skin} stroke={card.mood.color} strokeOpacity={0.55} strokeWidth={1} />
-        {/* hair */}
-        {parts.hairStyle === 0 && (
-          <path d={`M -10 -54 A 10 10 0 0 1 10 -54 L 10 -58 L -10 -58 Z`} fill={hair} />
-        )}
-        {parts.hairStyle === 1 && (
-          <>
-            <circle cx={0} cy={-62} r={3.5} fill={hair} />
-            <path d={`M -9 -54 A 10 10 0 0 1 9 -54 L 9 -58 L -9 -58 Z`} fill={hair} />
-          </>
-        )}
-        {parts.hairStyle === 2 && (
-          <path
-            d="M -10 -54 Q -8 -66 0 -66 Q 8 -66 10 -54 L 11 -46 L 6 -52 L 3 -46 L 0 -52 L -3 -46 L -6 -52 L -11 -46 Z"
-            fill={hair}
-          />
-        )}
-        {parts.hairStyle === 3 && (
-          <rect x={-3} y={-66} width={6} height={12} fill={hair} rx={1.5} />
-        )}
-        {/* eyes */}
-        {parts.eyeShape === 0 && (
-          <>
-            <circle cx={-3.2} cy={-53} r={1.1} fill="#1a1a1a" />
-            <circle cx={3.2} cy={-53} r={1.1} fill="#1a1a1a" />
-          </>
-        )}
-        {parts.eyeShape === 1 && (
-          <>
-            <rect x={-4.5} y={-53.5} width={2.5} height={1} fill="#1a1a1a" />
-            <rect x={2} y={-53.5} width={2.5} height={1} fill="#1a1a1a" />
-          </>
-        )}
-        {parts.eyeShape === 2 && (
-          <>
-            <path d="M -5 -52 Q -3 -54 -1 -52" stroke="#1a1a1a" strokeWidth={0.9} fill="none" />
-            <path d="M 1 -52 Q 3 -54 5 -52" stroke="#1a1a1a" strokeWidth={0.9} fill="none" />
-          </>
-        )}
-        {/* mouth */}
-        <path
-          d="M -3 -49 Q 0 -47.5 3 -49"
-          stroke="#3a2a2a"
-          strokeWidth={0.9}
-          fill="none"
-          strokeLinecap="round"
-        />
-      </g>
+    <g transform={`translate(${cx}, ${groundY - totalH})`}>
+      {/* Ground shadow under the feet */}
+      <ellipse cx={0} cy={totalH + 1} rx={16} ry={3.5} fill="rgba(0,0,0,0.28)" />
+      <HamletAvatar
+        parts={parts}
+        expression={expression}
+        clothing={clothes}
+        height={totalH}
+        haloColor={card.mood.color}
+      />
     </g>
   );
 }
@@ -861,32 +808,6 @@ function pickWindowColors(tod: TimeOfDay): {
   }
 }
 
-function clothingColor(kind: SimCardModel["sessionType"]) {
-  if (kind === "claude")
-    return {
-      shirt: "hsl(215, 65%, 58%)",
-      shirtDark: "hsl(218, 70%, 42%)",
-      accent: "hsl(208, 80%, 75%)",
-    };
-  if (kind === "codex")
-    return {
-      shirt: "hsl(135, 50%, 48%)",
-      shirtDark: "hsl(138, 55%, 32%)",
-      accent: "hsl(120, 60%, 75%)",
-    };
-  if (kind === "antigravity")
-    return {
-      shirt: "hsl(275, 55%, 58%)",
-      shirtDark: "hsl(278, 60%, 40%)",
-      accent: "hsl(290, 65%, 78%)",
-    };
-  return {
-    shirt: "hsl(30, 45%, 55%)",
-    shirtDark: "hsl(28, 50%, 38%)",
-    accent: "hsl(38, 65%, 75%)",
-  };
-}
-
 // Style block used once per panel to register room-scene-only animations.
 // Includes the dynamic-layer keyframes so the parent panel only needs one
 // `<style>` import to get the full Room Scene visual vocabulary.
@@ -900,4 +821,5 @@ ${ROOM_LIFE_CSS}
 ${ROOM_TEMPORAL_CSS}
 ${ROOM_COMPANION_CSS}
 ${ROOM_CONTAINERS_CSS}
+${HAMLET_AVATAR_CSS}
 `;

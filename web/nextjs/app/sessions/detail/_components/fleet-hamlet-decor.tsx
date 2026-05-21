@@ -592,52 +592,207 @@ export function HeartbeatStrip({ bpm, warn }: { bpm: number; warn: boolean }) {
 }
 
 // ---------------------------------------------------------------------------
-// Avatar body — extends the head-only SimAvatar with a torso, arms, and a
-// shadow disc. Kept self-contained so callers can compose it under the
-// existing head SVG without rewriting that.
+// Avatar body — torso + collar + arms + hands + tiny legs + shoes, slotted
+// underneath the SimAvatar / HeaderAvatar head sprites. The pose props are
+// optional so existing callers keep working without changes; passing a
+// `mood` lets the body lean / wave / cross arms in sync with the head's
+// expression.
+//
+// Caller responsibility: ground shadow + idle breathe wrapping — both are
+// applied at the parent group so the head + body breathe together.
 // ---------------------------------------------------------------------------
+
+import type { MoodKey } from "../_lib/fleet-hamlet";
+import { getExpressionForMood } from "../_lib/fleet-hamlet-avatar-expression";
 
 export function AvatarBody({
   agentKind,
   width = 48,
   height = 22,
+  mood,
 }: {
   agentKind: SimCardModel["sessionType"];
   width?: number;
   height?: number;
+  mood?: MoodKey;
 }) {
   // Match the SimAvatar 48×48 head box; this strip slots underneath it.
   const colors = clothing(agentKind);
+  const pose = mood ? getExpressionForMood(mood).pose : "idle";
+  // Lateral arm offsets for waving / cross-arms / crouch.
+  const leftArmRot =
+    pose === "crouch" ? -18 : pose === "sigh" ? 8 : pose === "cross-arms" ? 14 : 0;
+  const rightArmRot =
+    pose === "wave"
+      ? -42
+      : pose === "crouch"
+        ? -18
+        : pose === "sigh"
+          ? -8
+          : pose === "cross-arms"
+            ? -14
+            : pose === "step-forward"
+              ? -12
+              : 0;
+  const showWaveHand = pose === "wave";
+  const stepFwd = pose === "step-forward";
+  const sleeping = pose === "sleeping";
   return (
-    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} aria-hidden>
-      {/* shadow */}
-      <ellipse cx={width / 2} cy={height - 2} rx={width * 0.35} ry={2.2} fill="rgba(0,0,0,0.32)" />
-      {/* shirt + collar */}
-      <path
-        d={`M ${width * 0.27} 4 L ${width * 0.42} 0 L ${width * 0.58} 0 L ${width * 0.73} 4 L ${width * 0.78} ${height - 4} L ${width * 0.22} ${height - 4} Z`}
-        fill={colors.shirt}
-      />
-      {/* shirt body shadow on the right half */}
-      <path
-        d={`M ${width * 0.5} 0 L ${width * 0.58} 0 L ${width * 0.73} 4 L ${width * 0.78} ${height - 4} L ${width * 0.5} ${height - 4} Z`}
-        fill={colors.shirtDark}
-        opacity={0.45}
-      />
-      {/* Rim-light stripe — slim highlight on the lit (left) edge */}
-      <path
-        d={`M ${width * 0.27} 4 L ${width * 0.3} 4 L ${width * 0.25} ${height - 4} L ${width * 0.22} ${height - 4} Z`}
-        fill={colors.accent}
-        opacity={0.95}
-      />
-      <path
-        d={`M ${width * 0.42} 0 L ${width * 0.5} 5 L ${width * 0.58} 0 Z`}
-        fill={colors.accent}
-      />
-      {/* arms */}
-      <rect x={width * 0.12} y={4} width={width * 0.12} height={height - 8} fill={colors.shirtDark} rx={2} />
-      <rect x={width * 0.76} y={4} width={width * 0.12} height={height - 8} fill={colors.shirtDark} rx={2} />
-      {/* Arm rim-light on the left arm */}
-      <rect x={width * 0.12} y={4} width={width * 0.04} height={height - 8} fill={colors.accent} rx={2} opacity={0.7} />
+    <svg width={width} height={height + 6} viewBox={`0 0 ${width} ${height + 6}`} aria-hidden overflow="visible">
+      {/* Ground shadow */}
+      <ellipse cx={width / 2} cy={height + 3} rx={width * 0.34} ry={2.2} fill="rgba(0,0,0,0.32)" />
+      {sleeping ? (
+        // Lying-down torso for sleeping mood
+        <g>
+          <rect
+            x={width * 0.18}
+            y={height - 6}
+            width={width * 0.64}
+            height={6}
+            rx={3}
+            fill={colors.shirt}
+          />
+          <rect
+            x={width * 0.18}
+            y={height - 6}
+            width={width * 0.64}
+            height={1.5}
+            rx={1}
+            fill={colors.accent}
+            opacity={0.7}
+          />
+        </g>
+      ) : (
+        <g>
+          {/* Legs — two short trunks with shoes underneath */}
+          <g>
+            {/* Left leg */}
+            <rect
+              x={stepFwd ? width * 0.32 : width * 0.34}
+              y={height - 6}
+              width={width * 0.1}
+              height={6}
+              rx={1.2}
+              fill="#4A382C"
+            />
+            <ellipse
+              cx={stepFwd ? width * 0.37 : width * 0.39}
+              cy={height + 0.5}
+              rx={width * 0.08}
+              ry={1.4}
+              fill="#1F1410"
+            />
+            {/* Right leg */}
+            <rect
+              x={stepFwd ? width * 0.5 : width * 0.56}
+              y={height - 6}
+              width={width * 0.1}
+              height={6}
+              rx={1.2}
+              fill="#4A382C"
+            />
+            <ellipse
+              cx={stepFwd ? width * 0.55 : width * 0.61}
+              cy={height + 0.5}
+              rx={width * 0.08}
+              ry={1.4}
+              fill="#1F1410"
+            />
+          </g>
+          {/* Torso barrel — pear silhouette: top narrows, bottom widens */}
+          <path
+            d={`M ${width * 0.32} 4
+                L ${width * 0.42} 0
+                L ${width * 0.58} 0
+                L ${width * 0.68} 4
+                L ${width * 0.72} ${height - 6}
+                L ${width * 0.28} ${height - 6} Z`}
+            fill={colors.shirt}
+          />
+          {/* Right-half shading */}
+          <path
+            d={`M ${width * 0.5} 0
+                L ${width * 0.58} 0
+                L ${width * 0.68} 4
+                L ${width * 0.72} ${height - 6}
+                L ${width * 0.5} ${height - 6} Z`}
+            fill={colors.shirtDark}
+            opacity={0.4}
+          />
+          {/* Rim-light stripe on the lit (left) edge */}
+          <path
+            d={`M ${width * 0.32} 4
+                L ${width * 0.36} 4
+                L ${width * 0.32} ${height - 6}
+                L ${width * 0.28} ${height - 6} Z`}
+            fill={colors.accent}
+            opacity={0.85}
+          />
+          {/* Collar — V on top of the torso */}
+          <path
+            d={`M ${width * 0.32} 4
+                L ${width * 0.5} 7
+                L ${width * 0.68} 4
+                L ${width * 0.62} 1
+                L ${width * 0.5} 5
+                L ${width * 0.38} 1 Z`}
+            fill={colors.accent}
+          />
+          {/* Two front buttons */}
+          <circle cx={width * 0.5} cy={height * 0.4 + 1} r={Math.max(0.6, width * 0.025)} fill={colors.shirtDark} />
+          <circle cx={width * 0.5} cy={height * 0.6 + 1} r={Math.max(0.6, width * 0.025)} fill={colors.shirtDark} />
+          {/* Arms with hands */}
+          {pose === "cross-arms" ? (
+            <g>
+              {/* Crossed arms over chest */}
+              <rect
+                x={width * 0.22}
+                y={height * 0.4}
+                width={width * 0.56}
+                height={height * 0.18}
+                rx={width * 0.06}
+                fill={colors.shirtDark}
+                transform={`rotate(-8 ${width * 0.5} ${height * 0.49})`}
+              />
+              <rect
+                x={width * 0.22}
+                y={height * 0.55}
+                width={width * 0.56}
+                height={height * 0.16}
+                rx={width * 0.06}
+                fill={colors.shirt}
+                transform={`rotate(10 ${width * 0.5} ${height * 0.63})`}
+              />
+            </g>
+          ) : (
+            <g>
+              {/* Left arm */}
+              <g transform={`translate(${width * 0.18}, 4) rotate(${leftArmRot})`}>
+                <rect x={0} y={0} width={width * 0.12} height={height - 10} fill={colors.shirtDark} rx={2} />
+                <rect x={0} y={0} width={width * 0.04} height={height - 10} fill={colors.accent} opacity={0.6} rx={1} />
+                {/* hand */}
+                <circle cx={width * 0.06} cy={height - 9} r={Math.max(1.2, width * 0.05)} fill="#F0CDA8" />
+              </g>
+              {/* Right arm */}
+              <g transform={`translate(${width * 0.7}, 4) rotate(${rightArmRot})`}>
+                <rect x={0} y={0} width={width * 0.12} height={height - 10} fill={colors.shirtDark} rx={2} />
+                <circle cx={width * 0.06} cy={height - 9} r={Math.max(1.2, width * 0.05)} fill="#F0CDA8" />
+              </g>
+              {/* Wave hand bonus — small hand high above the right arm */}
+              {showWaveHand && (
+                <g
+                  style={{
+                    animation: "relayHamletWaveHand 1.6s ease-in-out infinite",
+                    transformOrigin: `${width * 0.84}px 0px`,
+                  }}
+                >
+                  <circle cx={width * 0.84} cy={-2} r={Math.max(1.4, width * 0.05)} fill="#F0CDA8" />
+                </g>
+              )}
+            </g>
+          )}
+        </g>
+      )}
     </svg>
   );
 }

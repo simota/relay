@@ -9,7 +9,7 @@
 
 import { useMemo } from "react";
 import type { SimCardModel } from "../_lib/fleet-hamlet";
-import { hashStringToInt } from "../_lib/fleet-hamlet";
+import { avatarPartsFromSeed, hashStringToInt } from "../_lib/fleet-hamlet";
 import {
   type Accessories,
   type FallingPiece,
@@ -20,6 +20,8 @@ import {
   seasonParticles,
 } from "../_lib/fleet-hamlet-particles";
 import { AvatarBody } from "./fleet-hamlet-decor";
+import { HAMLET_AVATAR_CSS, HeadFace, clothingForAgent } from "./fleet-hamlet-avatar";
+import { getExpressionForMood } from "../_lib/fleet-hamlet-avatar-expression";
 
 // ---------------------------------------------------------------------------
 // Walking sims — small avatars that traverse the street
@@ -85,7 +87,7 @@ function WalkingSim({
           animation: "relayHamletWalkBob 0.6s ease-in-out infinite",
         }}
       >
-        <MiniSimAvatar agentKind={spec.sim.sessionType} hue={spec.sim.hue} />
+        <MiniSimAvatar agentKind={spec.sim.sessionType} hue={spec.sim.hue} sim={spec.sim} />
       </span>
     </span>
   );
@@ -94,56 +96,62 @@ function WalkingSim({
 function MiniSimAvatar({
   agentKind,
   hue,
+  sim,
 }: {
   agentKind: SimCardModel["sessionType"];
   hue: number;
+  /** Optional full sim — when present, the mini avatar uses its mood
+   *  expression + deterministic face features. */
+  sim?: SimCardModel;
 }) {
-  const headFill = `hsl(${hue}, 60%, 70%)`;
-  const headHi = `hsl(${hue}, 75%, 84%)`;
-  const body = bodyColor(agentKind);
-  const bodyHi = bodyColorLit(agentKind);
+  // Derive a deterministic seed even if the caller didn't pass a sim
+  // (street walkers re-use the agentKind+hue to keep the look stable).
+  const seed = sim?.avatarSeed ?? hashStringToInt(`${agentKind}:${hue}`);
+  const parts = useMemo(() => avatarPartsFromSeed(seed), [seed]);
+  const moodKey = sim?.mood.key ?? "happy";
+  const expression = useMemo(() => getExpressionForMood(moodKey), [moodKey]);
+  const clothes = clothingForAgent(agentKind);
+  // Compact 22×30 sprite: head r=5 centered at (11, 6), body 8×11 below.
   return (
-    <svg width={22} height={30} viewBox="0 0 22 30" aria-hidden>
+    <svg width={22} height={30} viewBox="0 0 22 30" aria-hidden overflow="visible">
       {/* dynamic ground shadow */}
-      <ellipse cx={10} cy={28.5} rx={6} ry={1.2} fill="rgba(0,0,0,0.32)" />
-      {/* head */}
-      <circle cx={10} cy={6} r={5} fill={headFill} stroke="#3A2A1F" strokeWidth={0.6} />
-      {/* head highlight (top-left) */}
-      <ellipse cx={8.4} cy={4.5} rx={2.2} ry={1.4} fill={headHi} opacity={0.85} />
-      {/* eye */}
-      <circle cx={11.6} cy={5.6} r={0.7} fill="#1F1F1F" />
-      {/* body */}
-      <rect
-        x={6}
-        y={11}
-        width={8}
-        height={11}
-        rx={2}
-        fill={body}
-      />
-      {/* rim light stripe on the left edge of the torso */}
-      <rect x={6} y={11} width={1.4} height={11} rx={1} fill={bodyHi} opacity={0.85} />
-      {/* shadow on the right edge */}
-      <rect x={12.4} y={11} width={1.6} height={11} rx={1} fill="rgba(0,0,0,0.32)" />
-      {/* legs (separate so the bob animation reads as walking) */}
-      <rect x={7} y={22} width={2.5} height={5} fill="#3A2A1F" />
-      <rect x={10.5} y={22} width={2.5} height={5} fill="#3A2A1F" />
+      <ellipse cx={11} cy={28.5} rx={6} ry={1.2} fill="rgba(0,0,0,0.32)" />
+      <g
+        style={{
+          animation: `relayHamletIdleBreathe 4s ease-in-out ${parts.breatheDelay}s infinite`,
+          transformOrigin: "center",
+        }}
+      >
+        {/* Torso barrel — small enough that we skip rim-light stripes */}
+        <path
+          d={`M 7 11 L 7.5 14 L 7 22 L 15 22 L 14.5 14 L 15 11 Z`}
+          fill={clothes.shirt}
+        />
+        <path
+          d={`M 11 11 L 15 11 L 14.5 14 L 15 22 L 11 22 Z`}
+          fill={clothes.shirtDark}
+          opacity={0.45}
+        />
+        {/* Collar V */}
+        <path d="M 8 11 L 11 13 L 14 11 L 11 14 Z" fill={clothes.accent} />
+        {/* Legs + shoes */}
+        <rect x={8} y={22} width={2} height={4.5} rx={0.6} fill="#4A382C" />
+        <rect x={12} y={22} width={2} height={4.5} rx={0.6} fill="#4A382C" />
+        <ellipse cx={9} cy={27} rx={1.4} ry={0.6} fill="#1F1410" />
+        <ellipse cx={13} cy={27} rx={1.4} ry={0.6} fill="#1F1410" />
+        {/* Head — translate to (11, 6) and render the shared face primitive */}
+        <g transform="translate(11, 6)">
+          <HeadFace
+            parts={parts}
+            expression={expression}
+            radius={5}
+            enableBlink={false}
+            enableCheeks={false}
+          />
+        </g>
+      </g>
     </svg>
   );
-}
-
-function bodyColor(kind: SimCardModel["sessionType"]): string {
-  if (kind === "claude") return "hsl(215, 65%, 58%)";
-  if (kind === "codex") return "hsl(135, 50%, 48%)";
-  if (kind === "antigravity") return "hsl(275, 55%, 58%)";
-  return "hsl(30, 45%, 55%)";
-}
-
-function bodyColorLit(kind: SimCardModel["sessionType"]): string {
-  if (kind === "claude") return "hsl(208, 80%, 76%)";
-  if (kind === "codex") return "hsl(135, 65%, 70%)";
-  if (kind === "antigravity") return "hsl(285, 70%, 78%)";
-  return "hsl(38, 70%, 76%)";
 }
 
 // ---------------------------------------------------------------------------
@@ -164,7 +172,7 @@ export function MiniAvatar({
       aria-hidden
     >
       <span style={{ position: "relative", width: 24, height: 24 }}>
-        <MiniSimAvatar agentKind={sim.sessionType} hue={sim.hue} />
+        <MiniSimAvatar agentKind={sim.sessionType} hue={sim.hue} sim={sim} />
         {accessories?.hat && accessories.hat !== "none" && (
           <span
             style={{
@@ -191,7 +199,7 @@ export function MiniAvatar({
           </span>
         )}
       </span>
-      <AvatarBody agentKind={sim.sessionType} width={24} height={10} />
+      <AvatarBody agentKind={sim.sessionType} width={24} height={10} mood={sim.mood.key} />
       {accessories?.badge && (
         <span
           className="mt-0.5 px-1 text-[7px] font-mono rounded border"
@@ -803,4 +811,5 @@ export const PARTICLE_CSS = `
   0%, 100% { fill-opacity: 0.85; filter: drop-shadow(0 0 1px currentColor); }
   50%      { fill-opacity: 1;    filter: drop-shadow(0 0 3px currentColor); }
 }
+${HAMLET_AVATAR_CSS}
 `;

@@ -12,6 +12,9 @@
 // component itself.
 
 import type { WindowScene } from "../_lib/fleet-hamlet-room-window";
+import { avatarPartsFromSeed, hashStringToInt } from "../_lib/fleet-hamlet";
+import { HeadFace } from "./fleet-hamlet-avatar";
+import { getExpressionForMood } from "../_lib/fleet-hamlet-avatar-expression";
 
 export interface WindowBox {
   x: number;
@@ -192,31 +195,46 @@ function PlayingChildSvg({
   cy: number;
   delay: number;
 }) {
-  const skin = "hsl(30, 50%, 75%)";
+  // Children get a chibi proportion: head ~40% of total height (vs the
+  // adults' ~20-22%). Seed is deterministic against hue+position.
+  const seed = hashStringToInt(`child:${hue}:${cx}`);
+  const parts = avatarPartsFromSeed(seed);
+  const expression = getExpressionForMood("happy");
   const shirt = `hsl(${hue}, 55%, 52%)`;
+  const shirtDark = `hsl(${hue}, 60%, 38%)`;
+  const accent = `hsl(${hue}, 65%, 72%)`;
   return (
     <g transform={`translate(${cx}, ${cy})`}>
-      {/* D2 — ground shadow under the child. */}
+      {/* Ground shadow under the child. */}
       <ellipse cx={0} cy={0.5} rx={2.8} ry={0.6} fill="rgba(0,0,0,0.30)" />
       <g
         style={{
           animation: `relayHamletChildPlay 2s ease-in-out ${delay}s infinite`,
         }}
       >
-        {/* legs */}
-        <rect x={-1.4} y={-3.5} width={1.1} height={3.5} fill="#3A2C24" />
-        <rect x={0.3} y={-3.5} width={1.1} height={3.5} fill="#3A2C24" />
-        {/* torso */}
-        <rect x={-2.5} y={-7.5} width={5} height={4.2} fill={shirt} rx={1} />
-        {/* D2 — torso rim light (left edge). */}
-        <rect x={-2.5} y={-7.5} width={0.6} height={4.2} fill="rgba(255,255,255,0.40)" />
-        {/* head */}
-        <circle cx={0} cy={-9.5} r={2.4} fill={skin} stroke="rgba(0,0,0,0.35)" strokeWidth={0.3} />
-        {/* D2 — small cheek/forehead highlight */}
-        <circle cx={-0.9} cy={-10.2} r={0.6} fill="rgba(255,250,235,0.55)" />
-        {/* tiny eye dots */}
-        <circle cx={-0.7} cy={-9.7} r={0.3} fill="#1a1a1a" />
-        <circle cx={0.7} cy={-9.7} r={0.3} fill="#1a1a1a" />
+        {/* Legs + tiny shoes */}
+        <rect x={-1.4} y={-3.5} width={1.1} height={3.5} fill="#4A382C" rx={0.3} />
+        <rect x={0.3} y={-3.5} width={1.1} height={3.5} fill="#4A382C" rx={0.3} />
+        <ellipse cx={-0.85} cy={0.2} rx={0.8} ry={0.3} fill="#1F1410" />
+        <ellipse cx={0.85} cy={0.2} rx={0.8} ry={0.3} fill="#1F1410" />
+        {/* Torso (short — child proportions) */}
+        <path
+          d="M -2.5 -7.5 L -2.2 -6.5 L -2.5 -3.5 L 2.5 -3.5 L 2.2 -6.5 L 2.5 -7.5 Z"
+          fill={shirt}
+        />
+        <path d="M 0 -7.5 L 2.5 -7.5 L 2.2 -6.5 L 2.5 -3.5 L 0 -3.5 Z" fill={shirtDark} opacity={0.45} />
+        {/* Collar V */}
+        <path d="M -2 -7.5 L 0 -6.5 L 2 -7.5 L 0 -7 Z" fill={accent} />
+        {/* Head — child face uses the shared HeadFace at a small radius */}
+        <g transform="translate(0, -9.5)">
+          <HeadFace
+            parts={parts}
+            expression={expression}
+            radius={2.6}
+            enableBlink={false}
+            enableCheeks={true}
+          />
+        </g>
       </g>
     </g>
   );

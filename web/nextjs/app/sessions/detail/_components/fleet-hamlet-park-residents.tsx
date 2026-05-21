@@ -16,7 +16,9 @@
 // repeated renders don't make residents teleport.
 
 import type { SimCardModel } from "../_lib/fleet-hamlet";
-import { hashStringToInt } from "../_lib/fleet-hamlet";
+import { avatarPartsFromSeed, hashStringToInt } from "../_lib/fleet-hamlet";
+import { HeadFace, clothingForAgent } from "./fleet-hamlet-avatar";
+import { getExpressionForMood } from "../_lib/fleet-hamlet-avatar-expression";
 
 interface Props {
   cards: readonly SimCardModel[];
@@ -72,6 +74,7 @@ export function ParkResidentLayer({
             <StandingMiniAvatar
               agentKind={sim.sessionType}
               hue={sim.hue}
+              sim={sim}
             />
           </span>
         );
@@ -109,6 +112,7 @@ export function ParkResidentLayer({
               <StandingMiniAvatar
                 agentKind={refSim?.sessionType ?? "claude"}
                 hue={refSim?.hue ?? 200}
+                sim={refSim}
               />
             </span>
           </span>
@@ -142,6 +146,7 @@ export function ParkResidentLayer({
               <SittingMiniAvatar
                 agentKind={sitterSim?.sessionType ?? "claude"}
                 hue={sitterSim?.hue ?? 200}
+                sim={sitterSim}
               />
             </span>
           </span>
@@ -152,94 +157,110 @@ export function ParkResidentLayer({
 }
 
 // ---------------------------------------------------------------------------
-// StandingMiniAvatar — head + body + two legs, narrower than the in-house
-// MiniAvatar so it doesn't crowd the tiny houses.
+// StandingMiniAvatar — head + body + two legs + shoes. Compact and built
+// on the shared HeadFace primitive so the park residents share the same
+// character family as the Sim Card / Room avatars.
 // ---------------------------------------------------------------------------
 
 function StandingMiniAvatar({
   agentKind,
   hue,
+  sim,
 }: {
   agentKind: SimCardModel["sessionType"];
   hue: number;
+  sim?: SimCardModel;
 }) {
-  const head = `hsl(${hue}, 60%, 70%)`;
-  const headHi = `hsl(${hue}, 80%, 82%)`;
+  const seed = sim?.avatarSeed ?? hashStringToInt(`${agentKind}:${hue}`);
+  const parts = avatarPartsFromSeed(seed);
+  const moodKey = sim?.mood.key ?? "happy";
+  const expression = getExpressionForMood(moodKey);
+  const clothes = clothingForAgent(agentKind);
   return (
-    <svg width={16} height={22} viewBox="0 0 16 22" aria-hidden>
-      <ellipse cx={8} cy={20} rx={5} ry={1.2} fill="rgba(0,0,0,0.3)" />
-      <circle cx={8} cy={4} r={3.4} fill={head} stroke="#3A2A1F" strokeWidth={0.5} />
-      <ellipse cx={6.8} cy={3} rx={1.4} ry={0.8} fill={headHi} opacity={0.85} />
-      <circle cx={9} cy={3.8} r={0.5} fill="#1F1F1F" />
-      <rect
-        x={5.4}
-        y={7.5}
-        width={5.2}
-        height={7}
-        rx={1.4}
-        fill={bodyColor(agentKind)}
-      />
-      {/* rim light on left */}
-      <rect x={5.4} y={7.5} width={0.9} height={7} rx={0.4} fill="rgba(255,255,255,0.4)" />
-      {/* shadow on right */}
-      <rect x={9.5} y={7.5} width={1.1} height={7} rx={0.4} fill="rgba(0,0,0,0.32)" />
-      <rect x={5.8} y={14.2} width={1.8} height={4.5} fill="#3A2A1F" />
-      <rect x={8.4} y={14.2} width={1.8} height={4.5} fill="#3A2A1F" />
+    <svg width={16} height={22} viewBox="0 0 16 22" aria-hidden overflow="visible">
+      <ellipse cx={8} cy={20.5} rx={5} ry={1.2} fill="rgba(0,0,0,0.3)" />
+      <g
+        style={{
+          animation: `relayHamletIdleBreathe 4s ease-in-out ${parts.breatheDelay}s infinite`,
+          transformOrigin: "center",
+        }}
+      >
+        {/* Torso */}
+        <path
+          d={`M 5.5 7 L 6 9.5 L 5.5 14.5 L 10.5 14.5 L 10 9.5 L 10.5 7 Z`}
+          fill={clothes.shirt}
+        />
+        <path
+          d={`M 8 7 L 10.5 7 L 10 9.5 L 10.5 14.5 L 8 14.5 Z`}
+          fill={clothes.shirtDark}
+          opacity={0.4}
+        />
+        {/* Collar */}
+        <path d="M 6 7 L 8 8.4 L 10 7 L 8 9 Z" fill={clothes.accent} />
+        {/* Legs + shoes */}
+        <rect x={6} y={14.5} width={1.6} height={4.2} rx={0.5} fill="#4A382C" />
+        <rect x={8.4} y={14.5} width={1.6} height={4.2} rx={0.5} fill="#4A382C" />
+        <ellipse cx={6.8} cy={19} rx={1.2} ry={0.6} fill="#1F1410" />
+        <ellipse cx={9.2} cy={19} rx={1.2} ry={0.6} fill="#1F1410" />
+        {/* Head */}
+        <g transform="translate(8, 4)">
+          <HeadFace
+            parts={parts}
+            expression={expression}
+            radius={3.4}
+            enableBlink={false}
+            enableCheeks={false}
+          />
+        </g>
+      </g>
     </svg>
   );
 }
 
 // ---------------------------------------------------------------------------
-// SittingMiniAvatar — torso + bent legs, sized to perch on the bench.
+// SittingMiniAvatar — torso + legs extended forward, sized to perch on the
+// bench. Uses the shared HeadFace primitive for facial features.
 // ---------------------------------------------------------------------------
 
 function SittingMiniAvatar({
   agentKind,
   hue,
+  sim,
 }: {
   agentKind: SimCardModel["sessionType"];
   hue: number;
+  sim?: SimCardModel;
 }) {
-  const head = `hsl(${hue}, 60%, 70%)`;
+  const seed = sim?.avatarSeed ?? hashStringToInt(`${agentKind}:${hue}`);
+  const parts = avatarPartsFromSeed(seed);
+  const moodKey = sim?.mood.key ?? "happy";
+  const expression = getExpressionForMood(moodKey);
+  const clothes = clothingForAgent(agentKind);
   return (
-    <svg width={18} height={20} viewBox="0 0 18 20" aria-hidden>
-      <circle cx={6} cy={4} r={3.2} fill={head} stroke="#3A2A1F" strokeWidth={0.5} />
-      <circle cx={7} cy={3.8} r={0.5} fill="#1F1F1F" />
-      <rect
-        x={3.6}
-        y={7.5}
-        width={5}
-        height={7}
-        rx={1.4}
-        fill={bodyColor(agentKind)}
+    <svg width={18} height={20} viewBox="0 0 18 20" aria-hidden overflow="visible">
+      {/* Torso */}
+      <path
+        d={`M 3.2 7 L 3.6 9.5 L 3.2 14 L 8.6 14 L 8.4 9.5 L 8.6 7 Z`}
+        fill={clothes.shirt}
       />
-      {/* upper leg, horizontal */}
-      <rect
-        x={5}
-        y={13.5}
-        width={9}
-        height={2}
-        rx={0.6}
-        fill="#3A2A1F"
-      />
-      {/* lower leg, vertical */}
-      <rect
-        x={12}
-        y={14}
-        width={2}
-        height={4.5}
-        rx={0.6}
-        fill="#3A2A1F"
-      />
+      <path d="M 4 7 L 6 8.4 L 8 7 L 6 9 Z" fill={clothes.accent} />
+      {/* Upper leg extended forward (horizontal) */}
+      <rect x={5} y={13.5} width={8.5} height={2.2} rx={0.7} fill="#4A382C" />
+      {/* Lower leg (vertical) */}
+      <rect x={11.5} y={14} width={2} height={4.2} rx={0.7} fill="#4A382C" />
+      <ellipse cx={12.5} cy={18.5} rx={1.5} ry={0.6} fill="#1F1410" />
+      {/* Head */}
+      <g transform="translate(6, 4)">
+        <HeadFace
+          parts={parts}
+          expression={expression}
+          radius={3.2}
+          enableBlink={false}
+          enableCheeks={false}
+        />
+      </g>
     </svg>
   );
-}
-
-function bodyColor(kind: SimCardModel["sessionType"]): string {
-  if (kind === "claude") return "hsl(215, 65%, 58%)";
-  if (kind === "codex") return "hsl(135, 50%, 48%)";
-  if (kind === "antigravity") return "hsl(275, 55%, 58%)";
-  return "hsl(30, 45%, 55%)";
 }
 
 // ---------------------------------------------------------------------------

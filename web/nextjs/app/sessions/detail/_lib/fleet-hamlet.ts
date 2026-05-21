@@ -453,9 +453,29 @@ export function hashStringToInt(s: string): number {
 export interface AvatarParts {
   skinHue: number;
   hairHue: number;
+  /** Legacy 4-way enum (kept for older callers that switch on it). */
   hairStyle: 0 | 1 | 2 | 3;
   eyeShape: 0 | 1 | 2;
+  /** Six-way refined hair style enum used by the new avatar renderers. */
+  hair: "short" | "wavy" | "bob" | "topknot" | "curly" | "bald";
+  /** Whether the chosen hair style leaves the ears visible. */
+  hasEars: boolean;
+  /** Hue for the cheek-blush ellipses (always a soft pink/rose). */
+  cheekHue: number;
+  /** Animation delay (s) for the blink keyframe so a crowd doesn't blink in unison. */
+  blinkDelay: number;
+  /** Animation delay (s) for the idle-breathe keyframe (same reason). */
+  breatheDelay: number;
 }
+
+const REFINED_HAIR: readonly AvatarParts["hair"][] = [
+  "short",
+  "wavy",
+  "bob",
+  "topknot",
+  "curly",
+  "bald",
+] as const;
 
 export function avatarPartsFromSeed(seed: number): AvatarParts {
   // Slice the seed into 4 8-bit lanes; each lane drives one feature.
@@ -463,11 +483,23 @@ export function avatarPartsFromSeed(seed: number): AvatarParts {
   const b = (seed >>> 8) & 0xff;
   const c = (seed >>> 16) & 0xff;
   const d = (seed >>> 24) & 0xff;
+  const hair = REFINED_HAIR[c % REFINED_HAIR.length] ?? "short";
+  // Bob / curly cover the ears; everything else exposes them.
+  const hasEars = hair !== "bob" && hair !== "curly";
+  // Cheek hue is always in the warm pink band — keeps the village palette
+  // consistent regardless of skin tone.
+  const cheekHue = 350 + ((d >>> 1) % 20);
   return {
     skinHue: (a * 360) >>> 8,
     hairHue: (b * 360) >>> 8,
     hairStyle: (c % 4) as AvatarParts["hairStyle"],
     eyeShape: (d % 3) as AvatarParts["eyeShape"],
+    hair,
+    hasEars,
+    cheekHue,
+    // Stagger delays across [-4, 0)s so neighbours animate out of phase.
+    blinkDelay: -((a % 80) / 10),
+    breatheDelay: -((b % 40) / 10),
   };
 }
 
