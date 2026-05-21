@@ -5,8 +5,6 @@ import {
   DoorOpen,
   Home as HomeIcon,
   LayoutGrid,
-  Network,
-  Skull,
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -38,12 +36,11 @@ import {
   readHamletSelectionPref,
   writeHamletSelectionPref,
 } from "../_lib/fleet-hamlet-neighborhood-selection";
-import { FleetHamletCemetery } from "./fleet-hamlet-cemetery";
 import { FleetHamletEventsBanner } from "./fleet-hamlet-events-banner";
 import { FleetHamletHouse } from "./fleet-hamlet-house";
 import { FleetHamletNeighborhood } from "./fleet-hamlet-neighborhood";
 import { FleetHamletNeighborhoodPanel } from "./fleet-hamlet-neighborhood-panel";
-import { FleetHamletRelations } from "./fleet-hamlet-relations";
+import { FleetHamletRooms } from "./fleet-hamlet-rooms";
 import { RelationshipsPanel } from "./fleet-hamlet-relations-panel";
 import { SkillsPanel } from "./fleet-hamlet-skills-panel";
 import type { FleetViewData } from "./fleet-view";
@@ -53,17 +50,12 @@ export { parseHamletSelection } from "../_lib/fleet-hamlet-neighborhood-selectio
 // Re-tick `now` so age-driven needs and moods animate without a refetch.
 const NOW_TICK_MS = 15_000;
 
-export type HamletMode =
-  | "neighborhood"
-  | "cards"
-  | "house"
-  | "relations"
-  | "cemetery";
+export type HamletMode = "neighborhood" | "rooms" | "house";
 
 // Modes that can be the "prior" mode we restore when leaving House. House
-// itself is intentionally excluded — the back arrow goes to the original
-// browsing mode, not to a loop.
-export type HamletPriorMode = "neighborhood" | "cards" | "relations" | "cemetery";
+// itself is intentionally excluded — the back arrow goes to one of the
+// browsing modes (Neighborhood or Rooms).
+export type HamletPriorMode = "neighborhood" | "rooms";
 
 // LocalStorage key for the mode preference. Mode also lives in the URL
 // (?hm=) — localStorage is the fallback that survives a bare `/sessions/detail`
@@ -75,13 +67,7 @@ function readModePref(): HamletPriorMode | null {
   if (typeof window === "undefined") return null;
   try {
     const v = window.localStorage.getItem(MODE_STORAGE_KEY);
-    if (
-      v === "neighborhood" ||
-      v === "cards" ||
-      v === "relations" ||
-      v === "cemetery"
-    )
-      return v;
+    if (v === "neighborhood" || v === "rooms") return v;
     return null;
   } catch {
     return null;
@@ -101,13 +87,7 @@ function readPriorMode(): HamletPriorMode | null {
   if (typeof window === "undefined") return null;
   try {
     const v = window.localStorage.getItem(PRIOR_MODE_STORAGE_KEY);
-    if (
-      v === "neighborhood" ||
-      v === "cards" ||
-      v === "relations" ||
-      v === "cemetery"
-    )
-      return v;
+    if (v === "neighborhood" || v === "rooms") return v;
     return null;
   } catch {
     return null;
@@ -125,10 +105,8 @@ function writePriorMode(v: HamletPriorMode): void {
 
 export function parseHamletMode(params: URLSearchParams): HamletMode {
   const v = params.get("hm");
-  if (v === "cards") return "cards";
   if (v === "house") return "house";
-  if (v === "relations") return "relations";
-  if (v === "cemetery") return "cemetery";
+  if (v === "rooms") return "rooms";
   return "neighborhood";
 }
 
@@ -265,12 +243,7 @@ export function FleetHamlet({
   const enterHouse = useCallback(
     (target: SimCardModel) => {
       // Remember the mode we're leaving so the back arrow can restore it.
-      if (
-        hydratedMode === "neighborhood" ||
-        hydratedMode === "cards" ||
-        hydratedMode === "relations" ||
-        hydratedMode === "cemetery"
-      ) {
+      if (hydratedMode === "neighborhood" || hydratedMode === "rooms") {
         writePriorMode(hydratedMode);
       }
       const qs = new URLSearchParams(params.toString());
@@ -409,14 +382,10 @@ export function FleetHamlet({
         <span className="ml-auto text-[10px]">
           {hydratedMode === "neighborhood" &&
             "isometric village · click a house for details · double-click to enter"}
-          {hydratedMode === "cards" &&
-            "deterministic avatar + 8 needs · prototype data"}
+          {hydratedMode === "rooms" &&
+            "rooms grid · per-session interior · click to enter"}
           {hydratedMode === "house" &&
             "house plan · vitals + rooms · prototype data"}
-          {hydratedMode === "relations" &&
-            "family tree · per-repo clusters · double-click a node to enter"}
-          {hydratedMode === "cemetery" &&
-            "archived residents · hall of fame · click a stone to revisit"}
         </span>
       </div>
 
@@ -433,6 +402,15 @@ export function FleetHamlet({
           </div>
         )}
 
+        {!error && livingSims.length > 0 && hydratedMode === "rooms" && (
+          <FleetHamletRooms
+            sims={livingSims}
+            details={details}
+            now={now}
+            onEnterHouse={enterHouse}
+          />
+        )}
+
         {!error && livingSims.length > 0 && hydratedMode === "neighborhood" && (
           <NeighborhoodLayout
             sims={livingSims}
@@ -446,45 +424,6 @@ export function FleetHamlet({
             selection={hydratedSelection}
             onSelectionChange={setSelection}
             selectedSim={neighborhoodSelected}
-          />
-        )}
-
-        {!error && livingSims.length > 0 && hydratedMode === "cards" && (
-          <div className="h-full overflow-y-auto">
-            <ul className="grid gap-3 px-6 py-4 grid-cols-[repeat(auto-fill,minmax(240px,1fr))]">
-              {livingSims.map((sim) => (
-                <SimCard
-                  key={sim.key}
-                  sim={sim}
-                  selected={selectedKeys.has(
-                    sessionKey({ type: sim.sessionType, id: sim.sessionId }),
-                  )}
-                  canAdd={canAdd}
-                  onPickSession={onPickSession}
-                  onEnterHouse={enterHouse}
-                  detail={details.get(sim.key)}
-                  allSims={livingSims}
-                  now={now}
-                />
-              ))}
-            </ul>
-          </div>
-        )}
-
-        {!error && livingSims.length > 0 && hydratedMode === "relations" && (
-          <FleetHamletRelations
-            sims={livingSims}
-            now={now}
-            onEnterHouse={enterHouse}
-          />
-        )}
-
-        {!error && hydratedMode === "cemetery" && (
-          <FleetHamletCemetery
-            sims={sortedSims}
-            detailByKey={details}
-            now={now}
-            onOpenHouse={enterHouse}
           />
         )}
 
@@ -515,10 +454,9 @@ export function FleetHamlet({
         {!error &&
           livingSims.length === 0 &&
           sortedSims.length > 0 &&
-          hydratedMode !== "cemetery" &&
           hydratedMode !== "house" && (
             <div className="px-6 py-4 text-[12px] text-[var(--color-fg-dim)]">
-              all residents are resting. Try the Cemetery mode to visit them.
+              all residents are resting.
             </div>
           )}
       </div>
@@ -637,48 +575,18 @@ function ModeToggle({
       </button>
       <button
         type="button"
-        onClick={() => onChange("cards")}
-        aria-pressed={mode === "cards"}
+        onClick={() => onChange("rooms")}
+        aria-pressed={mode === "rooms"}
         className={cn(
           "inline-flex items-center gap-1 px-1.5 h-5 rounded-[var(--radius-sm)] border text-[10px] font-mono",
-          mode === "cards"
+          mode === "rooms"
             ? "border-[var(--color-accent)] text-[var(--color-accent)]"
             : "border-[var(--color-border)] text-[var(--color-fg-muted)] hover:text-[var(--color-fg)]",
         )}
-        title="Sim Card list view"
+        title="Per-session Room Scenes in a grid"
       >
         <LayoutGrid className="w-2.5 h-2.5" aria-hidden />
-        Cards
-      </button>
-      <button
-        type="button"
-        onClick={() => onChange("relations")}
-        aria-pressed={mode === "relations"}
-        className={cn(
-          "inline-flex items-center gap-1 px-1.5 h-5 rounded-[var(--radius-sm)] border text-[10px] font-mono",
-          mode === "relations"
-            ? "border-[var(--color-accent)] text-[var(--color-accent)]"
-            : "border-[var(--color-border)] text-[var(--color-fg-muted)] hover:text-[var(--color-fg)]",
-        )}
-        title="Family Tree — per-repo clusters"
-      >
-        <Network className="w-2.5 h-2.5" aria-hidden />
-        Relations
-      </button>
-      <button
-        type="button"
-        onClick={() => onChange("cemetery")}
-        aria-pressed={mode === "cemetery"}
-        className={cn(
-          "inline-flex items-center gap-1 px-1.5 h-5 rounded-[var(--radius-sm)] border text-[10px] font-mono",
-          mode === "cemetery"
-            ? "border-[var(--color-accent)] text-[var(--color-accent)]"
-            : "border-[var(--color-border)] text-[var(--color-fg-muted)] hover:text-[var(--color-fg)]",
-        )}
-        title="Cemetery — archived residents + hall of fame"
-      >
-        <Skull className="w-2.5 h-2.5" aria-hidden />
-        Cemetery
+        Rooms
       </button>
     </div>
   );
