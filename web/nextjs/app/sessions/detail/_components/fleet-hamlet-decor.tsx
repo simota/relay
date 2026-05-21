@@ -774,22 +774,23 @@ export function AvatarBody({
                 {/* hand */}
                 <circle cx={width * 0.06} cy={height - 9} r={Math.max(1.2, width * 0.05)} fill="#F0CDA8" />
               </g>
-              {/* Right arm — mirror shoulder pivot. */}
-              <g transform={`translate(${width * 0.7}, 4) rotate(${rightArmRot} ${width * 0.06} 0)`}>
+              {/* Right arm — mirror shoulder pivot. Wave is expressed by
+                  rocking the arm itself, not by floating an extra hand. */}
+              <g
+                transform={`translate(${width * 0.7}, 4) rotate(${rightArmRot} ${width * 0.06} 0)`}
+                style={
+                  showWaveHand
+                    ? {
+                        animation:
+                          "relayHamletWaveHand 1.6s ease-in-out infinite",
+                        transformOrigin: `${width * 0.06}px 0px`,
+                      }
+                    : undefined
+                }
+              >
                 <rect x={0} y={0} width={width * 0.12} height={height - 10} fill={colors.shirtDark} rx={2} />
                 <circle cx={width * 0.06} cy={height - 9} r={Math.max(1.2, width * 0.05)} fill="#F0CDA8" />
               </g>
-              {/* Wave hand bonus — small hand high above the right arm */}
-              {showWaveHand && (
-                <g
-                  style={{
-                    animation: "relayHamletWaveHand 1.6s ease-in-out infinite",
-                    transformOrigin: `${width * 0.84}px 0px`,
-                  }}
-                >
-                  <circle cx={width * 0.84} cy={-2} r={Math.max(1.4, width * 0.05)} fill="#F0CDA8" />
-                </g>
-              )}
             </g>
           )}
         </g>

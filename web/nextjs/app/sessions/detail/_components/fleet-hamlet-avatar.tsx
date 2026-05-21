@@ -635,9 +635,10 @@ export function BodyTorso({
         ) : (
           <g>
             {/* Left arm — shoulder anchored at the torso's left edge so
-                rotations pivot at the shoulder, not the limb's top-left. */}
+                rotations pivot at the shoulder (rect's top-center, which
+                lives at local origin because rect.x = -w*0.07). */}
             <g
-              transform={`translate(${-w * 0.35}, ${h * 0.1 + armCrouchY}) rotate(${pose === "crouch" ? -25 : pose === "sigh" ? 10 : 0} ${w * 0.07} 0)`}
+              transform={`translate(${-w * 0.35}, ${h * 0.1 + armCrouchY}) rotate(${pose === "crouch" ? -25 : pose === "sigh" ? 10 : 0})`}
             >
               <rect
                 x={-w * 0.07}
@@ -661,9 +662,20 @@ export function BodyTorso({
               {/* hand (skin circle at cuff end) */}
               <circle cx={0} cy={h * 0.45} r={w * 0.09} fill="#F0CDA8" />
             </g>
-            {/* Right arm — shoulder anchored mirror of the left. */}
+            {/* Right arm — shoulder anchored mirror of the left (origin
+                is the local rect top-center). Wave is expressed by
+                rocking this arm with the relayHamletWaveHand keyframe. */}
             <g
-              transform={`translate(${w * 0.35}, ${h * 0.1 + armRaise * 0.5}) rotate(${pose === "wave" ? -40 : pose === "crouch" ? 25 : pose === "sigh" ? -10 : pose === "step-forward" ? -15 : 0} ${-w * 0.07} 0)`}
+              transform={`translate(${w * 0.35}, ${h * 0.1 + armRaise * 0.5}) rotate(${pose === "wave" ? -25 : pose === "crouch" ? 25 : pose === "sigh" ? -10 : pose === "step-forward" ? -15 : 0})`}
+              style={
+                pose === "wave"
+                  ? {
+                      animation:
+                        "relayHamletWaveHand 1.6s ease-in-out infinite",
+                      transformOrigin: "0px 0px",
+                    }
+                  : undefined
+              }
             >
               <rect
                 x={-w * 0.07}
@@ -675,18 +687,6 @@ export function BodyTorso({
               />
               <circle cx={0} cy={h * 0.45} r={w * 0.09} fill="#F0CDA8" />
             </g>
-          </g>
-        )}
-        {/* Wave hand bonus — small waving hand above shoulder */}
-        {pose === "wave" && (
-          <g
-            style={{
-              animation: "relayHamletWaveHand 1.6s ease-in-out infinite",
-              transformOrigin: `${w * 0.35}px ${-h * 0.1}px`,
-            }}
-          >
-            <circle cx={w * 0.35} cy={-h * 0.12} r={w * 0.12} fill="#F0CDA8" />
-            <circle cx={w * 0.35} cy={-h * 0.12} r={w * 0.12} fill="none" stroke="#A6783C" strokeOpacity={0.4} strokeWidth={0.6} />
           </g>
         )}
       </g>
