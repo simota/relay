@@ -142,6 +142,23 @@ export function RoomScene({
     () => deriveRoomState(card, detail, allCards ?? [card], now),
     [card, detail, allCards, now],
   );
+  // Visitor presence — a user-role message in the last 5 minutes means
+  // the human came by to give instructions, so we plant a visitor avatar
+  // next to the resident for the duration of the visit window.
+  const hasRecentUserMessage = useMemo(() => {
+    if (!detail?.messages?.length) return false;
+    const cutoff = now - 5 * 60 * 1000;
+    for (let i = detail.messages.length - 1; i >= 0; i--) {
+      const m = detail.messages[i];
+      if (!m || m.role !== "user") continue;
+      const ts = Date.parse(m.timestamp);
+      if (Number.isFinite(ts) && ts >= cutoff) return true;
+      // Older messages still ascend; bail early once we pass the cutoff.
+      if (Number.isFinite(ts) && ts < cutoff) return false;
+    }
+    return false;
+  }, [detail, now]);
+
   // Swap any plant-tagged furniture to a wilted glyph when silence is long.
   const furniture = useMemo(() => {
     if (!roomState.plantsWilted) return furnitureRaw;
@@ -323,6 +340,7 @@ export function RoomScene({
           <PetGroup pets={petBundle.pets} slots={dynamicSlots.petSlots} />
         )}
         <RoomAvatar card={card} />
+        {hasRecentUserMessage && <RoomVisitor />}
         {roomState.toolProp && dynamicSlots.toolSlot && (
           <ToolPropSvg
             kind={roomState.toolProp}
@@ -757,6 +775,67 @@ function RoomAvatar({ card }: { card: SimCardModel }) {
         height={totalH}
         haloColor={card.mood.color}
       />
+    </g>
+  );
+}
+
+// Visitor avatar — appears next to the resident when the user has sent
+// a message within the last 5 minutes. Visually distinct (warm orange
+// clothing, fixed visitor seed) so it reads as "the player came over
+// to give instructions" rather than another resident.
+function RoomVisitor() {
+  const parts = useMemo(
+    () => avatarPartsFromSeed(hashStringToInt("user-visitor")),
+    [],
+  );
+  const expression = useMemo(() => getExpressionForMood("happy"), []);
+  const visitorClothing = useMemo(
+    () => ({
+      shirt: "hsl(28, 78%, 58%)",
+      shirtDark: "hsl(24, 72%, 42%)",
+      accent: "hsl(40, 85%, 80%)",
+    }),
+    [],
+  );
+  // Stand the visitor on the opposite side of the room from the
+  // resident so they read as a pair greeting each other.
+  const cx = SCENE_W * 0.32;
+  const groundY = 200;
+  const totalH = 64;
+  return (
+    <g transform={`translate(${cx}, ${groundY - totalH})`}>
+      <ellipse cx={0} cy={totalH + 1} rx={14} ry={3.2} fill="rgba(0,0,0,0.25)" />
+      <HamletAvatar
+        parts={parts}
+        expression={expression}
+        clothing={visitorClothing}
+        height={totalH}
+      />
+      {/* "Visitor" pip — small 👤 chip floats above to signal the human
+          is in the room. Positioned so it doesn't overlap the head. */}
+      <g transform={`translate(0, -8)`}>
+        <rect
+          x={-14}
+          y={-7}
+          width={28}
+          height={11}
+          rx={5}
+          fill="rgba(255, 250, 240, 0.92)"
+          stroke="rgba(0,0,0,0.18)"
+          strokeWidth={0.5}
+        />
+        <text
+          x={0}
+          y={1.2}
+          textAnchor="middle"
+          fontSize={7}
+          fill="#3A2A1F"
+          fontFamily="ui-monospace, monospace"
+          fontWeight={600}
+        >
+          👤 you
+        </text>
+      </g>
     </g>
   );
 }
