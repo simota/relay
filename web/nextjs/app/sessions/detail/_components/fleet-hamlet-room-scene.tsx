@@ -12,7 +12,7 @@
 // inside the window reuses the shared `timeOfDay()` + `skyPalette()` so
 // it stays in sync with the rest of the village.
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import type { SessionDetail } from "@/lib/api";
 import type { WeatherKind } from "../_lib/fleet-hamlet-layout";
 import {
@@ -54,6 +54,10 @@ import {
   deriveMoodPalette,
 } from "../_lib/fleet-hamlet-room-companion";
 import { computeBustle, type BustleIntensity } from "../_lib/fleet-hamlet-bustle";
+import {
+  computeRoomMotion,
+  type RoomAvatarMotion,
+} from "../_lib/fleet-hamlet-outing";
 import {
   deriveRoomGuests,
   type RoomGuest,
@@ -526,7 +530,7 @@ export function RoomScene({
             <RoomGuests guests={guests} />
           </Clickable>
         )}
-        <RoomAvatar card={card} detail={detail} />
+        <RoomAvatar card={card} detail={detail} now={now} />
         {hasRecentUserMessage && (
           <Clickable id={{ kind: "visitor" }} label="Visitor — ユーザー来訪">
             <RoomVisitor />
@@ -1053,9 +1057,11 @@ function FurnitureLayer({
 function RoomAvatar({
   card,
   detail,
+  now,
 }: {
   card: SimCardModel;
   detail: SessionDetail | undefined;
+  now: number;
 }) {
   const parts = useMemo(
     () => avatarPartsFromSeed(card.avatarSeed, card.stage.key),
@@ -1069,25 +1075,126 @@ function RoomAvatar({
   const cx = SCENE_W * 0.62;
   const groundY = 200;
   const totalH = 70; // matches the legacy ~60-70px standing figure
+  // Idle motion — three buckets driven by session silence:
+  //   working (<5m)  → subtle desk-focus sway + 💦 sweat drops (hard at work)
+  //   walking (5–30m) → pace the floor with a scaleX flip at each apex
+  //   resting (≥30m) → lie down on the floor with 💤 Zzz (asleep)
+  const motion: RoomAvatarMotion = computeRoomMotion(card, now);
+  let paceStyle: CSSProperties | undefined;
+  if (motion === "working") {
+    paceStyle = {
+      // Slow, almost-imperceptible head sway so the avatar reads as
+      // *alive at the desk* rather than a frozen sprite. Pivot near the
+      // feet so the head swings more than the legs.
+      animation: "relayRoomAvatarFocus 2.8s ease-in-out infinite",
+      transformBox: "fill-box",
+      transformOrigin: "50% 90%",
+    };
+  } else if (motion === "walking") {
+    paceStyle = {
+      animation: "relayRoomAvatarPace 10s ease-in-out infinite",
+      // Without an explicit transform-box, CSS transforms on SVG <g>
+      // pivot from the SVG root and the scaleX flip would teleport the
+      // avatar. fill-box pins the origin to the group's local bbox.
+      transformBox: "fill-box",
+      transformOrigin: `center ${totalH / 2}px`,
+    };
+  } else {
+    // resting — rotate 90° CW around the feet so the body extends
+    // horizontally along the floor (head pointing right). A 4s scaleY
+    // expansion mimics chest rise/fall during sleep.
+    paceStyle = {
+      animation: "relayRoomAvatarRest 4.4s ease-in-out infinite",
+      transformBox: "fill-box",
+      transformOrigin: "50% 100%",
+    };
+  }
   return (
     // pointer-events: none — the resident avatar is decorative and is
     // drawn AFTER pet/guest Clickables; without this it would absorb
     // clicks meant for the pets/guests behind it.
     <g transform={`translate(${cx}, ${groundY - totalH})`} pointerEvents="none">
-      {/* Ground shadow under the feet */}
-      <ellipse cx={0} cy={totalH + 1} rx={16} ry={3.5} fill="rgba(0,0,0,0.28)" />
-      <HamletAvatar
-        parts={parts}
-        expression={expression}
-        clothing={clothes}
-        height={totalH}
-        haloColor={card.mood.color}
-        glasses={accessories.glasses}
-        mustache={accessories.mustache}
-        beard={accessories.beard}
-        earring={accessories.earring}
-        scarf={accessories.scarf}
-      />
+      <g style={paceStyle}>
+        {/* Ground shadow under the feet */}
+        <ellipse cx={0} cy={totalH + 1} rx={16} ry={3.5} fill="rgba(0,0,0,0.28)" />
+        <HamletAvatar
+          parts={parts}
+          expression={expression}
+          clothing={clothes}
+          height={totalH}
+          haloColor={card.mood.color}
+          glasses={accessories.glasses}
+          mustache={accessories.mustache}
+          beard={accessories.beard}
+          earring={accessories.earring}
+          scarf={accessories.scarf}
+        />
+      </g>
+      {/* Sweat drops — only while the resident is actively working. Two
+          drops with a half-cycle stagger keep the stream continuous. */}
+      {motion === "working" && (
+        <g aria-hidden>
+          <text
+            x={10}
+            y={12}
+            fontSize={10}
+            textAnchor="middle"
+            style={{
+              animation: "relayRoomAvatarSweat 1.8s ease-out infinite",
+              transformBox: "fill-box",
+              transformOrigin: "center",
+            }}
+          >
+            💦
+          </text>
+          <text
+            x={12}
+            y={16}
+            fontSize={9}
+            textAnchor="middle"
+            style={{
+              animation: "relayRoomAvatarSweat 1.8s ease-out 0.9s infinite",
+              transformBox: "fill-box",
+              transformOrigin: "center",
+            }}
+          >
+            💦
+          </text>
+        </g>
+      )}
+      {/* Zzz — floats above the lying avatar's head (which after rotation
+          ends up to the right of the feet anchor). Two staggered glyphs
+          keep the sleep loop continuous. */}
+      {motion === "resting" && (
+        <g aria-hidden>
+          <text
+            x={48}
+            y={56}
+            fontSize={11}
+            textAnchor="middle"
+            style={{
+              animation: "relayRoomAvatarZzz 3.2s ease-out infinite",
+              transformBox: "fill-box",
+              transformOrigin: "center",
+            }}
+          >
+            💤
+          </text>
+          <text
+            x={54}
+            y={52}
+            fontSize={9}
+            textAnchor="middle"
+            style={{
+              animation: "relayRoomAvatarZzz 3.2s ease-out 1.6s infinite",
+              transformBox: "fill-box",
+              transformOrigin: "center",
+            }}
+          >
+            💤
+          </text>
+        </g>
+      )}
     </g>
   );
 }
@@ -1335,9 +1442,54 @@ export const ROOM_SCENE_CSS = `
   60%  { transform: translate(1.6px, -10px) scale(1.05) rotate(8deg); opacity: 0.9; }
   100% { transform: translate(-1.6px, -22px) scale(1.15) rotate(-4deg); opacity: 0; }
 }
+/* Resident avatar in-room pacing — used when the session is mildly idle
+   (5m–30m silence). The flip slots at 50% / 100% land on the apexes so the
+   avatar visually turns around before walking back. */
+@keyframes relayRoomAvatarPace {
+  0%   { transform: translateX(0)     scaleX(1); }
+  45%  { transform: translateX(-60px) scaleX(1); }
+  50%  { transform: translateX(-60px) scaleX(-1); }
+  95%  { transform: translateX(50px)  scaleX(-1); }
+  100% { transform: translateX(0)     scaleX(1); }
+}
+/* Resident avatar working-at-desk sway — used when the session is active
+   (<5m silence). Pivots near the feet so the upper body leans into the
+   work; sub-pixel deltas keep it from looking jittery. */
+@keyframes relayRoomAvatarFocus {
+  0%, 100% { transform: translateY(0)    rotate(0deg); }
+  25%      { transform: translateY(0.3px) rotate(-0.6deg); }
+  50%      { transform: translateY(-0.4px) rotate(0deg); }
+  75%      { transform: translateY(0.3px) rotate(0.6deg); }
+}
+/* Resident avatar lying-down sleep — used when silence ≥ 30m. Pivot at
+   the feet so the body lays flat along the floor; scaleY mimics chest
+   rise/fall on a slow 4-ish second breathing cycle. */
+@keyframes relayRoomAvatarRest {
+  0%, 100% { transform: rotate(90deg) scaleY(1);    }
+  50%      { transform: rotate(90deg) scaleY(1.05); }
+}
+/* Working-state sweat drops — small 💦 emerges from the head area,
+   drifts up-right, and fades. */
+@keyframes relayRoomAvatarSweat {
+  0%   { transform: translate(0, 0)     scale(0.5); opacity: 0; }
+  15%  { opacity: 0.95; }
+  60%  { transform: translate(3px, -14px) scale(1.05); opacity: 0.85; }
+  100% { transform: translate(6px, -22px) scale(1.2);  opacity: 0; }
+}
+/* Resting-state Zzz — floats up from above the sleeping head. */
+@keyframes relayRoomAvatarZzz {
+  0%   { transform: translate(0, 0)     scale(0.55); opacity: 0; }
+  20%  { opacity: 0.9; }
+  100% { transform: translate(8px, -18px) scale(1.2);  opacity: 0; }
+}
 @media (prefers-reduced-motion: reduce) {
   [style*="relayRoomGuestBob"],
-  [style*="relayRoomBustleSparkle"] {
+  [style*="relayRoomBustleSparkle"],
+  [style*="relayRoomAvatarPace"],
+  [style*="relayRoomAvatarFocus"],
+  [style*="relayRoomAvatarRest"],
+  [style*="relayRoomAvatarSweat"],
+  [style*="relayRoomAvatarZzz"] {
     animation: none !important;
   }
 }

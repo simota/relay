@@ -76,6 +76,32 @@ export function isOut(
   return Math.max(0, now - card.lastActiveAt) > thresholdMs;
 }
 
+// ---------------------------------------------------------------------------
+// Room avatar motion — drives the in-room walk gimmick.
+//
+// The resident standing in the House Room scene used to be glued to one
+// spot. Now they pace around the interior when the session goes idle, then
+// settle once the silence stretches long enough that they'd plausibly be
+// napping. State buckets line up with the existing `isAtHome` / `isOut`
+// thresholds so all three motion modes share one mental model:
+//
+//   silence <  5m → "working"  — at the desk, no extra animation
+//   5m–30m         → "walking"  — pacing across the floor
+//   silence ≥ 30m → "resting"  — frozen mid-stride (winding down)
+// ---------------------------------------------------------------------------
+
+export type RoomAvatarMotion = "working" | "walking" | "resting";
+
+export function computeRoomMotion(
+  card: SimCardModel,
+  now: number,
+): RoomAvatarMotion {
+  const silence = Math.max(0, now - card.lastActiveAt);
+  if (silence < AT_HOME_MAX_MS) return "working";
+  if (silence < OUT_MIN_MS) return "walking";
+  return "resting";
+}
+
 /**
  * Count cards currently in the "walking" OutingState. Used by the
  * Neighborhood view to scale the street pedestrian count dynamically — the
