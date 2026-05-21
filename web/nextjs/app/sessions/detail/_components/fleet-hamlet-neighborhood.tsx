@@ -718,8 +718,14 @@ export function FleetHamletNeighborhood({
           active block and the quiet grove below. */}
       {zones.park.length > 0 && fit.parkZoneH > 0 && (
         <div
-          className="absolute left-0 right-0 bottom-0 overflow-hidden border-t border-dashed border-[var(--color-border)]/70 bg-[var(--color-bg)]/30 backdrop-blur-sm"
-          style={{ height: fit.parkZoneH }}
+          className="absolute left-0 right-0 bottom-0 overflow-hidden border-t border-dashed border-[var(--color-border)]/70"
+          style={{
+            height: fit.parkZoneH,
+            // Continue the grass into the park band so the active scene
+            // doesn't end on the user's UI bg color. Dusk → night feel.
+            background:
+              "linear-gradient(to bottom, hsl(95, 38%, 52%), hsl(110, 30%, 32%) 60%, hsl(120, 28%, 22%))",
+          }}
         >
           <div
             className="relative mx-auto py-2 h-full"
