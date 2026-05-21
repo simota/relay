@@ -104,9 +104,9 @@ export function TinyHouseSvg({
         rx={VB * 0.4}
         ry={1.2}
         fill="var(--color-fg-dim)"
-        opacity={0.3}
+        opacity={0.35}
       />
-      {/* Front wall */}
+      {/* Front wall — mid tone */}
       <rect
         x={VB * 0.22}
         y={eaveY}
@@ -114,10 +114,43 @@ export function TinyHouseSvg({
         height={VB - eaveY - 2}
         fill={wallFront}
       />
-      {/* Roof — single peak triangle, no isometric side */}
+      {/* Wall highlight band (left) */}
+      <rect
+        x={VB * 0.22}
+        y={eaveY}
+        width={VB * 0.13}
+        height={VB - eaveY - 2}
+        fill={`hsl(${wallHue}, 38%, 78%)`}
+        opacity={0.55}
+      />
+      {/* Wall shadow band (right) */}
+      <rect
+        x={VB * 0.65}
+        y={eaveY}
+        width={VB * 0.13}
+        height={VB - eaveY - 2}
+        fill={`hsl(${wallHue}, 28%, 48%)`}
+        opacity={0.55}
+      />
+      {/* Roof — shadow half (right) */}
       <polygon
-        points={`${VB * 0.15},${eaveY} ${VB * 0.5},${ridgeY} ${VB * 0.85},${eaveY}`}
-        fill={roofColor}
+        points={`${VB * 0.5},${eaveY} ${VB * 0.5},${ridgeY} ${VB * 0.85},${eaveY}`}
+        fill={`hsl(${roofHue}, 55%, 32%)`}
+      />
+      {/* Roof — lit half (left) */}
+      <polygon
+        points={`${VB * 0.15},${eaveY} ${VB * 0.5},${ridgeY} ${VB * 0.5},${eaveY}`}
+        fill={`hsl(${roofHue}, 60%, 55%)`}
+      />
+      {/* Roof ridge highlight */}
+      <line
+        x1={VB * 0.5}
+        y1={ridgeY}
+        x2={VB * 0.5}
+        y2={eaveY}
+        stroke={`hsl(${roofHue}, 70%, 72%)`}
+        strokeWidth={0.4}
+        opacity={0.7}
       />
       {/* Door */}
       <rect
@@ -128,7 +161,23 @@ export function TinyHouseSvg({
         fill="hsl(25, 35%, 25%)"
         rx={0.5}
       />
-      {/* Single window */}
+      {/* Door shadow side */}
+      <rect
+        x={VB * 0.55}
+        y={VB - 8}
+        width={VB * 0.02}
+        height={6}
+        fill="rgba(0,0,0,0.35)"
+      />
+      {/* Single window — outer frame + sash + glass */}
+      <rect
+        x={VB * 0.26}
+        y={eaveY + 1.6}
+        width={VB * 0.18}
+        height={VB * 0.18}
+        fill="hsl(20, 30%, 18%)"
+        rx={0.3}
+      />
       <rect
         x={VB * 0.27}
         y={eaveY + 2}
@@ -138,6 +187,13 @@ export function TinyHouseSvg({
         stroke="hsl(0, 0%, 15%)"
         strokeWidth={0.4}
       />
+      {/* Window inner reflection (top-left) — skipped when lit */}
+      {!winLit && !nightGlow && (
+        <polygon
+          points={`${VB * 0.28},${eaveY + 2.3} ${VB * 0.33},${eaveY + 2.3} ${VB * 0.28},${eaveY + 4}`}
+          fill="rgba(255,255,255,0.55)"
+        />
+      )}
       {/* Fire overlay — small flame on the roof */}
       {onFire && (
         <text

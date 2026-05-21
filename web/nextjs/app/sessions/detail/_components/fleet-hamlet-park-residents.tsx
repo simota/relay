@@ -164,10 +164,12 @@ function StandingMiniAvatar({
   hue: number;
 }) {
   const head = `hsl(${hue}, 60%, 70%)`;
+  const headHi = `hsl(${hue}, 80%, 82%)`;
   return (
     <svg width={16} height={22} viewBox="0 0 16 22" aria-hidden>
-      <ellipse cx={8} cy={20} rx={5} ry={1.2} fill="rgba(0,0,0,0.22)" />
+      <ellipse cx={8} cy={20} rx={5} ry={1.2} fill="rgba(0,0,0,0.3)" />
       <circle cx={8} cy={4} r={3.4} fill={head} stroke="#3A2A1F" strokeWidth={0.5} />
+      <ellipse cx={6.8} cy={3} rx={1.4} ry={0.8} fill={headHi} opacity={0.85} />
       <circle cx={9} cy={3.8} r={0.5} fill="#1F1F1F" />
       <rect
         x={5.4}
@@ -177,6 +179,10 @@ function StandingMiniAvatar({
         rx={1.4}
         fill={bodyColor(agentKind)}
       />
+      {/* rim light on left */}
+      <rect x={5.4} y={7.5} width={0.9} height={7} rx={0.4} fill="rgba(255,255,255,0.4)" />
+      {/* shadow on right */}
+      <rect x={9.5} y={7.5} width={1.1} height={7} rx={0.4} fill="rgba(0,0,0,0.32)" />
       <rect x={5.8} y={14.2} width={1.8} height={4.5} fill="#3A2A1F" />
       <rect x={8.4} y={14.2} width={1.8} height={4.5} fill="#3A2A1F" />
     </svg>
@@ -242,11 +248,21 @@ function bodyColor(kind: SimCardModel["sessionType"]): string {
 
 function BenchSvg() {
   return (
-    <svg width={26} height={14} viewBox="0 0 26 14" aria-hidden>
+    <svg width={26} height={16} viewBox="0 0 26 16" aria-hidden>
+      {/* Ground shadow */}
+      <ellipse cx={13} cy={14.5} rx={11} ry={1} fill="rgba(0,0,0,0.28)" />
+      {/* Seat plank — base + wood grain + top highlight */}
       <rect x={1} y={6} width={24} height={2.4} rx={0.6} fill="#8C6A3F" />
+      <rect x={1} y={6} width={24} height={0.6} rx={0.4} fill="#B58A55" opacity={0.85} />
+      <line x1={1} y1={7} x2={25} y2={7} stroke="#5E4226" strokeWidth={0.2} opacity={0.6} />
+      {/* Back slat */}
       <rect x={1} y={4} width={24} height={1.6} rx={0.4} fill="#A07F4D" />
+      <rect x={1} y={4} width={24} height={0.4} rx={0.4} fill="#C99E64" opacity={0.85} />
+      {/* Legs — metal-ish darker stock with highlight stripe */}
       <rect x={2.5} y={8.5} width={1.6} height={5} fill="#6E4F2C" />
+      <rect x={2.5} y={8.5} width={0.4} height={5} fill="#9F7A4E" opacity={0.85} />
       <rect x={21.9} y={8.5} width={1.6} height={5} fill="#6E4F2C" />
+      <rect x={21.9} y={8.5} width={0.4} height={5} fill="#9F7A4E" opacity={0.85} />
     </svg>
   );
 }

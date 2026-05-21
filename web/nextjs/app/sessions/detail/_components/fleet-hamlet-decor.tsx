@@ -14,6 +14,7 @@ import { useMemo } from "react";
 import type { SimCardModel } from "../_lib/fleet-hamlet";
 import type { SkyPalette, TreeKind, YardDecor } from "../_lib/fleet-hamlet-decor";
 import type { WeatherKind } from "../_lib/fleet-hamlet-layout";
+import { DIORAMA_DEFS } from "../_lib/fleet-hamlet-diorama-tokens";
 
 // ---------------------------------------------------------------------------
 // Sky band — fixed gradient + sun/moon + clouds + stars
@@ -86,6 +87,11 @@ export function SkyBand({
   const skyBackground = weather === "stormy"
     ? `${palette.sky}, linear-gradient(to bottom, rgba(40, 50, 70, 0.55), rgba(60, 70, 90, 0.45))`
     : palette.sky;
+  const isMoon = palette.luminary === "moon";
+  // Sun direction unit vector — used so clouds get a highlight on the side
+  // facing the sun and a soft shadow on the opposite side.
+  const sunDirX = sunX < width * 0.5 ? -1 : sunX > width * 0.5 ? 1 : 0;
+
   return (
     <div
       aria-hidden
@@ -98,45 +104,95 @@ export function SkyBand({
         viewBox={`0 0 ${width} ${height}`}
         className="absolute inset-0"
       >
-        {/* Stars (night) */}
+        {/* Sky haze vignette — a wide radial fade tied to the luminary
+            position, giving the upper-sky band a subtle volumetric pop. */}
+        {!isMoon && (
+          <ellipse
+            cx={sunX}
+            cy={Math.min(sunY + 8, height * 0.5)}
+            rx={width * 0.65}
+            ry={height * 0.55}
+            fill={`url(#${DIORAMA_DEFS.sunHalo})`}
+            opacity={0.55}
+          />
+        )}
+        {/* Stars (night) — with a tiny 4-point cross sparkle on the
+            brighter ones for a Ghibli-esque shimmer. */}
         {stars.map((s) => (
-          <circle
+          <g
             key={s.id}
-            cx={s.x}
-            cy={s.y}
-            r={s.r}
-            fill="#FFFDF0"
-            opacity={0.85}
+            transform={`translate(${s.x} ${s.y})`}
             style={{
               animation: `relayHamletTwinkle 2.4s ease-in-out ${s.delay}s infinite`,
             }}
-          />
+          >
+            <circle cx={0} cy={0} r={s.r} fill="#FFFDF0" opacity={0.9} />
+            {s.r > 1 && (
+              <g stroke="#FFFDF0" strokeWidth={0.35} opacity={0.7} strokeLinecap="round">
+                <line x1={-2.2} y1={0} x2={2.2} y2={0} />
+                <line x1={0} y1={-2.2} x2={0} y2={2.2} />
+              </g>
+            )}
+          </g>
         ))}
-        {/* Luminary — parent group anchors the position; inner group runs
-            the pulse animation. */}
+        {/* Luminary — sun gets radial halo + 4 cross rays; moon gets
+            craters + cool halo. */}
         <g transform={`translate(${sunX} ${sunY})`}>
           <g style={{ transformOrigin: "0 0", animation: "relayHamletSunPulse 4s ease-in-out infinite" }}>
-            <circle cx={0} cy={0} r={22} fill={sunFill} opacity={0.28} />
+            {/* Halo */}
+            <circle
+              cx={0}
+              cy={0}
+              r={32}
+              fill={isMoon ? `url(#${DIORAMA_DEFS.moonHalo})` : `url(#${DIORAMA_DEFS.sunHalo})`}
+              opacity={0.95}
+            />
+            {/* Outer soft glow disk */}
+            <circle cx={0} cy={0} r={22} fill={sunFill} opacity={0.32} />
+            {/* Core disk */}
             <circle cx={0} cy={0} r={14} fill={sunFill} />
-            {palette.luminary === "moon" && (
-              <circle cx={5} cy={-3} r={11} fill={palette.sky.includes("0D1B3D") ? "#0D1B3D" : "#1A2B55"} />
+            {isMoon && (
+              <>
+                <circle cx={5} cy={-3} r={11} fill={palette.sky.includes("0D1B3D") ? "#0D1B3D" : "#1A2B55"} />
+                {/* Craters on the bright crescent */}
+                <circle cx={-5} cy={-2} r={1.6} fill="rgba(180, 170, 150, 0.55)" />
+                <circle cx={-2.4} cy={4.5} r={1.1} fill="rgba(180, 170, 150, 0.42)" />
+                <circle cx={-7} cy={3.2} r={0.9} fill="rgba(160, 150, 130, 0.45)" />
+              </>
+            )}
+            {/* Sun cross rays — short white-yellow strokes that fade out;
+                rendered only for the sun, not the moon. */}
+            {!isMoon && (
+              <g stroke={sunFill} strokeOpacity={0.6} strokeLinecap="round">
+                <line x1={-26} y1={0} x2={-18} y2={0} strokeWidth={1.4} />
+                <line x1={18} y1={0} x2={26} y2={0} strokeWidth={1.4} />
+                <line x1={0} y1={-26} x2={0} y2={-18} strokeWidth={1.4} />
+                <line x1={0} y1={18} x2={0} y2={26} strokeWidth={1.4} />
+                {/* Diagonal lighter rays */}
+                <g strokeWidth={1} strokeOpacity={0.4}>
+                  <line x1={-19} y1={-19} x2={-14} y2={-14} />
+                  <line x1={19} y1={-19} x2={14} y2={-14} />
+                  <line x1={-19} y1={19} x2={-14} y2={14} />
+                  <line x1={19} y1={19} x2={14} y2={14} />
+                </g>
+              </g>
             )}
           </g>
         </g>
-        {/* Clouds — parent positions, child handles the drift animation so
-            the inline transform doesn't fight with the keyframe. */}
+        {/* Clouds — volumetric blob with sun-side highlight + far-side
+            shadow. Parent positions, child handles the drift animation. */}
         {clouds.map((c) => (
           <g
             key={c.id}
             transform={`translate(${c.x}, ${c.y}) scale(${c.scale})`}
-            opacity={palette.tod === "night" ? 0.35 : 0.85}
+            opacity={palette.tod === "night" ? 0.45 : 0.92}
           >
             <g
               style={{
                 animation: `relayHamletCloudDrift ${c.dur}s linear ${c.delay}s infinite`,
               }}
             >
-              <CloudPath />
+              <CloudPath sunDirX={sunDirX} />
             </g>
           </g>
         ))}
@@ -145,12 +201,26 @@ export function SkyBand({
   );
 }
 
-function CloudPath() {
+function CloudPath({ sunDirX = 0 }: { sunDirX?: number }) {
+  // Volumetric cloud — 5 overlapping ellipses, then a sun-facing highlight
+  // sliver and an opposite-side cool shadow lobe so each cloud reads as a
+  // soft 3D pillow rather than a flat blob.
+  const hiX = sunDirX < 0 ? 2 : sunDirX > 0 ? 22 : 12;
+  const shX = sunDirX < 0 ? 22 : sunDirX > 0 ? 2 : 12;
   return (
-    <g fill="#FFFFFF" fillOpacity={0.95}>
-      <ellipse cx={0} cy={8} rx={14} ry={7} />
-      <ellipse cx={12} cy={5} rx={12} ry={8} />
-      <ellipse cx={24} cy={9} rx={10} ry={6} />
+    <g>
+      {/* Shadow lobe (underside, opposite the sun) */}
+      <ellipse cx={shX} cy={11} rx={11} ry={4.4} fill="rgba(120, 130, 160, 0.45)" />
+      {/* Main body — five ellipses stacked into a pillow shape */}
+      <g fill={`url(#${DIORAMA_DEFS.cloudVolume})`} fillOpacity={0.96}>
+        <ellipse cx={0} cy={8} rx={14} ry={7} />
+        <ellipse cx={12} cy={5} rx={12} ry={8} />
+        <ellipse cx={24} cy={9} rx={10} ry={6} />
+        <ellipse cx={6} cy={3} rx={6} ry={4} />
+        <ellipse cx={18} cy={3} rx={5.5} ry={3.6} />
+      </g>
+      {/* Sun-side highlight — a slim bright sliver tucked on the lit edge */}
+      <ellipse cx={hiX} cy={2} rx={5} ry={1.5} fill="rgba(255, 255, 240, 0.85)" />
     </g>
   );
 }
@@ -201,11 +271,22 @@ export function TreeSvg({
   const h = 44 * size;
   if (kind === "pine") {
     return (
-      <svg width={w} height={h} viewBox="0 0 28 44" aria-hidden>
+      <svg width={w} height={h + 4} viewBox="0 0 28 48" aria-hidden>
+        {/* Ground shadow */}
+        <ellipse cx="14" cy="44" rx="10" ry="2" fill="rgba(0,0,0,0.28)" />
+        {/* Trunk — bark grain */}
         <rect x="12" y="32" width="4" height="10" fill="#5D3A1F" />
+        <line x1="13" y1="33" x2="13" y2="41" stroke="#3A2310" strokeWidth="0.4" />
+        <line x1="15" y1="33" x2="15" y2="41" stroke="#3A2310" strokeWidth="0.4" />
+        {/* Cone layers — each with darker shadow side + brighter lit side */}
         <polygon points="14,4 25,20 3,20" fill="#3F8A3E" />
+        <polygon points="14,4 14,20 3,20" fill="#52A24E" opacity="0.85" />
         <polygon points="14,12 24,28 4,28" fill="#4FA255" />
+        <polygon points="14,12 14,28 4,28" fill="#62B864" opacity="0.85" />
         <polygon points="14,20 23,34 5,34" fill="#3F8A3E" />
+        <polygon points="14,20 14,34 5,34" fill="#52A24E" opacity="0.85" />
+        {/* Tip highlight */}
+        <polygon points="14,4 12,8 16,8" fill="#86CB66" opacity="0.85" />
         {nightLamp && (
           <circle cx="14" cy="14" r="2" fill="#FFE082" opacity="0.7" />
         )}
@@ -214,54 +295,103 @@ export function TreeSvg({
   }
   if (kind === "oak") {
     return (
-      <svg width={w} height={h} viewBox="0 0 28 44" aria-hidden>
+      <svg width={w} height={h + 4} viewBox="0 0 28 48" aria-hidden>
+        {/* Ground shadow */}
+        <ellipse cx="14" cy="44" rx="11" ry="2.2" fill="rgba(0,0,0,0.28)" />
+        {/* Trunk + bark stripes */}
         <rect x="12" y="30" width="4" height="12" fill="#5D3A1F" />
+        <line x1="13" y1="31" x2="13" y2="41" stroke="#3A2310" strokeWidth="0.4" />
+        <line x1="15" y1="31" x2="15" y2="41" stroke="#3A2310" strokeWidth="0.4" />
+        {/* Foliage shadow side (right + bottom) */}
+        <circle cx="20" cy="22" r="6" fill="#3F8A3E" />
+        <circle cx="14" cy="22" r="9" fill="#5EA044" />
+        {/* Main mass */}
         <circle cx="14" cy="18" r="11" fill="#6CAF4F" />
+        {/* Lit side (left + top) */}
         <circle cx="8" cy="22" r="6" fill="#7DBE5C" />
-        <circle cx="20" cy="22" r="6" fill="#5EA044" />
         <circle cx="14" cy="14" r="5" fill="#86CB66" />
+        {/* Top highlight */}
+        <circle cx="11" cy="11" r="2.4" fill="#A4DA82" opacity="0.85" />
       </svg>
     );
   }
   return (
-    <svg width={w} height={h * 0.55} viewBox="0 0 28 24" aria-hidden>
+    <svg width={w} height={h * 0.55 + 4} viewBox="0 0 28 28" aria-hidden>
+      {/* Ground shadow */}
+      <ellipse cx="14" cy="26" rx="11" ry="1.8" fill="rgba(0,0,0,0.24)" />
+      {/* Shadow side */}
+      <ellipse cx="19" cy="14" rx="6" ry="5" fill="#3F8A3E" />
+      {/* Mid */}
       <ellipse cx="14" cy="16" rx="12" ry="7" fill="#6CAF4F" />
+      {/* Lit side */}
       <ellipse cx="9" cy="13" rx="6" ry="5" fill="#7DBE5C" />
-      <ellipse cx="19" cy="13" rx="6" ry="5" fill="#5EA044" />
+      {/* Highlight */}
+      <ellipse cx="9" cy="11" rx="3" ry="2" fill="#A4DA82" opacity="0.8" />
     </svg>
   );
 }
 
 export function FlowerSvg({ hue }: { hue: number }) {
-  const petal = `hsl(${hue}, 75%, 70%)`;
-  const center = `hsl(${(hue + 40) % 360}, 80%, 55%)`;
+  const petalLit = `hsl(${hue}, 80%, 78%)`;
+  const petalMid = `hsl(${hue}, 75%, 68%)`;
+  const petalShadow = `hsl(${hue}, 65%, 54%)`;
+  const center = `hsl(${(hue + 40) % 360}, 90%, 60%)`;
+  const centerHi = `hsl(${(hue + 40) % 360}, 95%, 80%)`;
   return (
-    <svg width={14} height={16} viewBox="0 0 14 16" aria-hidden>
-      <rect x="6.4" y="8" width="1.2" height="8" fill="#3F8A3E" />
-      <circle cx="3.5" cy="6" r="2.4" fill={petal} />
-      <circle cx="10.5" cy="6" r="2.4" fill={petal} />
-      <circle cx="7" cy="3" r="2.4" fill={petal} />
-      <circle cx="7" cy="9" r="2.4" fill={petal} />
+    <svg width={14} height={18} viewBox="0 0 14 18" aria-hidden>
+      {/* Ground shadow */}
+      <ellipse cx="7" cy="17" rx="4" ry="0.9" fill="rgba(0,0,0,0.22)" />
+      <rect x="6.4" y="8" width="1.2" height="9" fill="#3F8A3E" />
+      {/* Petals — each petal has a shadow lobe + lit lobe */}
+      <g>
+        {/* shadow first */}
+        <circle cx="3.5" cy="7" r="2.4" fill={petalShadow} />
+        <circle cx="10.5" cy="7" r="2.4" fill={petalShadow} />
+        <circle cx="7" cy="10" r="2.4" fill={petalShadow} />
+        {/* lit on top */}
+        <circle cx="3.5" cy="6" r="2.4" fill={petalMid} />
+        <circle cx="10.5" cy="6" r="2.4" fill={petalMid} />
+        <circle cx="7" cy="3" r="2.4" fill={petalLit} />
+        <circle cx="7" cy="9" r="2.4" fill={petalMid} />
+      </g>
+      {/* Center stamen */}
       <circle cx="7" cy="6" r="1.6" fill={center} />
+      <circle cx="6.4" cy="5.4" r="0.7" fill={centerHi} />
     </svg>
   );
 }
 
 export function MailboxSvg() {
   return (
-    <svg width={10} height={18} viewBox="0 0 10 18" aria-hidden>
+    <svg width={10} height={20} viewBox="0 0 10 20" aria-hidden>
+      {/* Ground shadow */}
+      <ellipse cx="5" cy="19" rx="3.4" ry="0.8" fill="rgba(0,0,0,0.28)" />
+      {/* Post — wood grain */}
       <rect x="4" y="8" width="2" height="10" fill="#3A2A1F" />
-      <rect x="0" y="2" width="10" height="7" rx="2" fill="#C13B2C" />
-      <rect x="2" y="4" width="2" height="2" fill="#FFFDF0" />
+      <line x1="5" y1="9" x2="5" y2="17" stroke="#1F140A" strokeWidth="0.3" />
+      {/* Body — cast-iron base + highlight */}
+      <rect x="0" y="2" width="10" height="7" rx="2" fill="#7B1F18" />
+      <rect x="0" y="2" width="10" height="3" rx="2" fill="#C13B2C" />
+      <rect x="0.6" y="2.5" width="9" height="1.2" rx="1" fill="#E25E4D" opacity="0.85" />
+      {/* Slot + flag */}
+      <rect x="2" y="4.5" width="2.2" height="1.8" rx="0.4" fill="#1A0F0C" />
+      <rect x="2.2" y="4.7" width="1.8" height="0.4" fill="#FFFDF0" opacity="0.7" />
       <rect x="8" y="3" width="1" height="3" fill="#FFE082" />
+      <rect x="8" y="3" width="1" height="0.6" fill="#FFF6C8" />
     </svg>
   );
 }
 
 export function NameplateSvg({ text }: { text: string }) {
   return (
-    <svg width={26} height={12} viewBox="0 0 26 12" aria-hidden>
-      <rect x="0.5" y="0.5" width="25" height="11" rx="2" fill="#FFFDF0" stroke="#3A2A1F" strokeWidth="0.8" />
+    <svg width={26} height={14} viewBox="0 0 26 14" aria-hidden>
+      {/* Drop shadow */}
+      <rect x="1" y="2.2" width="25" height="11" rx="2" fill="rgba(0,0,0,0.22)" />
+      {/* Wood plaque — grain via two stacked rects */}
+      <rect x="0.5" y="0.5" width="25" height="11" rx="2" fill="#E9D7AE" stroke="#5C3D1F" strokeWidth="0.8" />
+      <rect x="0.8" y="0.8" width="24.4" height="4" rx="1.6" fill="#F3E5C3" opacity="0.85" />
+      <line x1="2" y1="6" x2="24" y2="6" stroke="#B98F58" strokeWidth="0.25" opacity="0.7" />
+      <line x1="2" y1="9.2" x2="24" y2="9.2" stroke="#B98F58" strokeWidth="0.25" opacity="0.7" />
       <text
         x="13"
         y="8.5"
@@ -286,8 +416,14 @@ export function BirdSvg({ delay = 0 }: { delay?: number }) {
       aria-hidden
       style={{ animation: `relayHamletChirp 3s ease-in-out ${delay}s infinite` }}
     >
+      {/* Body shadow underside */}
+      <ellipse cx="7" cy="7" rx="4.5" ry="2" fill="#3A2566" opacity="0.6" />
+      {/* Body */}
       <ellipse cx="7" cy="6" rx="4.5" ry="3" fill="#5C3D8A" />
+      {/* Body highlight */}
+      <ellipse cx="6" cy="5" rx="2.8" ry="1.4" fill="#8E68C0" opacity="0.7" />
       <circle cx="11" cy="4.5" r="2" fill="#5C3D8A" />
+      <circle cx="10.5" cy="4" r="0.9" fill="#8E68C0" opacity="0.7" />
       <circle cx="11.5" cy="4" r="0.4" fill="#FFFDF0" />
       <path d="M12.5 4.5 L 14 4 L 12.7 5.2 Z" fill="#FFA726" />
       <path d="M3 6 Q 5 3 7 6" stroke="#3A2566" strokeWidth="0.8" fill="none" />
@@ -297,26 +433,53 @@ export function BirdSvg({ delay = 0 }: { delay?: number }) {
 
 export function StreetlampSvg({ lit }: { lit: boolean }) {
   return (
-    <svg width={16} height={42} viewBox="0 0 16 42" aria-hidden>
-      <rect x="7" y="10" width="2" height="32" fill="#2A2A2A" />
-      <rect x="4" y="38" width="8" height="3" rx="1" fill="#2A2A2A" />
-      <rect x="3" y="6" width="10" height="6" rx="1.5" fill="#3A3A3A" />
-      <rect x="5" y="8" width="6" height="3" fill={lit ? "#FFE082" : "#3A3A3A"} />
+    <svg width={28} height={56} viewBox="0 0 28 56" aria-hidden overflow="visible">
+      {/* Ground projection — only when lit. Sits well below the lamp base. */}
       {lit && (
-        <circle
-          cx="8"
-          cy="10"
-          r="11"
-          fill="#FFE082"
-          opacity="0.18"
-          style={{ animation: "relayHamletLampGlow 3s ease-in-out infinite" }}
+        <ellipse
+          cx="14"
+          cy="54"
+          rx="13"
+          ry="3.4"
+          fill={`url(#${DIORAMA_DEFS.lampGlow})`}
+          opacity="0.85"
         />
+      )}
+      {/* Metallic post — gradient via overlaid rects */}
+      <rect x="13" y="14" width="2" height="36" fill="#1F1F1F" />
+      <rect x="13" y="14" width="1" height="36" fill="#4A4A4A" opacity="0.85" />
+      {/* Base plate */}
+      <rect x="10" y="48" width="8" height="3" rx="1" fill="#2A2A2A" />
+      <rect x="10" y="48" width="8" height="1" rx="1" fill="#5A5A5A" opacity="0.7" />
+      {/* Lamp housing */}
+      <rect x="9" y="8" width="10" height="6" rx="1.5" fill="#2A2A2A" />
+      <rect x="9" y="8" width="10" height="2" rx="1.5" fill="#5A5A5A" opacity="0.8" />
+      {/* Bulb */}
+      <rect x="11" y="10" width="6" height="3" fill={lit ? "#FFE082" : "#3A3A3A"} />
+      {/* Light orb halo */}
+      {lit && (
+        <>
+          <circle
+            cx="14"
+            cy="12"
+            r="16"
+            fill={`url(#${DIORAMA_DEFS.lampGlow})`}
+            opacity="0.65"
+            style={{ animation: "relayHamletLampGlow 3s ease-in-out infinite" }}
+          />
+          <circle cx="14" cy="12" r="2.4" fill="#FFF6C8" opacity="0.95" />
+        </>
       )}
     </svg>
   );
 }
 
 export function ButterflySvg({ delay = 0, hue = 320 }: { delay?: number; hue?: number }) {
+  const wingMain = `hsl(${hue}, 75%, 65%)`;
+  const wingHi = `hsl(${hue}, 80%, 82%)`;
+  const wingSh = `hsl(${hue}, 60%, 50%)`;
+  const wingAlt = `hsl(${(hue + 30) % 360}, 75%, 70%)`;
+  const wingAltHi = `hsl(${(hue + 30) % 360}, 80%, 85%)`;
   return (
     <svg
       width={16}
@@ -325,9 +488,17 @@ export function ButterflySvg({ delay = 0, hue = 320 }: { delay?: number; hue?: n
       aria-hidden
       style={{ animation: `relayHamletButterfly 18s linear ${delay}s infinite` }}
     >
-      <ellipse cx="6" cy="6" rx="4" ry="3" fill={`hsl(${hue}, 75%, 65%)`} />
-      <ellipse cx="10" cy="6" rx="4" ry="3" fill={`hsl(${(hue + 30) % 360}, 75%, 70%)`} />
+      {/* Left wing — shadow then main then highlight */}
+      <ellipse cx="6" cy="7" rx="4" ry="2.6" fill={wingSh} opacity="0.85" />
+      <ellipse cx="6" cy="6" rx="4" ry="3" fill={wingMain} />
+      <ellipse cx="5" cy="5" rx="2" ry="1.2" fill={wingHi} opacity="0.85" />
+      {/* Right wing */}
+      <ellipse cx="10" cy="7" rx="4" ry="2.6" fill={wingSh} opacity="0.7" />
+      <ellipse cx="10" cy="6" rx="4" ry="3" fill={wingAlt} />
+      <ellipse cx="11" cy="5" rx="2" ry="1.2" fill={wingAltHi} opacity="0.85" />
+      {/* Body */}
       <rect x="7.5" y="4" width="1" height="5" rx="0.4" fill="#3A2A1F" />
+      <rect x="7.5" y="4" width="0.4" height="5" rx="0.2" fill="#6A4A3A" opacity="0.8" />
     </svg>
   );
 }
@@ -440,11 +611,23 @@ export function AvatarBody({
   return (
     <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} aria-hidden>
       {/* shadow */}
-      <ellipse cx={width / 2} cy={height - 2} rx={width * 0.35} ry={2.2} fill="rgba(0,0,0,0.22)" />
+      <ellipse cx={width / 2} cy={height - 2} rx={width * 0.35} ry={2.2} fill="rgba(0,0,0,0.32)" />
       {/* shirt + collar */}
       <path
         d={`M ${width * 0.27} 4 L ${width * 0.42} 0 L ${width * 0.58} 0 L ${width * 0.73} 4 L ${width * 0.78} ${height - 4} L ${width * 0.22} ${height - 4} Z`}
         fill={colors.shirt}
+      />
+      {/* shirt body shadow on the right half */}
+      <path
+        d={`M ${width * 0.5} 0 L ${width * 0.58} 0 L ${width * 0.73} 4 L ${width * 0.78} ${height - 4} L ${width * 0.5} ${height - 4} Z`}
+        fill={colors.shirtDark}
+        opacity={0.45}
+      />
+      {/* Rim-light stripe — slim highlight on the lit (left) edge */}
+      <path
+        d={`M ${width * 0.27} 4 L ${width * 0.3} 4 L ${width * 0.25} ${height - 4} L ${width * 0.22} ${height - 4} Z`}
+        fill={colors.accent}
+        opacity={0.95}
       />
       <path
         d={`M ${width * 0.42} 0 L ${width * 0.5} 5 L ${width * 0.58} 0 Z`}
@@ -453,6 +636,8 @@ export function AvatarBody({
       {/* arms */}
       <rect x={width * 0.12} y={4} width={width * 0.12} height={height - 8} fill={colors.shirtDark} rx={2} />
       <rect x={width * 0.76} y={4} width={width * 0.12} height={height - 8} fill={colors.shirtDark} rx={2} />
+      {/* Arm rim-light on the left arm */}
+      <rect x={width * 0.12} y={4} width={width * 0.04} height={height - 8} fill={colors.accent} rx={2} opacity={0.7} />
     </svg>
   );
 }

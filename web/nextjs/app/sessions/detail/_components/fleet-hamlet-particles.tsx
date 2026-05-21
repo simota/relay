@@ -99,10 +99,17 @@ function MiniSimAvatar({
   hue: number;
 }) {
   const headFill = `hsl(${hue}, 60%, 70%)`;
+  const headHi = `hsl(${hue}, 75%, 84%)`;
+  const body = bodyColor(agentKind);
+  const bodyHi = bodyColorLit(agentKind);
   return (
-    <svg width={20} height={28} viewBox="0 0 20 28" aria-hidden>
+    <svg width={22} height={30} viewBox="0 0 22 30" aria-hidden>
+      {/* dynamic ground shadow */}
+      <ellipse cx={10} cy={28.5} rx={6} ry={1.2} fill="rgba(0,0,0,0.32)" />
       {/* head */}
       <circle cx={10} cy={6} r={5} fill={headFill} stroke="#3A2A1F" strokeWidth={0.6} />
+      {/* head highlight (top-left) */}
+      <ellipse cx={8.4} cy={4.5} rx={2.2} ry={1.4} fill={headHi} opacity={0.85} />
       {/* eye */}
       <circle cx={11.6} cy={5.6} r={0.7} fill="#1F1F1F" />
       {/* body */}
@@ -112,8 +119,12 @@ function MiniSimAvatar({
         width={8}
         height={11}
         rx={2}
-        fill={bodyColor(agentKind)}
+        fill={body}
       />
+      {/* rim light stripe on the left edge of the torso */}
+      <rect x={6} y={11} width={1.4} height={11} rx={1} fill={bodyHi} opacity={0.85} />
+      {/* shadow on the right edge */}
+      <rect x={12.4} y={11} width={1.6} height={11} rx={1} fill="rgba(0,0,0,0.32)" />
       {/* legs (separate so the bob animation reads as walking) */}
       <rect x={7} y={22} width={2.5} height={5} fill="#3A2A1F" />
       <rect x={10.5} y={22} width={2.5} height={5} fill="#3A2A1F" />
@@ -126,6 +137,13 @@ function bodyColor(kind: SimCardModel["sessionType"]): string {
   if (kind === "codex") return "hsl(135, 50%, 48%)";
   if (kind === "antigravity") return "hsl(275, 55%, 58%)";
   return "hsl(30, 45%, 55%)";
+}
+
+function bodyColorLit(kind: SimCardModel["sessionType"]): string {
+  if (kind === "claude") return "hsl(208, 80%, 76%)";
+  if (kind === "codex") return "hsl(135, 65%, 70%)";
+  if (kind === "antigravity") return "hsl(285, 70%, 78%)";
+  return "hsl(38, 70%, 76%)";
 }
 
 // ---------------------------------------------------------------------------
@@ -258,6 +276,8 @@ export function MountainRange({
 }) {
   const tip = season === "winter" ? "#F0F4FA" : season === "autumn" ? "#9C3F2E" : "#6F5C82";
   const base = season === "winter" ? "#7F8FA8" : season === "autumn" ? "#5C4533" : "#4E3F6A";
+  const lit = season === "winter" ? "#A8B8D0" : season === "autumn" ? "#7A6048" : "#7062A0";
+  const shadow = season === "winter" ? "#56627C" : season === "autumn" ? "#3D2C20" : "#2F2548";
   return (
     <svg
       width={width}
@@ -267,17 +287,77 @@ export function MountainRange({
       className="absolute inset-x-0 pointer-events-none"
       style={{ bottom: 0 }}
     >
-      {/* back range */}
+      {/* Far range — desaturated, low-contrast back layer */}
+      <polygon
+        points={`0,${height} ${width * 0.1},${height * 0.62} ${width * 0.28},${height * 0.78} ${width * 0.42},${height * 0.55} ${width * 0.6},${height * 0.7} ${width * 0.78},${height * 0.6} ${width},${height * 0.72} ${width},${height}`}
+        fill={base}
+        opacity={0.32}
+      />
+      {/* Far-range cloud shadows — horizontal soft bands */}
+      <ellipse
+        cx={width * 0.32}
+        cy={height * 0.7}
+        rx={width * 0.18}
+        ry={3}
+        fill="rgba(20, 26, 40, 0.18)"
+      />
+      <ellipse
+        cx={width * 0.7}
+        cy={height * 0.66}
+        rx={width * 0.22}
+        ry={3}
+        fill="rgba(20, 26, 40, 0.15)"
+      />
+
+      {/* Mid range — base silhouette */}
       <polygon
         points={`0,${height} ${width * 0.18},${height * 0.45} ${width * 0.35},${height * 0.65} ${width * 0.5},${height * 0.35} ${width * 0.68},${height * 0.6} ${width * 0.85},${height * 0.5} ${width},${height * 0.65} ${width},${height}`}
         fill={base}
+        opacity={0.6}
+      />
+      {/* Shadow side of each peak (right slope) */}
+      <polygon
+        points={`${width * 0.18},${height * 0.45} ${width * 0.35},${height * 0.65} ${width * 0.18},${height * 0.65}`}
+        fill={shadow}
         opacity={0.55}
       />
-      {/* snowcap / autumn tip — only show on the highest peak */}
+      <polygon
+        points={`${width * 0.5},${height * 0.35} ${width * 0.68},${height * 0.6} ${width * 0.5},${height * 0.6}`}
+        fill={shadow}
+        opacity={0.55}
+      />
+      <polygon
+        points={`${width * 0.85},${height * 0.5} ${width},${height * 0.65} ${width * 0.85},${height * 0.65}`}
+        fill={shadow}
+        opacity={0.55}
+      />
+      {/* Lit side of each peak (left slope) */}
+      <polygon
+        points={`${width * 0.18},${height * 0.45} ${width * 0.18},${height * 0.65} ${width * 0.05},${height * 0.7}`}
+        fill={lit}
+        opacity={0.55}
+      />
+      <polygon
+        points={`${width * 0.5},${height * 0.35} ${width * 0.5},${height * 0.6} ${width * 0.36},${height * 0.62}`}
+        fill={lit}
+        opacity={0.55}
+      />
+      <polygon
+        points={`${width * 0.85},${height * 0.5} ${width * 0.85},${height * 0.65} ${width * 0.72},${height * 0.62}`}
+        fill={lit}
+        opacity={0.5}
+      />
+
+      {/* Snowcap / autumn tip on the main peak + secondary peak */}
       <polygon
         points={`${width * 0.45},${height * 0.45} ${width * 0.5},${height * 0.35} ${width * 0.55},${height * 0.45}`}
         fill={tip}
         opacity={season === "winter" ? 0.95 : 0.7}
+      />
+      <polygon
+        points={`${width * 0.155},${height * 0.5} ${width * 0.18},${height * 0.45} ${width * 0.21},${height * 0.5}`}
+        fill={tip}
+        opacity={season === "winter" ? 0.85 : 0.5}
       />
     </svg>
   );

@@ -59,6 +59,8 @@ export function HouseChatBubble({
   const opacity = bubbleOpacity(ageMs, HOUSE_BUBBLE_MAX_AGE_MS);
   const clampedMax = Math.max(MIN_MAX_WIDTH, Math.min(maxWidth, DEFAULT_MAX_WIDTH));
 
+  // Diorama bubble — multi-layer drop shadow + faint top-gradient + speckled
+  // paper texture via a subtle inline radial-gradient noise pattern.
   return (
     <div
       role="presentation"
@@ -75,12 +77,14 @@ export function HouseChatBubble({
         padding: "6px 9px",
         borderRadius: 10,
         border: `1px solid ${border}`,
-        background: bg,
+        background: `${bg}, radial-gradient(circle at 30% 20%, rgba(255,255,255,0.6) 0.5px, transparent 1.5px), radial-gradient(circle at 70% 60%, rgba(0,0,0,0.04) 0.5px, transparent 1.5px)`,
+        backgroundSize: "auto, 8px 8px, 11px 11px",
         color: "#1A1F2E",
         fontFamily: "var(--font-mono, ui-monospace, monospace)",
         fontSize: 12,
         lineHeight: 1.4,
-        boxShadow: "0 2px 4px rgba(0,0,0,0.2)",
+        boxShadow:
+          "0 6px 12px -4px rgba(0,0,0,0.35), 0 3px 6px -2px rgba(0,0,0,0.2), 0 1px 2px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.6), inset 0 -1px 0 rgba(0,0,0,0.06)",
         opacity,
         // Fade transitions across the bubble's lifetime so the opacity
         // bands don't pop visibly when ageMs crosses a band threshold.
@@ -91,6 +95,7 @@ export function HouseChatBubble({
         wordBreak: "break-word",
         whiteSpace: "pre-wrap",
         textAlign: "left",
+        willChange: "transform, opacity",
       }}
       title={text}
     >

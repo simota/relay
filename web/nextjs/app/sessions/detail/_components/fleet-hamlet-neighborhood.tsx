@@ -73,6 +73,7 @@ import {
   ParkResidentLayer,
 } from "./fleet-hamlet-park-residents";
 import { HOUSE_CHAT_CSS, HouseChatLayer } from "./fleet-hamlet-house-chat";
+import { HamletDioramaDefs } from "./fleet-hamlet-diorama-defs";
 import { pickHousesWithBubbles } from "../_lib/fleet-hamlet-last-message";
 import {
   EventBurst,
@@ -339,6 +340,9 @@ export function FleetHamletNeighborhood({
       ref={containerRef}
       className="h-full w-full overflow-hidden relative bg-[var(--color-bg)]"
     >
+      {/* Cinematic diorama shared `<defs>` — must be mounted before any SVG
+          that references the gradients / filters by id. */}
+      <HamletDioramaDefs />
       {/* HUD — overlay on the scene, semi-transparent so the village shows
           through. Wraps when the pane is narrow to avoid overflow. */}
       <div
@@ -349,7 +353,10 @@ export function FleetHamletNeighborhood({
           "bg-[var(--color-bg)]/70 backdrop-blur-md",
           "border-b border-[var(--color-border)]/60",
         )}
-        style={{ minHeight: 32 }}
+        style={{
+          minHeight: 32,
+          boxShadow: "0 4px 8px -2px rgba(0,0,0,0.18), 0 1px 2px rgba(0,0,0,0.12)",
+        }}
       >
         <span className="inline-flex items-center gap-1" title={`weather: ${weather.label}`}>
           <span aria-hidden className="text-[14px] leading-none">{weather.emoji}</span>
@@ -955,13 +962,15 @@ function HouseSvg({ sim, size, chimneyActive, highlight, dim, event, windowsLit,
       />
 
       <HouseAura intensity={bustleActive && bustle ? bustle.intensity : "quiet"}>
-      {/* Side wall (right) — gives it the isometric tilt */}
+      {/* Side wall (right) — gives it the isometric tilt + darker shadow band */}
       <polygon
         points={`${W * 0.55},${eaveY} ${sideX},${eaveY - 4} ${sideX},${H - 4} ${W * 0.55},${H}`}
         fill={wallSide}
       />
+      {/* Side wall vertical edge highlight where it meets the front face */}
+      <rect x={W * 0.55} y={eaveY} width={1.2} height={dim_.wallH} fill={`hsl(${wallHue}, 35%, 78%)`} opacity={0.85} />
 
-      {/* Front wall */}
+      {/* Front wall — base mid-tone */}
       <rect
         x={W * 0.18}
         y={eaveY}
@@ -969,25 +978,77 @@ function HouseSvg({ sim, size, chimneyActive, highlight, dim, event, windowsLit,
         height={dim_.wallH}
         fill={wallFront}
       />
-
-      {/* Roof — main triangle with slight isometric skew */}
-      <polygon
-        points={`${W * 0.12},${eaveY} ${W * 0.365},${ridgeY} ${W * 0.61},${eaveY}`}
-        fill={roofColor}
+      {/* Wall highlight band (left ~22%) */}
+      <rect
+        x={W * 0.18}
+        y={eaveY}
+        width={W * 0.08}
+        height={dim_.wallH}
+        fill={`hsl(${wallHue}, 38%, 78%)`}
+        opacity={0.7}
       />
-      {/* Shingle stripes — three subtle dashes give the roof a tiled look */}
-      <g stroke={roofShadow} strokeWidth="0.6" opacity="0.65">
+      {/* Wall shadow band (right ~22%) */}
+      <rect
+        x={W * 0.47}
+        y={eaveY}
+        width={W * 0.08}
+        height={dim_.wallH}
+        fill={`hsl(${wallHue}, 28%, 48%)`}
+        opacity={0.55}
+      />
+
+      {/* Roof — shadow half (right) drawn first so the lit half sits on top */}
+      <polygon
+        points={`${W * 0.365},${eaveY} ${W * 0.365},${ridgeY} ${W * 0.61},${eaveY}`}
+        fill={roofShadow}
+      />
+      {/* Roof lit half (left) */}
+      <polygon
+        points={`${W * 0.12},${eaveY} ${W * 0.365},${ridgeY} ${W * 0.365},${eaveY}`}
+        fill={`hsl(${roofHue}, 60%, 58%)`}
+      />
+      {/* Roof ridge — bright sliver along the top edge */}
+      <line
+        x1={W * 0.365}
+        y1={ridgeY}
+        x2={W * 0.5}
+        y2={eaveY - dim_.roofH * 0.1}
+        stroke={`hsl(${roofHue}, 70%, 75%)`}
+        strokeWidth={1.2}
+        opacity={0.8}
+      />
+      {/* Tile pattern — vertical dashes on the lit half */}
+      <g stroke={`hsl(${roofHue}, 50%, 38%)`} strokeWidth="0.5" opacity="0.55">
+        <line x1={W * 0.18} y1={eaveY} x2={W * 0.21} y2={eaveY - dim_.roofH * 0.55} />
+        <line x1={W * 0.24} y1={eaveY} x2={W * 0.26} y2={eaveY - dim_.roofH * 0.7} />
+        <line x1={W * 0.3} y1={eaveY} x2={W * 0.31} y2={eaveY - dim_.roofH * 0.85} />
+        <line x1={W * 0.36} y1={eaveY} x2={W * 0.36} y2={ridgeY + 1} />
+      </g>
+      {/* Horizontal shingle bands */}
+      <g stroke={roofShadow} strokeWidth="0.5" opacity="0.7">
         <line x1={W * 0.16} y1={eaveY - dim_.roofH * 0.25} x2={W * 0.57} y2={eaveY - dim_.roofH * 0.25} />
         <line x1={W * 0.2} y1={eaveY - dim_.roofH * 0.5} x2={W * 0.53} y2={eaveY - dim_.roofH * 0.5} />
         <line x1={W * 0.24} y1={eaveY - dim_.roofH * 0.75} x2={W * 0.49} y2={eaveY - dim_.roofH * 0.75} />
       </g>
-      {/* Roof side (darker) */}
+      {/* Roof side (darker) — already shadowed isometric face */}
       <polygon
         points={`${W * 0.61},${eaveY} ${W * 0.365},${ridgeY} ${sideX + 4},${ridgeY + 4} ${sideX},${eaveY - 4}`}
         fill={roofShadow}
       />
+      {/* Eave shadow line under the roof — drops a thin dark stripe so the
+          roof reads as casting onto the wall. */}
+      <rect x={W * 0.18} y={eaveY} width={W * 0.37} height={1.2} fill="rgba(0,0,0,0.35)" />
 
-      {/* Door */}
+      {/* Door frame (outer) */}
+      <rect
+        x={W * 0.32 - 1}
+        y={H - dim_.wallH * 0.55 - 1}
+        width={dim_.wallH * 0.22 + 2}
+        height={dim_.wallH * 0.55 + 1}
+        fill="hsl(25, 35%, 15%)"
+        rx={1.2}
+      />
+      {/* Door panel */}
       <rect
         x={W * 0.32}
         y={H - dim_.wallH * 0.55}
@@ -996,7 +1057,27 @@ function HouseSvg({ sim, size, chimneyActive, highlight, dim, event, windowsLit,
         fill="hsl(25, 35%, 25%)"
         rx={1}
       />
+      {/* Door inner recessed plate */}
+      <rect
+        x={W * 0.32 + dim_.wallH * 0.04}
+        y={H - dim_.wallH * 0.55 + dim_.wallH * 0.08}
+        width={dim_.wallH * 0.14}
+        height={dim_.wallH * 0.35}
+        fill="hsl(25, 38%, 32%)"
+        rx={0.6}
+      />
+      {/* Door shadow side (right edge) */}
+      <rect
+        x={W * 0.32 + dim_.wallH * 0.18}
+        y={H - dim_.wallH * 0.55}
+        width={dim_.wallH * 0.04}
+        height={dim_.wallH * 0.55}
+        fill="rgba(0,0,0,0.32)"
+        rx={0.5}
+      />
+      {/* Door knob + tiny highlight */}
       <circle cx={W * 0.32 + dim_.wallH * 0.18} cy={H - dim_.wallH * 0.28} r={0.9} fill="hsl(45, 75%, 55%)" />
+      <circle cx={W * 0.32 + dim_.wallH * 0.17} cy={H - dim_.wallH * 0.29} r={0.35} fill="hsl(45, 95%, 85%)" />
 
       {/* Windows (1 or 2 depending on size) — replaced by a MultiWindowGlow
           row when bustle is active and we have hues to color them. */}
@@ -1013,38 +1094,54 @@ function HouseSvg({ sim, size, chimneyActive, highlight, dim, event, windowsLit,
         />
       ) : (
         <>
-          <rect
+          <DioramaWindow
             x={W * 0.21}
             y={eaveY + dim_.wallH * 0.18}
-            width={dim_.wallH * 0.22}
-            height={dim_.wallH * 0.22}
+            size={dim_.wallH * 0.22}
             fill={winFill}
-            stroke="hsl(0, 0%, 15%)"
-            strokeWidth={0.6}
-            style={winGlowStyle}
+            lit={winLit || nightGlow}
+            glowStyle={winGlowStyle}
           />
           {size !== "sm" && (
-            <rect
+            <DioramaWindow
               x={W * 0.45}
               y={eaveY + dim_.wallH * 0.18}
-              width={dim_.wallH * 0.22}
-              height={dim_.wallH * 0.22}
+              size={dim_.wallH * 0.22}
               fill={winFill}
-              stroke="hsl(0, 0%, 15%)"
-              strokeWidth={0.6}
-              style={winGlowStyle}
+              lit={winLit || nightGlow}
+              glowStyle={winGlowStyle}
             />
           )}
         </>
       )}
 
-      {/* Chimney */}
+      {/* Chimney — dark base with brick highlights */}
       <rect
         x={W * 0.5}
         y={ridgeY + dim_.roofH * 0.2}
         width={W * 0.07}
         height={dim_.roofH * 0.55}
         fill="hsl(15, 30%, 35%)"
+      />
+      {/* Brick pattern — three horizontal courses with offset half-bricks */}
+      <g stroke="hsl(15, 20%, 22%)" strokeWidth={0.35} opacity={0.85}>
+        <line x1={W * 0.5} y1={ridgeY + dim_.roofH * 0.34} x2={W * 0.57} y2={ridgeY + dim_.roofH * 0.34} />
+        <line x1={W * 0.5} y1={ridgeY + dim_.roofH * 0.48} x2={W * 0.57} y2={ridgeY + dim_.roofH * 0.48} />
+        <line x1={W * 0.5} y1={ridgeY + dim_.roofH * 0.62} x2={W * 0.57} y2={ridgeY + dim_.roofH * 0.62} />
+        <line x1={W * 0.535} y1={ridgeY + dim_.roofH * 0.2} x2={W * 0.535} y2={ridgeY + dim_.roofH * 0.34} />
+        <line x1={W * 0.505} y1={ridgeY + dim_.roofH * 0.34} x2={W * 0.505} y2={ridgeY + dim_.roofH * 0.48} />
+        <line x1={W * 0.565} y1={ridgeY + dim_.roofH * 0.34} x2={W * 0.565} y2={ridgeY + dim_.roofH * 0.48} />
+        <line x1={W * 0.535} y1={ridgeY + dim_.roofH * 0.48} x2={W * 0.535} y2={ridgeY + dim_.roofH * 0.62} />
+      </g>
+      {/* Chimney lit edge */}
+      <rect x={W * 0.5} y={ridgeY + dim_.roofH * 0.2} width={0.8} height={dim_.roofH * 0.55} fill="hsl(15, 40%, 55%)" opacity={0.7} />
+      {/* Chimney cap */}
+      <rect
+        x={W * 0.495}
+        y={ridgeY + dim_.roofH * 0.18}
+        width={W * 0.08}
+        height={1.4}
+        fill="hsl(15, 22%, 22%)"
       />
 
       {/* Chimney smoke — uses the colorful bustle variant whenever the
@@ -1105,6 +1202,88 @@ function HouseSvg({ sim, size, chimneyActive, highlight, dim, event, windowsLit,
       )}
       </HouseAura>
     </svg>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// DioramaWindow — multi-layer frame (outer dark frame + white inner sash +
+// glass with vertical/horizontal cross grid + top-left reflection).
+// ---------------------------------------------------------------------------
+
+function DioramaWindow({
+  x,
+  y,
+  size,
+  fill,
+  lit,
+  glowStyle,
+}: {
+  x: number;
+  y: number;
+  size: number;
+  fill: string;
+  lit: boolean;
+  glowStyle?: { color?: string; animation?: string };
+}) {
+  // Outer frame thickness ~ 8% of the size; sash ~ 6%.
+  const frameOuter = Math.max(0.6, size * 0.08);
+  const sashOffset = Math.max(0.4, size * 0.14);
+  return (
+    <g style={glowStyle}>
+      {/* Outer dark frame */}
+      <rect
+        x={x - frameOuter * 0.5}
+        y={y - frameOuter * 0.5}
+        width={size + frameOuter}
+        height={size + frameOuter}
+        fill="hsl(20, 30%, 18%)"
+        rx={1}
+      />
+      {/* Inner white sash */}
+      <rect
+        x={x}
+        y={y}
+        width={size}
+        height={size}
+        fill="hsl(30, 25%, 88%)"
+        rx={0.6}
+      />
+      {/* Glass — colored fill */}
+      <rect
+        x={x + sashOffset * 0.5}
+        y={y + sashOffset * 0.5}
+        width={size - sashOffset}
+        height={size - sashOffset}
+        fill={fill}
+        stroke="hsl(0, 0%, 15%)"
+        strokeWidth={0.4}
+      />
+      {/* Cross grid — vertical + horizontal mullion */}
+      <line
+        x1={x + size * 0.5}
+        y1={y + sashOffset * 0.5}
+        x2={x + size * 0.5}
+        y2={y + size - sashOffset * 0.5}
+        stroke="hsl(30, 25%, 78%)"
+        strokeWidth={0.5}
+      />
+      <line
+        x1={x + sashOffset * 0.5}
+        y1={y + size * 0.5}
+        x2={x + size - sashOffset * 0.5}
+        y2={y + size * 0.5}
+        stroke="hsl(30, 25%, 78%)"
+        strokeWidth={0.5}
+      />
+      {/* Reflection — slim white triangle in the top-left pane (only when
+          not strongly lit — avoids washing out warm interior glow). */}
+      {!lit && (
+        <polygon
+          points={`${x + sashOffset * 0.7},${y + sashOffset * 0.7} ${x + size * 0.45},${y + sashOffset * 0.7} ${x + sashOffset * 0.7},${y + size * 0.4}`}
+          fill="rgba(255,255,255,0.45)"
+        />
+      )}
+    </g>
   );
 }
 
