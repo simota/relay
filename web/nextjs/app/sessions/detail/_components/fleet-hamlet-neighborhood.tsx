@@ -539,28 +539,33 @@ export function FleetHamletNeighborhood({
             </span>
           </>
         )}
-        {/* Walking sims — overlay on the road, anchored near the grid base. */}
+        {/* Walking sims — overlay on the road, anchored to the bottom of
+            the house grid so they always walk in front of the houses
+            rather than floating at the scene bottom. The grid uses the
+            same vertical centering offset below, so the two stay in
+            sync as the pane resizes. */}
         <WalkingSimLayer
           specs={walkers}
           width={containerSize.w || activeW}
-          yBase={Math.max(60, sceneH - Math.max(40, Math.floor(sceneH * 0.18)) - 12)}
+          yBase={Math.max(
+            60,
+            Math.floor((sceneH - Math.max(activeH, activeCellH)) * 0.45) +
+              Math.max(activeH, activeCellH) +
+              4,
+          )}
         />
 
-        {/* House grid — centered, takes most of the scene height. The grid
-            itself is sized by the fit solver; the wrapper is centered so the
-            scene's backdrop (sky/mountains/ground) shows through on the
-            sides at small household counts. */}
+        {/* House grid — centered horizontally AND vertically inside the
+            active zone. */}
         <div
           className="relative mx-auto"
           style={{
             width: Math.min(activeW, containerSize.w || activeW),
             height: Math.max(activeH, activeCellH),
             maxWidth: "100%",
-            // Push houses down so the sky breathes above them. When the
-            // scene is tall we leave more headroom for clouds.
             marginTop: Math.max(
               0,
-              Math.floor(sceneH - Math.max(activeH, activeCellH) - Math.floor(sceneH * 0.12)),
+              Math.floor((sceneH - Math.max(activeH, activeCellH)) * 0.45),
             ),
           }}
         >
