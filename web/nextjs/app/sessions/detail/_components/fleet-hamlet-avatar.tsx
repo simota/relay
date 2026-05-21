@@ -105,20 +105,11 @@ export function HeadFace({
   // Slight egg shape — taller than wide so the face reads as a face not a coin.
   const rx = radius;
   const ry = radius * 1.08;
+  // Note: haloColor is accepted for back-compat but no longer renders a halo
+  // ring — mood is conveyed via expression (eyes/mouth/brow) instead.
+  void haloColor;
   return (
     <g aria-hidden>
-      {haloColor && (
-        <ellipse
-          cx={0}
-          cy={0}
-          rx={rx + radius * 0.55}
-          ry={ry + radius * 0.55}
-          fill="none"
-          stroke={haloColor}
-          strokeOpacity={0.5}
-          strokeWidth={Math.max(0.8, radius * 0.1)}
-        />
-      )}
       {/* Ears — render behind the face oval so the hair / face front
           covers them when hair style hides them. */}
       {parts.hasEars && (
@@ -643,12 +634,13 @@ export function BodyTorso({
           </g>
         ) : (
           <g>
-            {/* Left arm */}
+            {/* Left arm — shoulder anchored at the torso's left edge so
+                rotations pivot at the shoulder, not the limb's top-left. */}
             <g
-              transform={`translate(${-w * 0.42}, ${h * 0.1 + armCrouchY}) rotate(${pose === "crouch" ? -25 : pose === "sigh" ? 10 : 0})`}
+              transform={`translate(${-w * 0.35}, ${h * 0.1 + armCrouchY}) rotate(${pose === "crouch" ? -25 : pose === "sigh" ? 10 : 0} ${w * 0.07} 0)`}
             >
               <rect
-                x={0}
+                x={-w * 0.07}
                 y={0}
                 width={w * 0.14}
                 height={h * 0.42}
@@ -657,7 +649,7 @@ export function BodyTorso({
               />
               {enableRim && (
                 <rect
-                  x={0}
+                  x={-w * 0.07}
                   y={0}
                   width={w * 0.04}
                   height={h * 0.42}
@@ -667,22 +659,21 @@ export function BodyTorso({
                 />
               )}
               {/* hand (skin circle at cuff end) */}
-              <circle cx={w * 0.07} cy={h * 0.45} r={w * 0.09} fill="#F0CDA8" />
+              <circle cx={0} cy={h * 0.45} r={w * 0.09} fill="#F0CDA8" />
             </g>
-            {/* Right arm */}
+            {/* Right arm — shoulder anchored mirror of the left. */}
             <g
-              transform={`translate(${w * 0.28}, ${h * 0.1 + armRaise * 0.5})
-                          rotate(${pose === "wave" ? -40 : pose === "crouch" ? -25 : pose === "sigh" ? -10 : pose === "step-forward" ? -15 : 0})`}
+              transform={`translate(${w * 0.35}, ${h * 0.1 + armRaise * 0.5}) rotate(${pose === "wave" ? -40 : pose === "crouch" ? 25 : pose === "sigh" ? -10 : pose === "step-forward" ? -15 : 0} ${-w * 0.07} 0)`}
             >
               <rect
-                x={0}
+                x={-w * 0.07}
                 y={0}
                 width={w * 0.14}
                 height={h * 0.42}
                 rx={w * 0.06}
                 fill={clothing.shirtDark}
               />
-              <circle cx={w * 0.07} cy={h * 0.45} r={w * 0.09} fill="#F0CDA8" />
+              <circle cx={0} cy={h * 0.45} r={w * 0.09} fill="#F0CDA8" />
             </g>
           </g>
         )}

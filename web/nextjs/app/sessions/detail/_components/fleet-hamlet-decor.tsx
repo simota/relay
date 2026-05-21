@@ -766,15 +766,16 @@ export function AvatarBody({
             </g>
           ) : (
             <g>
-              {/* Left arm */}
-              <g transform={`translate(${width * 0.18}, 4) rotate(${leftArmRot})`}>
+              {/* Left arm — rotate around shoulder (top-center of the arm),
+                  not the top-left, so the limb swings from the joint. */}
+              <g transform={`translate(${width * 0.18}, 4) rotate(${leftArmRot} ${width * 0.06} 0)`}>
                 <rect x={0} y={0} width={width * 0.12} height={height - 10} fill={colors.shirtDark} rx={2} />
                 <rect x={0} y={0} width={width * 0.04} height={height - 10} fill={colors.accent} opacity={0.6} rx={1} />
                 {/* hand */}
                 <circle cx={width * 0.06} cy={height - 9} r={Math.max(1.2, width * 0.05)} fill="#F0CDA8" />
               </g>
-              {/* Right arm */}
-              <g transform={`translate(${width * 0.7}, 4) rotate(${rightArmRot})`}>
+              {/* Right arm — mirror shoulder pivot. */}
+              <g transform={`translate(${width * 0.7}, 4) rotate(${rightArmRot} ${width * 0.06} 0)`}>
                 <rect x={0} y={0} width={width * 0.12} height={height - 10} fill={colors.shirtDark} rx={2} />
                 <circle cx={width * 0.06} cy={height - 9} r={Math.max(1.2, width * 0.05)} fill="#F0CDA8" />
               </g>

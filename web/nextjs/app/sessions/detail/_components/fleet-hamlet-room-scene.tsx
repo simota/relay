@@ -628,11 +628,12 @@ function RoomLighting({ isDark, accent }: { isDark: boolean; accent: string }) {
             fill={`url(#${DIORAMA_DEFS.roomLampWarmPocket})`}
             opacity={DIORAMA_ROOM.lampWarmOpacity}
           />
-          {/* Accent halo (mood-tinted). */}
+          {/* Accent halo (mood-tinted) — kept very subtle to avoid
+              haloing the room avatar with a visible orange/blue ring. */}
           <polygon
             points={`${cx - 14},${cy + 14} ${cx + 14},${cy + 14} ${cx + 70},${SCENE_H} ${cx - 70},${SCENE_H}`}
             fill={accent}
-            opacity={0.07}
+            opacity={0.025}
           />
         </>
       )}

@@ -816,11 +816,9 @@ export function FleetHamletNeighborhood({
 function MoodletBubble({ sim }: { sim: SimCardModel }) {
   return (
     <span
-      className="inline-flex items-center justify-center w-6 h-6 rounded-full border text-[14px] leading-none mb-1"
+      className="inline-flex items-center justify-center text-[16px] leading-none mb-1"
       style={{
-        borderColor: sim.mood.color,
-        background: "var(--color-bg)",
-        color: sim.mood.color,
+        filter: `drop-shadow(0 1px 1px rgba(0,0,0,0.35))`,
       }}
       title={`mood: ${sim.mood.label}`}
       aria-hidden
@@ -942,7 +940,7 @@ function HouseSvg({ sim, size, chimneyActive, highlight, dim, event, windowsLit,
       aria-hidden
       style={{
         filter: achievementGlow
-          ? "drop-shadow(0 0 8px hsla(45, 95%, 60%, 0.85))"
+          ? "drop-shadow(0 0 4px hsla(45, 95%, 60%, 0.45))"
           : highlight
           ? "drop-shadow(0 4px 6px rgba(0,0,0,0.25))"
           : undefined,

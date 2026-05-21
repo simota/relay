@@ -26,7 +26,11 @@ import type { WeatherKind } from "../_lib/fleet-hamlet-layout";
 import { deriveAccessories } from "../_lib/fleet-hamlet-particles";
 import { statusColor } from "../_lib/fleet-timeline";
 import { AvatarBody, DECOR_CSS } from "./fleet-hamlet-decor";
-import { HAMLET_AVATAR_CSS, HeadFace } from "./fleet-hamlet-avatar";
+import {
+  clothingForAgent,
+  HAMLET_AVATAR_CSS,
+  HamletAvatar,
+} from "./fleet-hamlet-avatar";
 import { getExpressionForMood } from "../_lib/fleet-hamlet-avatar-expression";
 import {
   CHAT_BUBBLE_CSS,
@@ -159,8 +163,7 @@ function InteriorView({
               <HatSvg kind={accessories.hat} />
             </span>
           )}
-          <HeaderAvatar parts={parts} mood={sim.mood} />
-          <AvatarBody agentKind={sim.sessionType} width={42} height={16} mood={sim.mood.key} />
+          <HeaderAvatar parts={parts} sim={sim} />
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-baseline gap-1.5 flex-wrap">
@@ -371,35 +374,39 @@ function EmptyState({
 
 function HeaderAvatar({
   parts,
-  mood,
+  sim,
 }: {
   parts: AvatarParts;
-  mood: SimCardModel["mood"];
+  sim: SimCardModel;
 }) {
-  const expression = useMemo(() => getExpressionForMood(mood.key), [mood.key]);
+  const expression = useMemo(
+    () => getExpressionForMood(sim.mood.key),
+    [sim.mood.key],
+  );
+  const clothes = useMemo(
+    () => clothingForAgent(sim.sessionType),
+    [sim.sessionType],
+  );
+  // Single SVG so head + body never visually separate. Height is roughly
+  // 60px (head ~22% of height + torso below) which fits the 48px header
+  // slot via overflow:visible.
+  const totalH = 60;
+  const halfW = 22;
   return (
     <svg
-      width={48}
-      height={48}
-      viewBox="0 0 48 48"
+      width={halfW * 2}
+      height={totalH}
+      viewBox={`${-halfW} 0 ${halfW * 2} ${totalH}`}
       aria-hidden
       className="shrink-0"
       overflow="visible"
     >
-      <g
-        transform={`translate(24, 24) rotate(${expression.leanDeg})`}
-        style={{
-          animation: `relayHamletIdleBreathe 4s ease-in-out ${parts.breatheDelay}s infinite`,
-          transformOrigin: "24px 24px",
-        }}
-      >
-        <HeadFace
-          parts={parts}
-          expression={expression}
-          radius={14}
-          haloColor={mood.color}
-        />
-      </g>
+      <HamletAvatar
+        parts={parts}
+        expression={expression}
+        clothing={clothes}
+        height={totalH}
+      />
     </svg>
   );
 }
