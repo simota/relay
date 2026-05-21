@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, Orbit, Rss } from "lucide-react";
+import { Activity, Home, Orbit, Rss } from "lucide-react";
 import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useMemo } from "react";
@@ -10,6 +10,7 @@ import { useFleetStream } from "../_hooks/use-fleet-stream";
 import { sessionKey } from "../_lib/fleet-timeline";
 import type { TileSpec } from "../_types";
 import { FleetActivityFeed } from "./fleet-activity-feed";
+import { FleetHamlet } from "./fleet-hamlet";
 import { FleetPulseSparklines } from "./fleet-pulse-sparklines";
 
 // R3F + Three.js + postprocessing touch `window` / WebGL on mount, so they
@@ -28,7 +29,7 @@ const FleetCosmos3D = dynamic(
   },
 );
 
-export type FleetSubview = "feed" | "pulse" | "cosmos";
+export type FleetSubview = "feed" | "pulse" | "cosmos" | "hamlet";
 
 export type FleetStreamStatus =
   | "connecting"
@@ -86,6 +87,7 @@ export function FleetView({ subview, selectedKeys, onPickSession, canAdd }: Prop
       { key: "feed" as const, label: "Feed", icon: Rss },
       { key: "pulse" as const, label: "Pulse", icon: Activity },
       { key: "cosmos" as const, label: "Cosmos", icon: Orbit },
+      { key: "hamlet" as const, label: "Hamlet", icon: Home },
     ],
     [],
   );
@@ -138,6 +140,14 @@ export function FleetView({ subview, selectedKeys, onPickSession, canAdd }: Prop
             )}
             {subview === "cosmos" && (
               <FleetCosmos3D
+                data={data}
+                selectedKeys={selectedKeys}
+                onPickSession={onPickSession}
+                canAdd={canAdd}
+              />
+            )}
+            {subview === "hamlet" && (
+              <FleetHamlet
                 data={data}
                 selectedKeys={selectedKeys}
                 onPickSession={onPickSession}

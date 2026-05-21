@@ -12,6 +12,10 @@ import { sessionKey } from "../_lib/fleet-timeline";
 import { buildDetailUrl, parseTileSpecs } from "../_lib/url";
 import type { TileSpec } from "../_types";
 import { FleetView, type FleetSubview } from "./fleet-view";
+// Re-export the Hamlet mode parser so external code (e.g. router-aware
+// links) can resolve the current Hamlet sub-mode without reaching into
+// the Fleet view tree.
+export { parseHamletMode, type HamletMode } from "./fleet-hamlet";
 import { SessionTile } from "./session-tile";
 
 type TopView = "board" | "fleet";
@@ -24,6 +28,7 @@ function parseFleetSubview(params: URLSearchParams): FleetSubview {
   const v = params.get("fv");
   if (v === "pulse") return "pulse";
   if (v === "cosmos") return "cosmos";
+  if (v === "hamlet") return "hamlet";
   return "feed";
 }
 
