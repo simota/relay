@@ -619,22 +619,41 @@ export function AvatarBody({
   // Match the SimAvatar 48×48 head box; this strip slots underneath it.
   const colors = clothing(agentKind);
   const pose = mood ? getExpressionForMood(mood).pose : "idle";
-  // Lateral arm offsets for waving / cross-arms / crouch.
+  const centerX = width * 0.5;
+  const torsoTop = height * 0.04;
+  const torsoBottom = height - 6;
+  const topW = width * 0.28;
+  const botW = width * 0.44;
+  const shoulderY = height * 0.11;
+  const armW = width * 0.11;
+  const handR = Math.max(1.2, width * 0.045);
+  const armLen = Math.max(4, torsoBottom - shoulderY - handR * 1.55);
+  const shoulderDx = topW / 2 + armW * 0.65;
+  // Rotation conventions match BodyTorso in fleet-hamlet-avatar.tsx: SVG
+  // rotate() is clockwise for positive degrees. LEFT arm POSITIVE swings
+  // the hand inward across the chest; RIGHT arm NEGATIVE mirrors it.
   const leftArmRot =
-    pose === "crouch" ? -18 : pose === "sigh" ? 8 : pose === "cross-arms" ? 14 : 0;
-  const rightArmRot =
-    pose === "wave"
-      ? -42
+    pose === "cross-arms"
+      ? 70
       : pose === "crouch"
-        ? -18
+        ? -20
         : pose === "sigh"
-          ? -8
-          : pose === "cross-arms"
-            ? -14
+          ? 8
+          : pose === "step-forward"
+            ? 10
+            : 0;
+  const rightArmRot =
+    pose === "cross-arms"
+      ? -70
+      : pose === "wave"
+        ? -28
+        : pose === "crouch"
+          ? 20
+          : pose === "sigh"
+            ? -8
             : pose === "step-forward"
-              ? -12
+              ? -10
               : 0;
-  const showWaveHand = pose === "wave";
   const stepFwd = pose === "step-forward";
   const sleeping = pose === "sleeping";
   return (
@@ -701,98 +720,90 @@ export function AvatarBody({
           </g>
           {/* Torso barrel — pear silhouette: top narrows, bottom widens */}
           <path
-            d={`M ${width * 0.32} 4
-                L ${width * 0.42} 0
-                L ${width * 0.58} 0
-                L ${width * 0.68} 4
-                L ${width * 0.72} ${height - 6}
-                L ${width * 0.28} ${height - 6} Z`}
+            d={`M ${centerX - topW / 2} ${torsoTop}
+                L ${centerX + topW / 2} ${torsoTop}
+                L ${centerX + botW / 2} ${torsoBottom}
+                L ${centerX - botW / 2} ${torsoBottom} Z`}
             fill={colors.shirt}
           />
           {/* Right-half shading */}
           <path
-            d={`M ${width * 0.5} 0
-                L ${width * 0.58} 0
-                L ${width * 0.68} 4
-                L ${width * 0.72} ${height - 6}
-                L ${width * 0.5} ${height - 6} Z`}
+            d={`M ${centerX} ${torsoTop}
+                L ${centerX + topW / 2} ${torsoTop}
+                L ${centerX + botW / 2} ${torsoBottom}
+                L ${centerX} ${torsoBottom} Z`}
             fill={colors.shirtDark}
             opacity={0.4}
           />
           {/* Rim-light stripe on the lit (left) edge */}
           <path
-            d={`M ${width * 0.32} 4
-                L ${width * 0.36} 4
-                L ${width * 0.32} ${height - 6}
-                L ${width * 0.28} ${height - 6} Z`}
+            d={`M ${centerX - topW / 2} ${torsoTop}
+                L ${centerX - topW / 2 + width * 0.04} ${torsoTop}
+                L ${centerX - botW / 2 + width * 0.04} ${torsoBottom}
+                L ${centerX - botW / 2} ${torsoBottom} Z`}
             fill={colors.accent}
             opacity={0.85}
           />
           {/* Collar — V on top of the torso */}
           <path
-            d={`M ${width * 0.32} 4
-                L ${width * 0.5} 7
-                L ${width * 0.68} 4
-                L ${width * 0.62} 1
-                L ${width * 0.5} 5
-                L ${width * 0.38} 1 Z`}
+            d={`M ${centerX - topW / 2} ${torsoTop}
+                L ${centerX} ${height * 0.32}
+                L ${centerX + topW / 2} ${torsoTop}
+                L ${centerX + topW / 2 - width * 0.05} ${height * 0.02}
+                L ${centerX} ${height * 0.23}
+                L ${centerX - topW / 2 + width * 0.05} ${height * 0.02} Z`}
             fill={colors.accent}
           />
           {/* Two front buttons */}
-          <circle cx={width * 0.5} cy={height * 0.4 + 1} r={Math.max(0.6, width * 0.025)} fill={colors.shirtDark} />
-          <circle cx={width * 0.5} cy={height * 0.6 + 1} r={Math.max(0.6, width * 0.025)} fill={colors.shirtDark} />
-          {/* Arms with hands */}
-          {pose === "cross-arms" ? (
-            <g>
-              {/* Crossed arms over chest */}
+          <circle cx={centerX} cy={height * 0.4 + 1} r={Math.max(0.6, width * 0.025)} fill={colors.shirtDark} />
+          <circle cx={centerX} cy={height * 0.6 + 1} r={Math.max(0.6, width * 0.025)} fill={colors.shirtDark} />
+          {/* Arms with hands — explicit foreground layer, shoulder-origin limbs. */}
+          <g>
+            <g transform={`translate(${centerX - shoulderDx}, ${shoulderY}) rotate(${leftArmRot})`}>
               <rect
-                x={width * 0.22}
-                y={height * 0.4}
-                width={width * 0.56}
-                height={height * 0.18}
-                rx={width * 0.06}
-                fill={colors.shirtDark}
-                transform={`rotate(-8 ${width * 0.5} ${height * 0.49})`}
+                x={-armW / 2}
+                y={0}
+                width={armW}
+                height={armLen}
+                fill={pose === "cross-arms" ? colors.shirt : colors.shirtDark}
+                rx={armW * 0.45}
               />
-              <rect
-                x={width * 0.22}
-                y={height * 0.55}
-                width={width * 0.56}
-                height={height * 0.16}
-                rx={width * 0.06}
-                fill={colors.shirt}
-                transform={`rotate(10 ${width * 0.5} ${height * 0.63})`}
-              />
+              {pose !== "cross-arms" && (
+                <rect
+                  x={-armW / 2}
+                  y={0}
+                  width={armW * 0.32}
+                  height={armLen}
+                  fill={colors.accent}
+                  opacity={0.6}
+                  rx={armW * 0.32}
+                />
+              )}
+              <circle cx={0} cy={armLen + handR * 0.5} r={handR} fill="#F0CDA8" />
             </g>
-          ) : (
-            <g>
-              {/* Left arm — rotate around shoulder (top-center of the arm),
-                  not the top-left, so the limb swings from the joint. */}
-              <g transform={`translate(${width * 0.18}, 4) rotate(${leftArmRot} ${width * 0.06} 0)`}>
-                <rect x={0} y={0} width={width * 0.12} height={height - 10} fill={colors.shirtDark} rx={2} />
-                <rect x={0} y={0} width={width * 0.04} height={height - 10} fill={colors.accent} opacity={0.6} rx={1} />
-                {/* hand */}
-                <circle cx={width * 0.06} cy={height - 9} r={Math.max(1.2, width * 0.05)} fill="#F0CDA8" />
-              </g>
-              {/* Right arm — mirror shoulder pivot. Wave is expressed by
-                  rocking the arm itself, not by floating an extra hand. */}
+            <g transform={`translate(${centerX + shoulderDx}, ${shoulderY}) rotate(${rightArmRot})`}>
               <g
-                transform={`translate(${width * 0.7}, 4) rotate(${rightArmRot} ${width * 0.06} 0)`}
                 style={
-                  showWaveHand
+                  pose === "wave"
                     ? {
-                        animation:
-                          "relayHamletWaveHand 1.6s ease-in-out infinite",
-                        transformOrigin: `${width * 0.06}px 0px`,
+                        animation: "relayHamletWaveHand 1.6s ease-in-out infinite",
+                        transformOrigin: "0px 0px",
                       }
                     : undefined
                 }
               >
-                <rect x={0} y={0} width={width * 0.12} height={height - 10} fill={colors.shirtDark} rx={2} />
-                <circle cx={width * 0.06} cy={height - 9} r={Math.max(1.2, width * 0.05)} fill="#F0CDA8" />
+                <rect
+                  x={-armW / 2}
+                  y={0}
+                  width={armW}
+                  height={armLen}
+                  fill={colors.shirtDark}
+                  rx={armW * 0.45}
+                />
+                <circle cx={0} cy={armLen + handR * 0.5} r={handR} fill="#F0CDA8" />
               </g>
             </g>
-          )}
+          </g>
         </g>
       )}
     </svg>
@@ -911,6 +922,10 @@ export const DECOR_CSS = `
 @keyframes relayHamletEkgScroll {
   0%   { transform: translateX(0); }
   100% { transform: translateX(-48px); }
+}
+@keyframes relayHamletWaveHand {
+  0%, 100% { transform: rotate(-12deg); }
+  50%      { transform: rotate(18deg); }
 }
 @keyframes relayHamletCandleFlicker {
   0%, 100% { transform: scale(1, 1); opacity: 0.9; }

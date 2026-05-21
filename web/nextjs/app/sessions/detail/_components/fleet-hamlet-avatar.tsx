@@ -516,12 +516,40 @@ export function BodyTorso({
   // Torso barrel control points — wider at the bottom (pear silhouette).
   const topW = w * 0.55;
   const botW = w * 0.85;
+  const torsoTop = h * 0.05;
   const torsoBottom = h * 0.65;
-  // Arms / legs pose deltas. The wave is conveyed by rocking the right
-  // arm at the shoulder (CSS animation); we don't lift the shoulder
-  // itself — that would slide the arm up to face height.
-  const armRaise = 0;
+  const shoulderY = h * 0.1;
+  const armW = w * 0.13;
+  const handR = w * 0.085;
+  const armLen = torsoBottom - shoulderY - handR * 1.55;
+  const shoulderX = topW / 2 + armW * 0.65;
   const armCrouchY = pose === "crouch" ? -h * 0.05 : 0;
+  // Rotation conventions: SVG rotate() is clockwise for positive degrees.
+  // Both arm rects extend downward from the shoulder (0,0). To swing an
+  // arm across the chest (inward), rotate the LEFT arm POSITIVE and the
+  // RIGHT arm NEGATIVE. crouch swings outward (opposite).
+  const leftArmRot =
+    pose === "cross-arms"
+      ? 70
+      : pose === "crouch"
+        ? -20
+        : pose === "sigh"
+          ? 8
+          : pose === "step-forward"
+            ? 10
+            : 0;
+  const rightArmRot =
+    pose === "cross-arms"
+      ? -70
+      : pose === "wave"
+        ? -28
+        : pose === "crouch"
+          ? 20
+          : pose === "sigh"
+            ? -8
+            : pose === "step-forward"
+              ? -10
+              : 0;
   const leftLegX = pose === "step-forward" ? -w * 0.08 : -w * 0.22;
   const rightLegX = pose === "step-forward" ? w * 0.18 : w * 0.05;
   const leftLegY = pose === "step-forward" ? -h * 0.05 : 0;
@@ -567,8 +595,8 @@ export function BodyTorso({
       )}
       {/* Torso barrel — pear silhouette via path */}
       <path
-        d={`M ${-topW / 2} ${h * 0.05}
-            L ${topW / 2} ${h * 0.05}
+        d={`M ${-topW / 2} ${torsoTop}
+            L ${topW / 2} ${torsoTop}
             L ${botW / 2} ${torsoBottom}
             L ${-botW / 2} ${torsoBottom}
             Z`}
@@ -576,8 +604,8 @@ export function BodyTorso({
       />
       {/* Right-side shading on the torso */}
       <path
-        d={`M 0 ${h * 0.05}
-            L ${topW / 2} ${h * 0.05}
+        d={`M 0 ${torsoTop}
+            L ${topW / 2} ${torsoTop}
             L ${botW / 2} ${torsoBottom}
             L 0 ${torsoBottom}
             Z`}
@@ -587,8 +615,8 @@ export function BodyTorso({
       {/* Rim light on the left edge of the torso */}
       {enableRim && (
         <path
-          d={`M ${-topW / 2} ${h * 0.05}
-              L ${-topW / 2 + w * 0.05} ${h * 0.05}
+          d={`M ${-topW / 2} ${torsoTop}
+              L ${-topW / 2 + w * 0.05} ${torsoTop}
               L ${-botW / 2 + w * 0.05} ${torsoBottom}
               L ${-botW / 2} ${torsoBottom}
               Z`}
@@ -598,9 +626,9 @@ export function BodyTorso({
       )}
       {/* Collar — V-shape on top of the torso */}
       <path
-        d={`M ${-topW / 2} ${h * 0.05}
+        d={`M ${-topW / 2} ${torsoTop}
             L 0 ${h * 0.18}
-            L ${topW / 2} ${h * 0.05}
+            L ${topW / 2} ${torsoTop}
             L ${topW / 2 - w * 0.05} ${h * 0.02}
             L 0 ${h * 0.13}
             L ${-topW / 2 + w * 0.05} ${h * 0.02}
@@ -610,87 +638,52 @@ export function BodyTorso({
       {/* Two front buttons */}
       <circle cx={0} cy={h * 0.32} r={Math.max(0.5, w * 0.04)} fill={clothing.shirtDark} />
       <circle cx={0} cy={h * 0.48} r={Math.max(0.5, w * 0.04)} fill={clothing.shirtDark} />
-      {/* Arms — drawn after torso so they sit in front */}
+      {/* Arms — explicit foreground layer. Each limb's local origin is its shoulder. */}
       <g>
-        {pose === "cross-arms" ? (
-          // Both arms cross over chest
-          <g>
+        <g transform={`translate(${-shoulderX}, ${shoulderY + armCrouchY}) rotate(${leftArmRot})`}>
+          <rect
+            x={-armW / 2}
+            y={0}
+            width={armW}
+            height={armLen}
+            rx={armW * 0.45}
+            fill={pose === "cross-arms" ? clothing.shirt : clothing.shirtDark}
+          />
+          {enableRim && pose !== "cross-arms" && (
             <rect
-              x={-w * 0.38}
-              y={h * 0.18}
-              width={w * 0.72}
-              height={h * 0.13}
-              rx={w * 0.06}
+              x={-armW / 2}
+              y={0}
+              width={armW * 0.32}
+              height={armLen}
+              rx={armW * 0.32}
+              fill={clothing.accent}
+              opacity={0.65}
+            />
+          )}
+          <circle cx={0} cy={armLen + handR * 0.5} r={handR} fill="#F0CDA8" />
+        </g>
+        <g transform={`translate(${shoulderX}, ${shoulderY}) rotate(${rightArmRot})`}>
+          <g
+            style={
+              pose === "wave"
+                ? {
+                    animation: "relayHamletWaveHand 1.6s ease-in-out infinite",
+                    transformOrigin: "0px 0px",
+                  }
+                : undefined
+            }
+          >
+            <rect
+              x={-armW / 2}
+              y={0}
+              width={armW}
+              height={armLen}
+              rx={armW * 0.45}
               fill={clothing.shirtDark}
-              transform={`rotate(-8 0 ${h * 0.24})`}
             />
-            <rect
-              x={-w * 0.38}
-              y={h * 0.28}
-              width={w * 0.72}
-              height={h * 0.12}
-              rx={w * 0.06}
-              fill={clothing.shirt}
-              transform={`rotate(10 0 ${h * 0.34})`}
-            />
+            <circle cx={0} cy={armLen + handR * 0.5} r={handR} fill="#F0CDA8" />
           </g>
-        ) : (
-          <g>
-            {/* Left arm — shoulder anchored at the torso's left edge so
-                rotations pivot at the shoulder (rect's top-center, which
-                lives at local origin because rect.x = -w*0.07). */}
-            <g
-              transform={`translate(${-w * 0.42}, ${h * 0.12 + armCrouchY}) rotate(${pose === "crouch" ? -25 : pose === "sigh" ? 10 : 0})`}
-            >
-              <rect
-                x={-w * 0.07}
-                y={0}
-                width={w * 0.14}
-                height={h * 0.34}
-                rx={w * 0.06}
-                fill={clothing.shirtDark}
-              />
-              {enableRim && (
-                <rect
-                  x={-w * 0.07}
-                  y={0}
-                  width={w * 0.04}
-                  height={h * 0.34}
-                  rx={w * 0.04}
-                  fill={clothing.accent}
-                  opacity={0.65}
-                />
-              )}
-              {/* hand (skin circle at cuff end) */}
-              <circle cx={0} cy={h * 0.37} r={w * 0.09} fill="#F0CDA8" />
-            </g>
-            {/* Right arm — shoulder anchored mirror of the left (origin
-                is the local rect top-center). Wave is expressed by
-                rocking this arm with the relayHamletWaveHand keyframe. */}
-            <g
-              transform={`translate(${w * 0.42}, ${h * 0.12 + armRaise * 0.5}) rotate(${pose === "wave" ? -25 : pose === "crouch" ? 25 : pose === "sigh" ? -10 : pose === "step-forward" ? -15 : 0})`}
-              style={
-                pose === "wave"
-                  ? {
-                      animation:
-                        "relayHamletWaveHand 1.6s ease-in-out infinite",
-                      transformOrigin: "0px 0px",
-                    }
-                  : undefined
-              }
-            >
-              <rect
-                x={-w * 0.07}
-                y={0}
-                width={w * 0.14}
-                height={h * 0.34}
-                rx={w * 0.06}
-                fill={clothing.shirtDark}
-              />
-              <circle cx={0} cy={h * 0.45} r={w * 0.09} fill="#F0CDA8" />
-            </g>
-          </g>
-        )}
+        </g>
       </g>
       {/* Sleeping — show body lying horizontal (single rect on the ground) */}
       {isSleeping && (
