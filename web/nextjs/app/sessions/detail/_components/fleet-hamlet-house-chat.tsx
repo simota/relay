@@ -59,6 +59,22 @@ export function HouseChatBubble({
   const opacity = bubbleOpacity(ageMs, HOUSE_BUBBLE_MAX_AGE_MS);
   const clampedMax = Math.max(MIN_MAX_WIDTH, Math.min(maxWidth, DEFAULT_MAX_WIDTH));
 
+  // 3:4 envelope — height is capped at ¾ of the bubble's max width so the
+  // bubble always reads as a landscape oval-ish card and never grows into
+  // a tall column that overflows the active zone. Long text gets clamped
+  // with an ellipsis; the full string remains in the `title` for hover.
+  const fontSize = 12;
+  const lineHeight = 1.4;
+  const paddingY = 6;
+  const innerMaxHeight = Math.floor(clampedMax * 0.75);
+  // Available inner text height = innerMaxHeight - 2 × paddingY. Divide by
+  // line box height to get an integer line cap (min 2 so the icon row
+  // doesn't squeeze out the first text line on the narrowest cells).
+  const lineClamp = Math.max(
+    2,
+    Math.floor((innerMaxHeight - paddingY * 2) / (fontSize * lineHeight)),
+  );
+
   // Diorama bubble — multi-layer drop shadow + faint top-gradient + speckled
   // paper texture via a subtle inline radial-gradient noise pattern.
   return (
@@ -74,43 +90,53 @@ export function HouseChatBubble({
         transform: "translate(-50%, -100%)",
         maxWidth: clampedMax,
         minWidth: 60,
-        padding: "6px 9px",
         borderRadius: 10,
         border: `1px solid ${border}`,
         background: `${bg}, radial-gradient(circle at 30% 20%, rgba(255,255,255,0.6) 0.5px, transparent 1.5px), radial-gradient(circle at 70% 60%, rgba(0,0,0,0.04) 0.5px, transparent 1.5px)`,
         backgroundSize: "auto, 8px 8px, 11px 11px",
         color: "#1A1F2E",
         fontFamily: "var(--font-mono, ui-monospace, monospace)",
-        fontSize: 12,
-        lineHeight: 1.4,
         boxShadow:
           "0 6px 12px -4px rgba(0,0,0,0.35), 0 3px 6px -2px rgba(0,0,0,0.2), 0 1px 2px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.6), inset 0 -1px 0 rgba(0,0,0,0.06)",
         opacity,
-        // Fade transitions across the bubble's lifetime so the opacity
-        // bands don't pop visibly when ageMs crosses a band threshold.
         transition: "opacity 600ms ease-out",
         animation: fresh ? "relayHamletHouseChatPop 320ms ease-out both" : undefined,
         pointerEvents: "none",
         zIndex: 6,
-        wordBreak: "break-word",
-        whiteSpace: "pre-wrap",
-        textAlign: "left",
         willChange: "transform, opacity",
       }}
       title={text}
     >
-      <span
-        aria-hidden
+      {/* Inner content wrapper — owns padding, the 3:4 max-height cap, and
+          the line-clamp. Kept separate from the outer bubble so the tail
+          nib below can hang outside the clipped region. */}
+      <div
         style={{
-          display: "inline-block",
-          marginRight: 4,
-          fontSize: 10,
-          opacity: 0.7,
+          padding: `${paddingY}px 9px`,
+          maxHeight: innerMaxHeight,
+          overflow: "hidden",
+          display: "-webkit-box",
+          WebkitLineClamp: lineClamp,
+          WebkitBoxOrient: "vertical",
+          fontSize,
+          lineHeight,
+          wordBreak: "break-word",
+          textAlign: "left",
         }}
       >
-        {isUser ? "👤" : "🤖"}
-      </span>
-      {text}
+        <span
+          aria-hidden
+          style={{
+            display: "inline-block",
+            marginRight: 4,
+            fontSize: 10,
+            opacity: 0.7,
+          }}
+        >
+          {isUser ? "👤" : "🤖"}
+        </span>
+        {text}
+      </div>
       {/* Tail nib — small triangle anchored at the bottom center, pointing
           down at the house. */}
       <span
