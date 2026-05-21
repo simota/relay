@@ -504,6 +504,14 @@ export function RoomWhiteboard({
   const h = slot.h * SCENE_H;
   const headerH = Math.max(8, h * 0.18);
   const rowH = (h - headerH - 4) / Math.max(1, items.length);
+  // Available text width = board width minus the checkbox (5px) +
+  // surrounding padding (4px left + 4px right + 2px gap). SVG <text>
+  // can't auto-truncate, so we trim by character count using a
+  // monospace approximation of ~3.2px per glyph at fontSize 5.4.
+  const textBudget = Math.max(8, w - 13);
+  const maxChars = Math.max(6, Math.floor(textBudget / 3.2));
+  const truncate = (s: string) =>
+    s.length > maxChars ? `${s.slice(0, maxChars - 1)}…` : s;
   return (
     <g aria-hidden style={{ animation: "relayHamletWhiteboardShimmer 5.2s ease-in-out infinite" }}>
       {/* D2 — cast shadow behind the frame. */}
@@ -592,7 +600,8 @@ export function RoomWhiteboard({
                   : undefined
               }
             >
-              {item.text}
+              <title>{item.text}</title>
+              {truncate(item.text)}
             </text>
           </g>
         );

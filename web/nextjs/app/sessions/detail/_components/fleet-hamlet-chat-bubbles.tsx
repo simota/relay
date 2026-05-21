@@ -28,7 +28,10 @@ export interface ChatBubbleStreamProps {
 }
 
 const TRUNCATE_AT = 120;
-const DEFAULT_MAX = 5;
+// Render a generous history so the Message Room can be scrolled back
+// through past chatter. ChatBubbleStream's container owns the scroll;
+// only the latest bubble gets the slide-in animation.
+const DEFAULT_MAX = 200;
 
 export function ChatBubbleStream({
   messages,
@@ -45,16 +48,26 @@ export function ChatBubbleStream({
     return filtered.slice(-maxBubbles);
   }, [messages, maxBubbles]);
 
-  // Auto-scroll to the bottom whenever a new message arrives so the
-  // freshest chatter is always visible without manual scrolling. Keyed
-  // off the newest timestamp + visible count so a re-render that doesn't
-  // change the conversation doesn't jam the scroll back to the floor.
+  // Auto-scroll to the bottom when a new message arrives, but ONLY if
+  // the user was already near the bottom — that way scrolling back
+  // through history isn't disturbed every time fresh chatter lands.
   const listRef = useRef<HTMLOListElement | null>(null);
   const newestTs = visible[visible.length - 1]?.timestamp ?? "";
+  const didInitialScroll = useRef(false);
   useEffect(() => {
     const el = listRef.current;
     if (!el) return;
-    el.scrollTop = el.scrollHeight;
+    if (!didInitialScroll.current) {
+      // First render: pin to the latest message so the user sees current
+      // state, then scrolling back is opt-in via the wheel.
+      el.scrollTop = el.scrollHeight;
+      didInitialScroll.current = true;
+      return;
+    }
+    const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    if (distFromBottom < 80) {
+      el.scrollTop = el.scrollHeight;
+    }
   }, [newestTs, visible.length]);
 
   if (visible.length === 0) {
