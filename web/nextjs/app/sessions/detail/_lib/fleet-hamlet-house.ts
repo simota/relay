@@ -603,6 +603,113 @@ export function computeTrophies(
 }
 
 // ---------------------------------------------------------------------------
+// Library / Workshop detail extractors (軸2)
+// ---------------------------------------------------------------------------
+
+export interface ReadEntry {
+  /** file path or keyword extracted from the tool call args */
+  path: string;
+  /** how many times this path was referenced */
+  count: number;
+}
+
+export interface EditEntry {
+  /** file path from the write/edit tool call */
+  path: string;
+  /** tool name that produced this entry */
+  tool: string;
+  /** ISO timestamp of the call */
+  timestamp: string;
+}
+
+/** Read/grep/glob 系ツールからファイルパス/キーワード Top N を抽出する。 */
+export function extractRecentReads(
+  detail: SessionDetail | undefined,
+  limit = 5,
+): ReadEntry[] {
+  if (!detail) return [];
+  const READ_TOOLS = new Set(["read", "grep", "glob", "search", "find", "ls"]);
+  const counts = new Map<string, number>();
+  for (const tc of detail.tool_calls) {
+    const toolLower = tc.name.toLowerCase();
+    if (!READ_TOOLS.has(toolLower)) continue;
+    // Try to extract a meaningful path from args_summary or args_json.
+    const candidate = extractPathFromArgs(tc.args_summary, tc.args_json);
+    if (!candidate) continue;
+    counts.set(candidate, (counts.get(candidate) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([path, count]) => ({ path, count }));
+}
+
+/** Write/edit/bash 系ツールから最新編集 N 件を抽出する。 */
+export function extractRecentEdits(
+  detail: SessionDetail | undefined,
+  limit = 5,
+): EditEntry[] {
+  if (!detail) return [];
+  const WRITE_TOOLS = new Set(["write", "edit", "bash", "create", "str_replace_editor", "str_replace_based_edit_tool", "multiedit"]);
+  const sorted = [...detail.tool_calls]
+    .filter((tc) => {
+      const lower = tc.name.toLowerCase();
+      // Match if tool name contains any of the write keywords
+      return WRITE_TOOLS.has(lower) ||
+        lower.includes("write") ||
+        lower.includes("edit") ||
+        lower.includes("create");
+    })
+    .map((tc) => ({ tc, ts: Date.parse(tc.timestamp) }))
+    .filter((x) => Number.isFinite(x.ts))
+    .sort((a, b) => b.ts - a.ts)
+    .slice(0, limit);
+
+  return sorted.map(({ tc }) => ({
+    path: extractPathFromArgs(tc.args_summary, tc.args_json) ?? tc.name,
+    tool: tc.name,
+    timestamp: tc.timestamp,
+  }));
+}
+
+/** args_summary または args_json から file path に見えるトークンを取り出す。 */
+function extractPathFromArgs(
+  argsSummary: string | null | undefined,
+  argsJson: string | null | undefined,
+): string | null {
+  // Try args_json first — it's more structured.
+  if (argsJson) {
+    try {
+      const parsed = JSON.parse(argsJson) as Record<string, unknown>;
+      for (const key of ["path", "file_path", "file", "filename", "pattern", "glob", "command"]) {
+        const v = parsed[key];
+        if (typeof v === "string" && v.length > 0) {
+          return shortenPath(v);
+        }
+      }
+    } catch {
+      // ignore parse errors
+    }
+  }
+  // Fall back to args_summary — grab the first token that looks like a path.
+  if (argsSummary) {
+    const pathMatch = argsSummary.match(/(?:^|\s)(\/[\w./\-_]+|\.[\w./\-_]+|[\w./\-_]+\/[\w./\-_]+)/);
+    if (pathMatch?.[1]) return shortenPath(pathMatch[1]);
+    // No path-like token — return a truncated summary.
+    const summary = argsSummary.trim();
+    return summary.length > 0 ? truncate(summary, 48) : null;
+  }
+  return null;
+}
+
+/** Keep only the trailing 2-3 path segments for display. */
+function shortenPath(p: string): string {
+  const segments = p.split("/").filter(Boolean);
+  if (segments.length <= 2) return p;
+  return `…/${segments.slice(-2).join("/")}`;
+}
+
+// ---------------------------------------------------------------------------
 // Misc
 // ---------------------------------------------------------------------------
 

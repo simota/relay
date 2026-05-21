@@ -249,7 +249,8 @@ export function FleetHamlet({
       const qs = new URLSearchParams(params.toString());
       qs.set("hm", "house");
       qs.set("hid", encodeURIComponent(target.sessionId));
-      router.replace(`/sessions/detail?${qs.toString()}`);
+      // 軸4: push で history エントリを積み、ブラウザ back で戻れるようにする
+      router.push(`/sessions/detail?${qs.toString()}`);
     },
     [hydratedMode, params, router],
   );
