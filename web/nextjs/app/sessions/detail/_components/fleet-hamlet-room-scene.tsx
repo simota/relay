@@ -12,7 +12,7 @@
 // inside the window reuses the shared `timeOfDay()` + `skyPalette()` so
 // it stays in sync with the rest of the village.
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { SessionDetail } from "@/lib/api";
 import type { WeatherKind } from "../_lib/fleet-hamlet-layout";
 import {
@@ -53,6 +53,17 @@ import {
   derivePets,
   deriveMoodPalette,
 } from "../_lib/fleet-hamlet-room-companion";
+import { computeBustle, type BustleIntensity } from "../_lib/fleet-hamlet-bustle";
+import {
+  deriveRoomGuests,
+  type RoomGuest,
+} from "../_lib/fleet-hamlet-room-guests";
+import {
+  describeRoomObject,
+  type RoomInspectorContext,
+  type RoomInspectorEntry,
+  type RoomObjectId,
+} from "../_lib/fleet-hamlet-room-inspector";
 import {
   EventDecorLayer,
   MessLayer,
@@ -207,6 +218,21 @@ export function RoomScene({
     () => deriveContainerContents(card, detail),
     [card, detail],
   );
+  // Spawned sub-agents that are currently active drop by the room as
+  // "guests" — small standing avatars in the back/mid floor band tinted
+  // by their own repo + agent kind. Drives the "lively / busy / party"
+  // overhead bustle banner too.
+  const bustle = useMemo(
+    () => computeBustle(card, allCards ?? [card], now),
+    [card, allCards, now],
+  );
+  const guests = useMemo(
+    () =>
+      deriveRoomGuests(card, allCards ?? [card], bustle, {
+        visitorPresent: hasRecentUserMessage,
+      }),
+    [card, allCards, bustle, hasRecentUserMessage],
+  );
   // Which room kinds get a bookshelf vs. fridge — gated by template slots,
   // but kept explicit so the renderer reads at a glance.
   const showBookshelf =
@@ -216,50 +242,175 @@ export function RoomScene({
     roomKind === "reception";
   const showFridge = roomKind === "living" || roomKind === "nursery";
 
+  // Inspector — clicked-object id + resolved descriptor entry. Selection is
+  // local to the panel; ESC and the X button close it.
+  const [selected, setSelected] = useState<RoomObjectId | null>(null);
+  const inspectorCtx = useMemo<RoomInspectorContext>(
+    () => ({
+      card,
+      detail,
+      roomKind,
+      now,
+      roomState,
+      achievements,
+      frames,
+      petBundle,
+      containerContents,
+      temporal,
+      windowScene,
+      bustle,
+      guests,
+      hasRecentUserMessage,
+      isDark,
+    }),
+    [
+      card,
+      detail,
+      roomKind,
+      now,
+      roomState,
+      achievements,
+      frames,
+      petBundle,
+      containerContents,
+      temporal,
+      windowScene,
+      bustle,
+      guests,
+      hasRecentUserMessage,
+      isDark,
+    ],
+  );
+  const inspectorEntry = useMemo<RoomInspectorEntry | null>(
+    () => (selected ? describeRoomObject(selected, inspectorCtx) : null),
+    [selected, inspectorCtx],
+  );
+  useEffect(() => {
+    if (!selected) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setSelected(null);
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [selected]);
+
+  // Clickable helper — wraps an SVG group with a click handler that
+  // selects the object's inspector entry, and a `<title>` so hovering shows
+  // a native tooltip too. **Memoized once via useMemo so the component
+  // reference is stable across renders.** Without memoization, defining the
+  // helper inline causes React to see a new component type every render,
+  // which remounts the entire SVG subtree and tears down event listeners
+  // between the user pressing and releasing the mouse — clicks silently
+  // disappear. `setSelected` is referentially stable (React state setters
+  // are), so capturing it in the closure is safe.
+  const Clickable = useMemo(() => {
+    function Clickable({
+      id,
+      label,
+      children,
+    }: {
+      id: RoomObjectId;
+      label: string;
+      children: React.ReactNode;
+    }) {
+      return (
+        <g
+          // SVG <g> defaults to `pointer-events: visiblePainted` which only
+          // fires events on actually-painted pixels of its children. Many
+          // of our sub-components paint with low opacity, gradients, or
+          // wrap their content in nested <g aria-hidden> groups that the
+          // hit-test sees as "non-painted" — clicks then pass through to
+          // the parent SVG and never reach this handler. `bounding-box`
+          // makes the entire union-of-children area clickable, which is
+          // what we want for the Inspector.
+          pointerEvents="bounding-box"
+          style={{ cursor: "pointer" }}
+          onClick={(e) => {
+            e.stopPropagation();
+            setSelected(id);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              e.stopPropagation();
+              setSelected(id);
+            }
+          }}
+          role="button"
+          tabIndex={0}
+          aria-label={label}
+        >
+          <title>{label}</title>
+          {children}
+        </g>
+      );
+    }
+    return Clickable;
+  }, []);
+
   return (
     <div
       className="relative w-full h-full overflow-hidden rounded-[var(--radius-md)] border border-[var(--color-border)]"
       style={{ background: palette.wallBottom, minHeight: 160 }}
       role="img"
       aria-label={`${roomKindLabel(roomKind)} interior view`}
+      // Clicks inside the room (walls, floor, furniture, inspector) should
+      // never bubble out to the surrounding Rooms-tab cell, which would
+      // otherwise drill into House Plan. Drill-down stays scoped to the
+      // explicit "Enter House" footer button.
+      onClick={(e) => e.stopPropagation()}
+      onKeyDown={(e) => e.stopPropagation()}
     >
       <svg
         viewBox={`0 0 ${SCENE_W} ${SCENE_H}`}
         width="100%"
         height="100%"
         preserveAspectRatio="xMidYMid meet"
-        aria-hidden
       >
         <RoomBackWall palette={palette} isDark={isDark} />
         {/* G1 — mood-coloured wallpaper overlay sits on top of the
             default wall so existing pattern stays visible underneath. */}
-        <MoodWallpaper palette={moodPalette} />
+        <Clickable id={{ kind: "mood-wall" }} label="Mood wallpaper — クリックで詳細">
+          <MoodWallpaper palette={moodPalette} />
+        </Clickable>
         <RoomSideWall palette={palette} />
         <RoomFloor palette={palette} roomKind={roomKind} />
-        <RoomWindow sky={sky} tod={tod} isStormy={weather === "stormy"} />
+        <Clickable id={{ kind: "window" }} label="Window — 時刻と天気">
+          <RoomWindow sky={sky} tod={tod} isStormy={weather === "stormy"} />
+        </Clickable>
         {/* R6 F2 — window-through relationships overlay (parent house,
             children playing, passing friend). Clipped to the same window
             rect so silhouettes never leak onto the wall. */}
-        <WindowSceneView scene={windowScene} windowBox={WINDOW_BOX} />
-        <RoomLighting isDark={isDark} accent={palette.accent} />
+        <Clickable id={{ kind: "window-scene" }} label="Window scene — 関係セッション">
+          <WindowSceneView scene={windowScene} windowBox={WINDOW_BOX} />
+        </Clickable>
+        <Clickable id={{ kind: "lamp" }} label="Pendant lamp — 夜間ライティング">
+          <RoomLighting isDark={isDark} accent={palette.accent} />
+        </Clickable>
         {/* C2 — family / friend photo frames mounted on the back wall. */}
         {dynamicSlots.frameSlots && (
-          <RelationshipFrames
-            frames={frames}
-            slots={dynamicSlots.frameSlots}
-          />
+          <Clickable id={{ kind: "frames" }} label="Relationship frames — 家族/友人">
+            <RelationshipFrames
+              frames={frames}
+              slots={dynamicSlots.frameSlots}
+            />
+          </Clickable>
         )}
         {/* C1 — wall-mounted achievement frames. */}
         {dynamicSlots.achievementSlots && (
-          <AchievementFrames
-            items={achievements.frames}
-            slots={dynamicSlots.achievementSlots}
-            accent={palette.accent}
-          />
+          <Clickable id={{ kind: "achievements" }} label="Achievement frames — スキル Lv">
+            <AchievementFrames
+              items={achievements.frames}
+              slots={dynamicSlots.achievementSlots}
+              accent={palette.accent}
+            />
+          </Clickable>
         )}
         {/* C1 — Lv 10 crown sits high on the wall when present. */}
         {achievements.hasCrown && (
-          <CrownDisplay slot={floorAchievementSlots[0]} />
+          <Clickable id={{ kind: "crown" }} label="Crown — Lv 10 達成">
+            <CrownDisplay slot={floorAchievementSlots[0]} />
+          </Clickable>
         )}
         {/* Furniture is split into back / mid / front so the avatar sits
             in the middle layer, hidden by front items but in front of
@@ -273,98 +424,208 @@ export function RoomScene({
             back wall behind the emoji wall furniture so existing decor
             (clocks / certificates / book emoji) reads as foreground props. */}
         {showBookshelf && dynamicSlots.bookshelfSlot && (
-          <Bookshelf
-            slot={dynamicSlots.bookshelfSlot}
-            bookCount={containerContents.bookCount}
-            hues={containerContents.bookHues}
-            sceneW={SCENE_W}
-            sceneH={SCENE_H}
-          />
+          <Clickable id={{ kind: "bookshelf" }} label="Bookshelf — XP + 年齢">
+            <Bookshelf
+              slot={dynamicSlots.bookshelfSlot}
+              bookCount={containerContents.bookCount}
+              hues={containerContents.bookHues}
+              sceneW={SCENE_W}
+              sceneH={SCENE_H}
+            />
+          </Clickable>
         )}
         {showFridge && dynamicSlots.fridgeSlot && (
-          <Fridge
-            slot={dynamicSlots.fridgeSlot}
-            level={containerContents.fridgeLevel}
-            items={containerContents.fridgeItems}
-            sceneW={SCENE_W}
-            sceneH={SCENE_H}
-          />
+          <Clickable id={{ kind: "fridge" }} label="Fridge — Hunger need">
+            <Fridge
+              slot={dynamicSlots.fridgeSlot}
+              level={containerContents.fridgeLevel}
+              items={containerContents.fridgeItems}
+              sceneW={SCENE_W}
+              sceneH={SCENE_H}
+            />
+          </Clickable>
         )}
-        <FurnitureLayer items={furniture} layer="wall" />
+        <Clickable id={{ kind: "furniture" }} label="Static furniture — 部屋種別の固定家具">
+          <FurnitureLayer items={furniture} layer="wall" />
+        </Clickable>
         {dynamicSlots.whiteboardSlot && (
-          <RoomWhiteboard
-            items={roomState.whiteboardItems}
-            slot={dynamicSlots.whiteboardSlot}
-            accent={palette.accent}
-          />
+          <Clickable id={{ kind: "whiteboard" }} label="Whiteboard — TodoWrite checklist">
+            <RoomWhiteboard
+              items={roomState.whiteboardItems}
+              slot={dynamicSlots.whiteboardSlot}
+              accent={palette.accent}
+            />
+          </Clickable>
         )}
         <FurnitureLayer items={furniture} layer="ceiling" />
         {dynamicSlots.eventSlots && (
-          <EventDecorLayer
-            events={roomState.events}
-            slots={dynamicSlots.eventSlots}
-            seed={seed}
-          />
+          <Clickable id={{ kind: "events" }} label="Event decor — 直近 1h イベント">
+            <EventDecorLayer
+              events={roomState.events}
+              slots={dynamicSlots.eventSlots}
+              seed={seed}
+            />
+          </Clickable>
         )}
         <FurnitureLayer items={furniture} layer="floor-back" />
         {/* E1 — seasonal decoration on the floor. */}
-        <SeasonDecor
-          seasonal={temporal.seasonal}
-          slot={dynamicSlots.seasonSlot}
-        />
-        <ChristmasTree visible={temporal.isChristmas} />
+        <Clickable id={{ kind: "season" }} label="Seasonal decor — 現在の季節">
+          <SeasonDecor
+            seasonal={temporal.seasonal}
+            slot={dynamicSlots.seasonSlot}
+          />
+        </Clickable>
+        {temporal.isChristmas && (
+          <Clickable id={{ kind: "christmas-tree" }} label="Christmas tree — 12 月のみ">
+            <ChristmasTree visible={temporal.isChristmas} />
+          </Clickable>
+        )}
         {/* C1 — trophies on the floor (Lv ≥ 7 / Lv ≥ 9). */}
         {achievements.hasTrophy && (
-          <TrophyShelf
-            slot={floorAchievementSlots[achievements.hasCrown ? 1 : 0]}
-            large={achievements.hasGrandTrophy}
-          />
+          <Clickable id={{ kind: "trophy" }} label="Trophy — 最高 Lv ≥ 7">
+            <TrophyShelf
+              slot={floorAchievementSlots[achievements.hasCrown ? 1 : 0]}
+              large={achievements.hasGrandTrophy}
+            />
+          </Clickable>
         )}
         {/* C1 — red carpet under the avatar (Lv ≥ 9). */}
-        <RedCarpet visible={achievements.hasCarpet} />
+        {achievements.hasCarpet && (
+          <Clickable id={{ kind: "carpet" }} label="Red carpet — Lv ≥ 9">
+            <RedCarpet visible={achievements.hasCarpet} />
+          </Clickable>
+        )}
         {/* E2 — meal item on the desk-side table. */}
-        <MealTable meal={temporal.meal} slot={dynamicSlots.mealSlot} />
+        <Clickable id={{ kind: "meal" }} label="Meal — 現在時刻の食事">
+          <MealTable meal={temporal.meal} slot={dynamicSlots.mealSlot} />
+        </Clickable>
         <FurnitureLayer items={furniture} layer="corner" />
         {dynamicSlots.messSlots && (
-          <MessLayer
-            level={roomState.messLevel}
-            errorBoost={roomState.errorBoost}
-            slots={dynamicSlots.messSlots}
-            seed={seed}
-          />
+          <Clickable id={{ kind: "mess" }} label="Mess level — 活動量">
+            <MessLayer
+              level={roomState.messLevel}
+              errorBoost={roomState.errorBoost}
+              slots={dynamicSlots.messSlots}
+              seed={seed}
+            />
+          </Clickable>
         )}
         <FurnitureLayer items={furniture} layer="floor-mid" />
         {/* F1 — pets sit on the floor in front of furniture, behind the
             avatar so the resident remains the visual anchor. */}
-        {dynamicSlots.petSlots && (
-          <PetGroup pets={petBundle.pets} slots={dynamicSlots.petSlots} />
+        {dynamicSlots.petSlots && petBundle.pets.length > 0 && (
+          <Clickable id={{ kind: "pets" }} label="Pets — agent kind のコンパニオン">
+            <PetGroup pets={petBundle.pets} slots={dynamicSlots.petSlots} />
+          </Clickable>
+        )}
+        {/* Spawn-driven guests render behind the resident so the resident
+            stays the visual anchor, with the overhead bustle banner on
+            top of all avatars when intensity ≥ busy. */}
+        {guests.length > 0 && (
+          <Clickable id={{ kind: "guests" }} label="Guest agents — 来訪サブエージェント">
+            <RoomGuests guests={guests} />
+          </Clickable>
         )}
         <RoomAvatar card={card} detail={detail} />
-        {hasRecentUserMessage && <RoomVisitor />}
+        {hasRecentUserMessage && (
+          <Clickable id={{ kind: "visitor" }} label="Visitor — ユーザー来訪">
+            <RoomVisitor />
+          </Clickable>
+        )}
+        {bustle.intensity !== "quiet" && (
+          <Clickable id={{ kind: "bustle-banner" }} label="Bustle banner — 賑やかさ">
+            <RoomBustleBanner intensity={bustle.intensity} hues={bustle.subagentHues} />
+          </Clickable>
+        )}
         {roomState.toolProp && dynamicSlots.toolSlot && (
-          <ToolPropSvg
-            kind={roomState.toolProp}
-            slot={dynamicSlots.toolSlot}
-            accent={palette.accent}
-          />
+          <Clickable id={{ kind: "tool" }} label="Tool prop — 直近 2 分の道具">
+            <ToolPropSvg
+              kind={roomState.toolProp}
+              slot={dynamicSlots.toolSlot}
+              accent={palette.accent}
+            />
+          </Clickable>
         )}
         <FurnitureLayer items={furniture} layer="floor-front" />
         {isDark && <NightTint />}
       </svg>
 
-      {/* Room-kind chip (top-left) */}
-      <div
-        className="absolute top-1.5 left-1.5 px-1.5 h-5 inline-flex items-center gap-1 rounded-[var(--radius-sm)] text-[10px] font-mono"
+      {/* Room-kind chip (top-left) — clickable for "why is this room?" */}
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          setSelected({ kind: "room-kind" });
+        }}
+        className="absolute top-1.5 left-1.5 px-1.5 h-5 inline-flex items-center gap-1 rounded-[var(--radius-sm)] text-[10px] font-mono cursor-pointer hover:opacity-100"
         style={{
           background: "var(--color-bg)",
           color: palette.accent,
           border: `1px solid ${palette.accent}`,
           opacity: 0.92,
         }}
+        title={`${roomKindLabel(roomKind)} — クリックで判定理由を表示`}
       >
         <span aria-hidden>🚪</span>
         <span>{roomKindLabel(roomKind)}</span>
+      </button>
+
+      {/* Always-visible state badge (top-right) — diagnostic: shows which
+          object is currently selected so the user can verify clicks update
+          state even when the inspector overlay isn't visible. */}
+      <div
+        className="absolute top-1.5 right-1.5 px-1.5 h-5 inline-flex items-center gap-1 rounded-[var(--radius-sm)] text-[9px] font-mono pointer-events-none"
+        style={{
+          background: selected ? "hsl(45, 95%, 55%)" : "rgba(0,0,0,0.6)",
+          color: selected ? "#1a1a1a" : "#FAF6EC",
+          border: "1px solid rgba(255,255,255,0.2)",
+        }}
+      >
+        <span aria-hidden>{selected ? "🔍" : "·"}</span>
+        <span>{selected ? selected.kind : "no selection"}</span>
       </div>
+
+      {/* Inspector overlay — bottom-anchored card explaining what the clicked
+          object represents. ESC also closes it. Background is intentionally
+          high-contrast yellow so the panel is unmistakable against any room
+          palette and can't be missed when state updates. */}
+      {inspectorEntry && (
+        <div
+          className="absolute bottom-1.5 left-1.5 right-1.5 z-50 p-2 rounded-[var(--radius-sm)] text-[10px] font-mono shadow-lg"
+          style={{
+            background: "hsl(45, 95%, 92%)",
+            color: "#1a1a1a",
+            border: "2px solid hsl(45, 95%, 45%)",
+            boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
+          }}
+          onClick={(e) => e.stopPropagation()}
+          onKeyDown={(e) => e.stopPropagation()}
+          role="dialog"
+          aria-label="Room object inspector"
+        >
+          <header className="flex items-start justify-between gap-2 mb-1">
+            <span className="font-semibold leading-tight">{inspectorEntry.title}</span>
+            <button
+              type="button"
+              onClick={() => setSelected(null)}
+              aria-label="Close inspector"
+              className="shrink-0 -mr-0.5 -mt-0.5 px-1 text-[12px] leading-none opacity-70 hover:opacity-100"
+            >
+              ×
+            </button>
+          </header>
+          <p className="leading-snug opacity-90">{inspectorEntry.summary}</p>
+          {inspectorEntry.details.length > 0 && (
+            <ul className="mt-1 space-y-0.5 leading-snug opacity-95">
+              {inspectorEntry.details.map((d, i) => (
+                <li key={i} className="before:content-['•_'] before:opacity-60">
+                  {d}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -687,15 +948,19 @@ function RoomLighting({ isDark, accent }: { isDark: boolean; accent: string }) {
 function NightTint() {
   // Subtle bluish overlay to make night-time rooms read as evening. D2 —
   // includes a localized warm pocket under the lamp so cool night doesn't
-  // wash out the lit zone.
+  // wash out the lit zone. **pointer-events: none is critical**: this
+  // rect covers the entire SVG and would otherwise absorb every click,
+  // preventing the Inspector from receiving any hit-test through the
+  // <Clickable> wrappers underneath.
   return (
-    <g aria-hidden>
+    <g aria-hidden pointerEvents="none">
       <rect
         x="0"
         y="0"
         width={SCENE_W}
         height={SCENE_H}
         fill="rgba(20, 28, 70, 0.18)"
+        pointerEvents="none"
       />
     </g>
   );
@@ -719,7 +984,12 @@ function FurnitureLayer({
   const hasFloorShadow =
     layer === "floor-back" || layer === "floor-mid" || layer === "floor-front" || layer === "corner";
   return (
-    <g>
+    // pointer-events: none on the whole layer — furniture is decorative and
+    // is sometimes drawn AFTER Clickable wrappers (mess / tool / pets etc.);
+    // without this the emoji text would absorb clicks that should reach
+    // those interactive layers behind it. The Clickable that wraps the
+    // "wall" layer in RoomScene re-enables hit-testing for its own bounds.
+    <g pointerEvents="none">
       {filtered.map((it, i) => {
         const sx = mapX(it);
         const sy = mapY(it);
@@ -800,7 +1070,10 @@ function RoomAvatar({
   const groundY = 200;
   const totalH = 70; // matches the legacy ~60-70px standing figure
   return (
-    <g transform={`translate(${cx}, ${groundY - totalH})`}>
+    // pointer-events: none — the resident avatar is decorative and is
+    // drawn AFTER pet/guest Clickables; without this it would absorb
+    // clicks meant for the pets/guests behind it.
+    <g transform={`translate(${cx}, ${groundY - totalH})`} pointerEvents="none">
       {/* Ground shadow under the feet */}
       <ellipse cx={0} cy={totalH + 1} rx={16} ry={3.5} fill="rgba(0,0,0,0.28)" />
       <HamletAvatar
@@ -881,6 +1154,122 @@ function RoomVisitor() {
 }
 
 // ---------------------------------------------------------------------------
+// RoomGuests — sub-agent avatars that "drop by" the room while their parent
+// session is the active resident. Each guest is a smaller HamletAvatar tinted
+// by its own session-type clothing, with a per-guest bob/sway phase so the
+// crowd reads as alive but not synchronized. A small accent halo at the
+// guest's head color helps distinguish them from the resident.
+// ---------------------------------------------------------------------------
+
+function RoomGuests({ guests }: { guests: readonly RoomGuest[] }) {
+  return (
+    <g aria-hidden>
+      {guests.map((g) => (
+        <RoomGuestAvatar key={g.key} guest={g} />
+      ))}
+    </g>
+  );
+}
+
+function RoomGuestAvatar({ guest }: { guest: RoomGuest }) {
+  const parts = useMemo(() => avatarPartsFromSeed(guest.seed), [guest.seed]);
+  const expression = useMemo(() => getExpressionForMood("happy"), []);
+  const clothes = useMemo(() => clothingForAgent(guest.sessionType), [guest.sessionType]);
+  const haloColor = `hsl(${guest.hue}, 70%, 60%)`;
+  // Per-guest stagger so multiple guests don't bob in lockstep.
+  const animStyle = {
+    animation: `relayRoomGuestBob 2.4s ease-in-out ${guest.phase.toFixed(2)}s infinite`,
+    transformOrigin: "center",
+  } as const;
+  return (
+    <g transform={`translate(${guest.cx}, ${guest.groundY - guest.height})`}>
+      <ellipse
+        cx={0}
+        cy={guest.height + 1}
+        rx={guest.height * 0.22}
+        ry={Math.max(2, guest.height * 0.055)}
+        fill="rgba(0,0,0,0.24)"
+      />
+      <g style={animStyle}>
+        <HamletAvatar
+          parts={parts}
+          expression={expression}
+          clothing={clothes}
+          height={guest.height}
+          haloColor={haloColor}
+        />
+      </g>
+    </g>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// RoomBustleBanner — overhead chatter / sparkles / music notes that float
+// above the resident when sub-agents are present. Intensity drives both the
+// emoji set and the spawn count, mirroring the Neighborhood-side bustle.
+// ---------------------------------------------------------------------------
+
+function RoomBustleBanner({
+  intensity,
+  hues,
+}: {
+  intensity: BustleIntensity;
+  hues: readonly number[];
+}) {
+  const cfg = BUSTLE_BANNER_CFG[intensity];
+  if (!cfg) return null;
+  // Centered between the back row of guests and the lamp so the eye picks
+  // it up without overlapping the avatars' heads.
+  const baseX = SCENE_W / 2;
+  const baseY = 96;
+  return (
+    <g aria-hidden>
+      {Array.from({ length: cfg.count }).map((_, i) => {
+        const glyph = cfg.glyphs[i % cfg.glyphs.length] ?? "✨";
+        const hue = hues[i % Math.max(1, hues.length)] ?? 48;
+        const xOffset = (i - (cfg.count - 1) / 2) * cfg.spread;
+        const delay = -(i * (cfg.period / cfg.count));
+        return (
+          <text
+            key={i}
+            x={baseX + xOffset}
+            y={baseY}
+            fontSize={cfg.fontSize}
+            textAnchor="middle"
+            dominantBaseline="middle"
+            fill={`hsl(${hue}, 75%, 62%)`}
+            stroke="rgba(0,0,0,0.35)"
+            strokeWidth={0.2}
+            style={{
+              animation: `relayRoomBustleSparkle ${cfg.period.toFixed(2)}s ease-out ${delay.toFixed(2)}s infinite`,
+              transformOrigin: `${(baseX + xOffset).toFixed(2)}px ${baseY}px`,
+              filter: "drop-shadow(0 1px 1.4px rgba(0,0,0,0.35))",
+            }}
+          >
+            {glyph}
+          </text>
+        );
+      })}
+    </g>
+  );
+}
+
+interface BustleBannerCfg {
+  count: number;
+  glyphs: readonly string[];
+  spread: number;
+  fontSize: number;
+  period: number;
+}
+
+const BUSTLE_BANNER_CFG: Record<BustleIntensity, BustleBannerCfg | null> = {
+  quiet: null,
+  lively: { count: 2, glyphs: ["✨", "💬"], spread: 14, fontSize: 9, period: 3.0 },
+  busy: { count: 4, glyphs: ["✨", "💬", "♪", "🎈"], spread: 16, fontSize: 10, period: 2.4 },
+  party: { count: 5, glyphs: ["🎉", "✨", "♪", "💬", "🎈"], spread: 18, fontSize: 11, period: 1.8 },
+};
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -935,6 +1324,22 @@ export const ROOM_SCENE_CSS = `
 @keyframes relayRoomLampBreathe {
   0%, 100% { opacity: 0.85; }
   50% { opacity: 1; }
+}
+@keyframes relayRoomGuestBob {
+  0%, 100% { transform: translate(0, 0); }
+  50%      { transform: translate(0, -1.2px); }
+}
+@keyframes relayRoomBustleSparkle {
+  0%   { transform: translate(0, 4px)  scale(0.7) rotate(-6deg); opacity: 0; }
+  20%  { opacity: 0.95; }
+  60%  { transform: translate(1.6px, -10px) scale(1.05) rotate(8deg); opacity: 0.9; }
+  100% { transform: translate(-1.6px, -22px) scale(1.15) rotate(-4deg); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  [style*="relayRoomGuestBob"],
+  [style*="relayRoomBustleSparkle"] {
+    animation: none !important;
+  }
 }
 ${ROOM_STATE_CSS}
 ${ROOM_LIFE_CSS}
