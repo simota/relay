@@ -81,6 +81,7 @@ import { HOUSE_CHAT_CSS, HouseChatLayer } from "./fleet-hamlet-house-chat";
 import { HamletDioramaDefs } from "./fleet-hamlet-diorama-defs";
 import { DIORAMA_DEFS } from "../_lib/fleet-hamlet-diorama-tokens";
 import { pickHousesWithBubbles } from "../_lib/fleet-hamlet-last-message";
+import { useHamletMessageNotify } from "../_hooks/use-hamlet-message-notify";
 import {
   EventBurst,
   LightningOverlay,
@@ -312,6 +313,12 @@ export function FleetHamletNeighborhood({
     });
   }, [fit.useTiny, visibleActive, detailByKey, now, selectedSessionId]);
 
+  // Ping a short two-tone bell whenever a new bubble appears (LINE-like
+  // "ピロン"). First render is the baseline so pre-existing messages don't
+  // chime on page open; subsequent additions do until the user mutes.
+  const { muted: chimeMuted, toggleMute: toggleChime } =
+    useHamletMessageNotify(houseBubbles);
+
   // Sky + ground scenery layers. Time-of-day is re-evaluated on each
   // `now` tick so dusk → night transitions appear without a reload.
   const sky = useMemo(() => skyPalette(timeOfDay(new Date(now))), [now]);
@@ -414,6 +421,39 @@ export function FleetHamletNeighborhood({
             </span>
           </>
         )}
+        {/* New-message chime toggle — pinned to the right edge of the HUD. */}
+        <button
+          type="button"
+          onClick={toggleChime}
+          className={cn(
+            "ml-auto inline-flex items-center gap-1 px-1.5 h-5",
+            "rounded-[var(--radius-sm)] border border-[var(--color-border)]",
+            "bg-[var(--color-bg)]/80 hover:bg-[var(--color-bg)]",
+            "text-[10px] font-mono transition-colors duration-150",
+          )}
+          title={
+            chimeMuted
+              ? "Click to enable new-message chime"
+              : "Click to mute new-message chime"
+          }
+          aria-pressed={!chimeMuted}
+          aria-label={
+            chimeMuted ? "Enable new-message chime" : "Mute new-message chime"
+          }
+        >
+          <span aria-hidden className="text-[12px] leading-none">
+            {chimeMuted ? "🔕" : "🔔"}
+          </span>
+          <span
+            className={
+              chimeMuted
+                ? "text-[var(--color-fg-dim)]"
+                : "text-[var(--color-fg-muted)]"
+            }
+          >
+            {chimeMuted ? "muted" : "chime"}
+          </span>
+        </button>
       </div>
 
       {/* Active scene zone — fills the container minus HUD + park. Every
