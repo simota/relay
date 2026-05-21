@@ -517,8 +517,10 @@ export function BodyTorso({
   const topW = w * 0.55;
   const botW = w * 0.85;
   const torsoBottom = h * 0.65;
-  // Arms / legs pose deltas
-  const armRaise = pose === "wave" ? -h * 0.42 : 0;
+  // Arms / legs pose deltas. The wave is conveyed by rocking the right
+  // arm at the shoulder (CSS animation); we don't lift the shoulder
+  // itself — that would slide the arm up to face height.
+  const armRaise = 0;
   const armCrouchY = pose === "crouch" ? -h * 0.05 : 0;
   const leftLegX = pose === "step-forward" ? -w * 0.08 : -w * 0.22;
   const rightLegX = pose === "step-forward" ? w * 0.18 : w * 0.05;
@@ -638,13 +640,13 @@ export function BodyTorso({
                 rotations pivot at the shoulder (rect's top-center, which
                 lives at local origin because rect.x = -w*0.07). */}
             <g
-              transform={`translate(${-w * 0.35}, ${h * 0.1 + armCrouchY}) rotate(${pose === "crouch" ? -25 : pose === "sigh" ? 10 : 0})`}
+              transform={`translate(${-w * 0.42}, ${h * 0.12 + armCrouchY}) rotate(${pose === "crouch" ? -25 : pose === "sigh" ? 10 : 0})`}
             >
               <rect
                 x={-w * 0.07}
                 y={0}
                 width={w * 0.14}
-                height={h * 0.42}
+                height={h * 0.34}
                 rx={w * 0.06}
                 fill={clothing.shirtDark}
               />
@@ -653,20 +655,20 @@ export function BodyTorso({
                   x={-w * 0.07}
                   y={0}
                   width={w * 0.04}
-                  height={h * 0.42}
+                  height={h * 0.34}
                   rx={w * 0.04}
                   fill={clothing.accent}
                   opacity={0.65}
                 />
               )}
               {/* hand (skin circle at cuff end) */}
-              <circle cx={0} cy={h * 0.45} r={w * 0.09} fill="#F0CDA8" />
+              <circle cx={0} cy={h * 0.37} r={w * 0.09} fill="#F0CDA8" />
             </g>
             {/* Right arm — shoulder anchored mirror of the left (origin
                 is the local rect top-center). Wave is expressed by
                 rocking this arm with the relayHamletWaveHand keyframe. */}
             <g
-              transform={`translate(${w * 0.35}, ${h * 0.1 + armRaise * 0.5}) rotate(${pose === "wave" ? -25 : pose === "crouch" ? 25 : pose === "sigh" ? -10 : pose === "step-forward" ? -15 : 0})`}
+              transform={`translate(${w * 0.42}, ${h * 0.12 + armRaise * 0.5}) rotate(${pose === "wave" ? -25 : pose === "crouch" ? 25 : pose === "sigh" ? -10 : pose === "step-forward" ? -15 : 0})`}
               style={
                 pose === "wave"
                   ? {
@@ -681,7 +683,7 @@ export function BodyTorso({
                 x={-w * 0.07}
                 y={0}
                 width={w * 0.14}
-                height={h * 0.42}
+                height={h * 0.34}
                 rx={w * 0.06}
                 fill={clothing.shirtDark}
               />
