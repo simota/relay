@@ -34,8 +34,11 @@ export interface HouseChatBubbleProps {
   fresh?: boolean;
 }
 
-const DEFAULT_MAX_WIDTH = 200;
-const MIN_MAX_WIDTH = 80;
+// Bubble is shaped landscape (3:4 height:width) by capping inner max-height
+// at 0.75 × maxWidth. Wider values let Japanese / long text breathe across
+// fewer lines so the bubble reads as a card instead of a tall column.
+const DEFAULT_MAX_WIDTH = 340;
+const MIN_MAX_WIDTH = 120;
 
 /**
  * One small overhead chat bubble. Visually a smaller cousin of the
@@ -88,8 +91,14 @@ export function HouseChatBubble({
         left: x,
         top: y,
         transform: "translate(-50%, -100%)",
-        maxWidth: clampedMax,
-        minWidth: 60,
+        // Fixed width (block + border-box) so every bubble on a row is the
+        // exact same landscape card size, regardless of how much text each
+        // session happens to have. Inline-block / -webkit-box shrink-wraps
+        // would otherwise make short messages render visibly narrower than
+        // long ones sitting next door.
+        display: "block",
+        boxSizing: "border-box",
+        width: clampedMax,
         borderRadius: 10,
         border: `1px solid ${border}`,
         background: `${bg}, radial-gradient(circle at 30% 20%, rgba(255,255,255,0.6) 0.5px, transparent 1.5px), radial-gradient(circle at 70% 60%, rgba(0,0,0,0.04) 0.5px, transparent 1.5px)`,
@@ -112,6 +121,11 @@ export function HouseChatBubble({
           nib below can hang outside the clipped region. */}
       <div
         style={{
+          // Force inner to fill outer's fixed width — `display: -webkit-box`
+          // otherwise shrink-wraps and the bubble would visually collapse to
+          // its longest unbreakable text run.
+          width: "100%",
+          boxSizing: "border-box",
           padding: `${paddingY}px 9px`,
           maxHeight: innerMaxHeight,
           overflow: "hidden",
