@@ -98,6 +98,11 @@ import {
 } from "../_lib/fleet-hamlet-street-props";
 import { StreetPropsLayer } from "./fleet-hamlet-street-props";
 import { TinyHouseSvg } from "./fleet-hamlet-tiny-house";
+import {
+  composeVillageHeadlines,
+  type Headline,
+} from "../_lib/fleet-hamlet-news";
+import { collectAllEvents } from "../_lib/fleet-hamlet-events";
 
 // Fit-All layout (see _lib/fleet-hamlet-fit-layout.ts) sizes cells
 // dynamically so every house + park resident is visible without scroll
@@ -375,6 +380,42 @@ export function FleetHamletNeighborhood({
   // light up their windows; this also drives streetlamp visibility logic.
   const isNightish = sky.tod === "evening" || sky.tod === "night";
 
+  // --- Axis A: Village news ticker -------------------------------------------
+  // Collect all events once (detailByKey may be undefined; guard inside).
+  const allEvents = useMemo(() => {
+    if (!detailByKey) return [];
+    return collectAllEvents(sims, detailByKey, now);
+  }, [sims, detailByKey, now]);
+
+  const headlines = useMemo(
+    () => composeVillageHeadlines(sims, allEvents, now, season),
+    [sims, allEvents, now, season],
+  );
+
+  // Rotate every 6 seconds.
+  const [headlineIdx, setHeadlineIdx] = useState(0);
+  useEffect(() => {
+    if (headlines.length <= 1) return;
+    const id = setInterval(() => {
+      setHeadlineIdx((i) => (i + 1) % headlines.length);
+    }, 6000);
+    return () => clearInterval(id);
+  }, [headlines.length]);
+
+  const currentHeadline: Headline | null = headlines[headlineIdx % Math.max(1, headlines.length)] ?? null;
+
+  // --- Axis D: Founder crown --------------------------------------------------
+  // Oldest non-archived sim (lastActiveAt within 7 days) by bornAt.
+  const founderKey = useMemo(() => {
+    const ARCHIVE_MS = 7 * 24 * 60 * 60 * 1000;
+    let oldest: SimCardModel | null = null;
+    for (const s of sims) {
+      if (now - s.lastActiveAt > ARCHIVE_MS) continue;
+      if (!oldest || s.bornAt < oldest.bornAt) oldest = s;
+    }
+    return oldest?.key ?? null;
+  }, [sims, now]);
+
   return (
     <div
       ref={containerRef}
@@ -456,6 +497,29 @@ export function FleetHamletNeighborhood({
         </button>
       </div>
 
+      {/* Axis A — News ticker: single rotating headline strip.
+          Height 18–20px, sits between HUD and the active scene (z-10 so it
+          floats above the sky layer but below the HUD overlay).
+          Hidden when container width < 320px (tiny mode). */}
+      {currentHeadline && (containerSize.w === 0 || containerSize.w >= 320) && (
+        <div
+          aria-live="polite"
+          aria-label="Village news"
+          className={cn(
+            "absolute inset-x-0 z-10 overflow-hidden",
+            "flex items-center px-3 h-[18px]",
+            "bg-[var(--color-bg)]/60 backdrop-blur-sm",
+            "border-b border-[var(--color-border)]/40",
+            "text-[10px] font-mono text-[var(--color-fg-muted)]",
+            "pointer-events-none select-none",
+            "relay-news-ticker",
+          )}
+          style={{ top: HUD_RESERVE }}
+        >
+          <span className="truncate">{currentHeadline.text}</span>
+        </div>
+      )}
+
       {/* Active scene zone — fills the container minus HUD + park. Every
           backdrop layer (sky / mountains / ground / weather / particles)
           spans the full container width so the village reads as a single
@@ -509,6 +573,16 @@ export function FleetHamletNeighborhood({
             />
           </div>
         )}
+        {/* Axis C — Shooting star: only at night, random interval 20–40s.
+            Rendered above the sky band but below the mountain + house layers.
+            Suppressed by reduced-motion and in containers narrower than 320px. */}
+        {sky.tod === "night" && (containerSize.w === 0 || containerSize.w >= 320) && (
+          <ShootingStar
+            width={containerSize.w || activeW}
+            height={skyCeilingY}
+          />
+        )}
+
         {/* Ground band — bottom strip with pastel grass + dots. */}
         <GroundBand
           palette={sky}
@@ -640,6 +714,11 @@ export function FleetHamletNeighborhood({
                   strokeLinecap="round"
                   opacity={0.6}
                 />
+              ))}
+              {/* Axis B — Letter birds: ✉ emoji flying from parent → child.
+                  Suppressed in tiny mode and by reduced-motion preference. */}
+              {!fit.useTiny && roads.map((r) => (
+                <LetterBird key={`bird-${r.id}`} road={r} activeW={activeW} activeH={activeH} />
               ))}
             </svg>
           )}
@@ -800,6 +879,16 @@ export function FleetHamletNeighborhood({
                       event.kind === "wedding" ||
                       event.kind === "baby") && <ConfettiBurst />}
                 </button>
+                {/* Axis D — Founder crown: 👑 on the oldest active sim's roof.
+                    Tiny mode skips it to avoid clutter. */}
+                {!fit.useTiny && founderKey === sim.key && (
+                  <FounderCrown
+                    sim={sim}
+                    now={now}
+                    cellW={activeCellW}
+                    cellH={activeCellH}
+                  />
+                )}
                 {/* Hover-only Enter House overlay — full mode only. */}
                 {!fit.useTiny && (
                   <button
@@ -1551,6 +1640,142 @@ function roadPath(
 }
 
 // ---------------------------------------------------------------------------
+// Axis B — Letter bird: ✉ flies from parent → child along the road path
+// ---------------------------------------------------------------------------
+
+function hashRoadId(id: string): number {
+  let h = 5381;
+  for (let i = 0; i < id.length; i++) {
+    h = ((h << 5) + h) ^ id.charCodeAt(i);
+  }
+  return (h >>> 0);
+}
+
+function LetterBird({
+  road,
+  activeW,
+  activeH,
+}: {
+  road: { id: string; from: { x: number; y: number }; to: { x: number; y: number } };
+  activeW: number;
+  activeH: number;
+}) {
+  const seed = hashRoadId(road.id);
+  // Delay: 6–12s based on seed; duration: 4–5s.
+  const delayS = 6 + (seed % 7);
+  const durationS = 4 + (seed % 2);
+
+  // The bird travels the same quadratic-curve path as the road.
+  // We use a CSS `offset-path` motion path on a <text> element inside the SVG.
+  // `offset-distance` keyframes go 0% → 100%.
+  const pathId = `bird-path-${road.id.replace(/[^a-zA-Z0-9]/g, "_")}`;
+  const d = roadPath(road.from, road.to);
+
+  return (
+    <>
+      <defs>
+        <path id={pathId} d={d} />
+      </defs>
+      <text
+        fontSize={12}
+        textAnchor="middle"
+        dominantBaseline="middle"
+        style={{
+          offsetPath: `path('${d}')`,
+          offsetDistance: "0%",
+          animation: `relayLetterBird ${durationS}s ease-in-out ${delayS}s infinite`,
+        } as React.CSSProperties}
+      >
+        ✉️
+      </text>
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Axis C — Shooting star: diagonal streak across the night sky
+// ---------------------------------------------------------------------------
+
+function ShootingStar({ width, height }: { width: number; height: number }) {
+  // Static — the animation is purely CSS, no JS state needed.
+  // The star starts top-right and moves to lower-left over 3–4s.
+  // Interval between shots: 20–40s handled by a long animation cycle.
+  const starLen = Math.min(width * 0.22, 80);
+  // Position: start at ~80% from left, top 10% of the ceiling.
+  const x1 = width * 0.80;
+  const y1 = height * 0.08;
+  const x2 = x1 - starLen * 1.3;
+  const y2 = y1 + starLen * 0.7;
+
+  return (
+    <svg
+      className="absolute inset-0 pointer-events-none relay-shooting-star"
+      width={width}
+      height={height}
+      viewBox={`0 0 ${width} ${height}`}
+      aria-hidden
+      style={{ top: 0, left: 0 }}
+    >
+      <g style={{ animation: "relayShootingStar 30s linear infinite" }}>
+        {/* Streak tail */}
+        <line
+          x1={x1}
+          y1={y1}
+          x2={x2}
+          y2={y2}
+          stroke="white"
+          strokeWidth={1.5}
+          strokeLinecap="round"
+          opacity={0.9}
+        />
+        {/* Leading star dot */}
+        <circle cx={x2} cy={y2} r={2} fill="white" opacity={0.95} />
+      </g>
+    </svg>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Axis D — Founder crown: 👑 badge above the oldest resident's roof
+// ---------------------------------------------------------------------------
+
+function FounderCrown({
+  sim,
+  now,
+  cellW,
+  cellH,
+}: {
+  sim: SimCardModel;
+  now: number;
+  cellW: number;
+  cellH: number;
+}) {
+  const daysAlive = Math.floor((now - sim.bornAt) / (1000 * 60 * 60 * 24));
+  const label = `👑 Founder · ${daysAlive}日連続在住`;
+
+  // Position: roof's left shoulder. The house SVG is bottom-aligned inside
+  // the cell, so the crown sits near the top of the cell.
+  return (
+    <span
+      aria-label={label}
+      title={label}
+      className="absolute pointer-events-auto select-none"
+      style={{
+        // Left shoulder of the roof — roughly left: 18% of cellW, top: 16% of cellH.
+        left: Math.max(2, Math.floor(cellW * 0.16)),
+        top: Math.max(2, Math.floor(cellH * 0.14)),
+        fontSize: 14,
+        lineHeight: 1,
+        filter: "drop-shadow(0 1px 2px rgba(0,0,0,0.5))",
+        zIndex: 5,
+      }}
+    >
+      👑
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Keyframes — chimney smoke + panel slide
 // ---------------------------------------------------------------------------
 
@@ -1579,5 +1804,35 @@ const SMOKE_CSS = `
 @keyframes relayHamletAura {
   0%, 100% { filter: drop-shadow(0 0 4px hsla(45, 95%, 60%, 0.5)); }
   50%      { filter: drop-shadow(0 0 10px hsla(45, 95%, 60%, 0.95)); }
+}
+
+/* Axis B — Letter bird travels along offset-path */
+@keyframes relayLetterBird {
+  0%   { offset-distance: 0%;   opacity: 0; }
+  8%   { opacity: 1; }
+  80%  { opacity: 1; }
+  100% { offset-distance: 100%; opacity: 0; }
+}
+
+/* Axis C — Shooting star: flash in, streak across, fade out in a 30s cycle */
+@keyframes relayShootingStar {
+  0%    { opacity: 0; transform: translateX(0)   translateY(0); }
+  2%    { opacity: 1; }
+  8%    { opacity: 0; transform: translateX(-18%) translateY(10%); }
+  8.01% { opacity: 0; transform: translateX(0)   translateY(0); }
+  100%  { opacity: 0; transform: translateX(0)   translateY(0); }
+}
+
+/* Axis A — News ticker fade in/out (applied via CSS class swap) */
+@keyframes relayNewsFadeIn {
+  from { opacity: 0; transform: translateY(3px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Reduced-motion: freeze all hamlet extras */
+@media (prefers-reduced-motion: reduce) {
+  .relay-shooting-star,
+  .relay-news-ticker { animation: none !important; }
+  [style*="relayLetterBird"]  { animation: none !important; }
 }
 `;
