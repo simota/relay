@@ -669,7 +669,7 @@ export function SimCard({
               <HatSvg kind={accessories.hat} />
             </span>
           )}
-          <SimAvatar parts={parts} mood={sim.mood} />
+          <SimAvatar parts={parts} mood={sim.mood} accessories={accessories} />
           <AvatarBody agentKind={sim.sessionType} width={44} height={18} mood={sim.mood.key} />
           {accessories.badge && (
             <span
@@ -842,7 +842,20 @@ function NeedBar({ label, value }: { label: string; value: number }) {
 // mood-driven eyes / mouth / brows, idle blink, sweat / Zzz overlays. The
 // face is centered in a 48×48 box. Body is rendered separately by the
 // caller via AvatarBody.
-function SimAvatar({ parts, mood }: { parts: AvatarParts; mood: SimCardModel["mood"] }) {
+function SimAvatar({
+  parts,
+  mood,
+  accessories,
+}: {
+  parts: AvatarParts;
+  mood: SimCardModel["mood"];
+  accessories?: {
+    glasses: import("../_lib/fleet-hamlet-particles").GlassesKind;
+    mustache: import("../_lib/fleet-hamlet-particles").MustacheKind;
+    beard: import("../_lib/fleet-hamlet-particles").BeardKind;
+    earring: import("../_lib/fleet-hamlet-particles").EarringKind;
+  };
+}) {
   const expression = useMemo(() => getExpressionForMood(mood.key), [mood.key]);
   return (
     <svg
@@ -865,6 +878,10 @@ function SimAvatar({ parts, mood }: { parts: AvatarParts; mood: SimCardModel["mo
           expression={expression}
           radius={14}
           haloColor={mood.color}
+          glasses={accessories?.glasses}
+          mustache={accessories?.mustache}
+          beard={accessories?.beard}
+          earring={accessories?.earring}
         />
       </g>
     </svg>

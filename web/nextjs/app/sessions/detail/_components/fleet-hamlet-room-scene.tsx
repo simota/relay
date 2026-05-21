@@ -32,7 +32,7 @@ import {
   type TimeOfDay,
 } from "../_lib/fleet-hamlet-decor";
 import type { RoomKind } from "../_lib/fleet-hamlet-house";
-import { selectActiveRoom } from "../_lib/fleet-hamlet-particles";
+import { deriveAccessories, selectActiveRoom } from "../_lib/fleet-hamlet-particles";
 import {
   getFurnitureLayout,
   getRoomDynamicSlots,
@@ -235,7 +235,7 @@ export function RoomScene({
             default wall so existing pattern stays visible underneath. */}
         <MoodWallpaper palette={moodPalette} />
         <RoomSideWall palette={palette} />
-        <RoomFloor palette={palette} />
+        <RoomFloor palette={palette} roomKind={roomKind} />
         <RoomWindow sky={sky} tod={tod} isStormy={weather === "stormy"} />
         {/* R6 F2 — window-through relationships overlay (parent house,
             children playing, passing friend). Clipped to the same window
@@ -339,7 +339,7 @@ export function RoomScene({
         {dynamicSlots.petSlots && (
           <PetGroup pets={petBundle.pets} slots={dynamicSlots.petSlots} />
         )}
-        <RoomAvatar card={card} />
+        <RoomAvatar card={card} detail={detail} />
         {hasRecentUserMessage && <RoomVisitor />}
         {roomState.toolProp && dynamicSlots.toolSlot && (
           <ToolPropSvg
@@ -444,9 +444,22 @@ function RoomSideWall({ palette }: { palette: RoomPalette }) {
   );
 }
 
-function RoomFloor({ palette }: { palette: RoomPalette }) {
+function RoomFloor({ palette, roomKind }: { palette: RoomPalette; roomKind: RoomKind }) {
   const gradId = "relay-room-floor-grad";
   const beamClip = "relay-room-floor-beam-clip";
+  // F-3 — trophy / reception rooms get a polished marble floor; library /
+  // study get a wood-grain wash. Other rooms keep the default plank look.
+  const floorTexture =
+    roomKind === "trophy" || roomKind === "reception"
+      ? DIORAMA_DEFS.marble
+      : roomKind === "library" || roomKind === "study"
+        ? DIORAMA_DEFS.woodGrain
+        : null;
+  const floorTextureOpacity = roomKind === "trophy" || roomKind === "reception" ? 0.22 : 0.18;
+  const floorTextureFill =
+    roomKind === "trophy" || roomKind === "reception"
+      ? "rgba(245, 245, 250, 0.6)"
+      : "rgba(110, 78, 42, 0.9)";
   return (
     <>
       <defs>
@@ -466,6 +479,18 @@ function RoomFloor({ palette }: { palette: RoomPalette }) {
         points={`40,120 ${SCENE_W - 40},120 ${SCENE_W},${SCENE_H} 0,${SCENE_H}`}
         fill={`url(#${gradId})`}
       />
+      {/* F-3 — procedural texture overlay (marble or wood) for material
+          rooms. Clipped to the floor polygon so it never spills onto walls. */}
+      {floorTexture && (
+        <g clipPath={`url(#${beamClip})`}>
+          <polygon
+            points={`40,120 ${SCENE_W - 40},120 ${SCENE_W},${SCENE_H} 0,${SCENE_H}`}
+            fill={floorTextureFill}
+            filter={`url(#${floorTexture})`}
+            opacity={floorTextureOpacity}
+          />
+        </g>
+      )}
       {/* Plank stripes — 3-tone (lit / mid / shadow) alternation. */}
       {Array.from({ length: 5 }).map((_, i) => {
         const y = 130 + i * 18;
@@ -755,10 +780,17 @@ function FurnitureLayer({
 // HamletAvatar primitives so face + body match the rest of the village.
 // ---------------------------------------------------------------------------
 
-function RoomAvatar({ card }: { card: SimCardModel }) {
+function RoomAvatar({
+  card,
+  detail,
+}: {
+  card: SimCardModel;
+  detail: SessionDetail | undefined;
+}) {
   const parts = useMemo(() => avatarPartsFromSeed(card.avatarSeed), [card.avatarSeed]);
   const expression = useMemo(() => getExpressionForMood(card.mood.key), [card.mood.key]);
   const clothes = clothingForAgent(card.sessionType);
+  const accessories = useMemo(() => deriveAccessories(card, detail), [card, detail]);
   // Stand the avatar at the center-front, slightly off-center to leave
   // room for the sofa / desk / bed on the mid layer.
   const cx = SCENE_W * 0.62;
@@ -774,6 +806,11 @@ function RoomAvatar({ card }: { card: SimCardModel }) {
         clothing={clothes}
         height={totalH}
         haloColor={card.mood.color}
+        glasses={accessories.glasses}
+        mustache={accessories.mustache}
+        beard={accessories.beard}
+        earring={accessories.earring}
+        scarf={accessories.scarf}
       />
     </g>
   );

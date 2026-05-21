@@ -66,6 +66,15 @@ export const DIORAMA_DEFS = {
   brick: "hamletBrickTexture",
   frosted: "hamletFrostedGlass",
   paperNoise: "hamletPaperNoise",
+  // F-3 — procedural texture filters (feTurbulence) for material surfaces.
+  // `woodGrain` is anisotropic horizontal grain for doors / shelves /
+  // benches; `marble` is veined isotropic noise for trophy / reception
+  // floors; `cloudPuff` is fractal volume for sky clouds; `watercolor`
+  // is high-frequency wash for seasonal particles.
+  woodGrain: "hamletWoodGrain",
+  marble: "hamletMarble",
+  cloudPuff: "hamletCloudPuff",
+  watercolor: "hamletWatercolor",
   // Gradient ids
   sunHalo: "hamletSunHalo",
   moonHalo: "hamletMoonHalo",

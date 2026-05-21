@@ -19,6 +19,7 @@ import type { SimCardModel } from "../_lib/fleet-hamlet";
 import { avatarPartsFromSeed, hashStringToInt } from "../_lib/fleet-hamlet";
 import { HeadFace, clothingForAgent } from "./fleet-hamlet-avatar";
 import { getExpressionForMood } from "../_lib/fleet-hamlet-avatar-expression";
+import { DIORAMA_DEFS } from "../_lib/fleet-hamlet-diorama-tokens";
 
 interface Props {
   cards: readonly SimCardModel[];
@@ -274,10 +275,32 @@ function BenchSvg() {
       <ellipse cx={13} cy={14.5} rx={11} ry={1} fill="rgba(0,0,0,0.28)" />
       {/* Seat plank — base + wood grain + top highlight */}
       <rect x={1} y={6} width={24} height={2.4} rx={0.6} fill="#8C6A3F" />
+      {/* F-3 — wood-grain texture overlay on the seat plank. */}
+      <rect
+        x={1}
+        y={6}
+        width={24}
+        height={2.4}
+        rx={0.6}
+        fill="#5E4226"
+        filter={`url(#${DIORAMA_DEFS.woodGrain})`}
+        opacity={0.28}
+      />
       <rect x={1} y={6} width={24} height={0.6} rx={0.4} fill="#B58A55" opacity={0.85} />
       <line x1={1} y1={7} x2={25} y2={7} stroke="#5E4226" strokeWidth={0.2} opacity={0.6} />
       {/* Back slat */}
       <rect x={1} y={4} width={24} height={1.6} rx={0.4} fill="#A07F4D" />
+      {/* F-3 — wood-grain texture overlay on the back slat. */}
+      <rect
+        x={1}
+        y={4}
+        width={24}
+        height={1.6}
+        rx={0.4}
+        fill="#5E4226"
+        filter={`url(#${DIORAMA_DEFS.woodGrain})`}
+        opacity={0.24}
+      />
       <rect x={1} y={4} width={24} height={0.4} rx={0.4} fill="#C99E64" opacity={0.85} />
       {/* Legs — metal-ish darker stock with highlight stripe */}
       <rect x={2.5} y={8.5} width={1.6} height={5} fill="#6E4F2C" />

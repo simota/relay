@@ -118,6 +118,70 @@ export function HamletDioramaDefs() {
           <feComposite in2="SourceGraphic" operator="in" />
         </filter>
 
+        {/* F-3 procedural textures — feTurbulence variants used as composited
+            overlays on top of the source graphic (no path additions). All
+            four keep their alpha low so the texture reads as a soft grain
+            rather than a hard pattern. */}
+
+        {/* Wood grain — anisotropic horizontal grain. baseFrequency x≫y so
+            streaks run along the +x axis (door slabs / shelf planks / bench
+            seats). Brown-tinted multiply via feColorMatrix. */}
+        <filter id={D.woodGrain} x="0" y="0" width="100%" height="100%">
+          <feTurbulence type="fractalNoise" baseFrequency="0.08 0.7" numOctaves="2" seed="17" />
+          <feColorMatrix
+            type="matrix"
+            values="0 0 0 0 0.32
+                    0 0 0 0 0.20
+                    0 0 0 0 0.10
+                    0 0 0 0.30 0"
+          />
+          <feComposite in2="SourceGraphic" operator="in" />
+        </filter>
+
+        {/* Marble — isotropic low-frequency turbulence with multi-octave
+            veining. Tinted cool-grey so it reads as polished stone. */}
+        <filter id={D.marble} x="0" y="0" width="100%" height="100%">
+          <feTurbulence type="turbulence" baseFrequency="0.012 0.012" numOctaves="3" seed="19" />
+          <feColorMatrix
+            type="matrix"
+            values="0 0 0 0 0.55
+                    0 0 0 0 0.55
+                    0 0 0 0 0.60
+                    0 0 0 0.22 0"
+          />
+          <feComposite in2="SourceGraphic" operator="in" />
+        </filter>
+
+        {/* Cloud puff — soft fractal volume for puffy sky clouds. The
+            `lighting-color` stays neutral white so applying to the
+            existing cloud ellipse adds depth without changing hue. */}
+        <filter id={D.cloudPuff} x="-10%" y="-10%" width="120%" height="120%">
+          <feTurbulence type="fractalNoise" baseFrequency="0.03" numOctaves="4" seed="23" />
+          <feColorMatrix
+            type="matrix"
+            values="0 0 0 0 1
+                    0 0 0 0 1
+                    0 0 0 0 1
+                    0 0 0 0.18 0"
+          />
+          <feComposite in2="SourceGraphic" operator="in" />
+        </filter>
+
+        {/* Watercolor — high-frequency noise with composite over the source
+            so seasonal particles (petals / leaves / snow) get a soft paper
+            wash without losing their silhouette. */}
+        <filter id={D.watercolor} x="0" y="0" width="100%" height="100%">
+          <feTurbulence type="fractalNoise" baseFrequency="0.5" numOctaves="2" seed="29" />
+          <feColorMatrix
+            type="matrix"
+            values="0 0 0 0 0.94
+                    0 0 0 0 0.92
+                    0 0 0 0 0.86
+                    0 0 0 0.16 0"
+          />
+          <feComposite in2="SourceGraphic" operator="in" />
+        </filter>
+
         {/* -----------------------------------------------------------
            Gradients
            ----------------------------------------------------------- */}

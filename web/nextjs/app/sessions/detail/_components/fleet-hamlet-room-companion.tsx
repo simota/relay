@@ -145,15 +145,44 @@ export interface MoodWallpaperProps {
 }
 
 export function MoodWallpaper({ palette }: MoodWallpaperProps) {
+  // F-4 — drive wall colour through registered @property custom properties
+  // so the transition between moods animates in HSL space (1.2s ease-out).
+  // The <stop> elements read the variables via `hsl(var(--…))`, and the
+  // outer <g> declares the CSS transition that interpolates them. Browsers
+  // without @property support fall back to instant updates (existing
+  // behaviour). The stop-color values are kept as fallbacks so SSR /
+  // legacy paths still render solid colours.
   const wallTop = `hsl(${palette.wallH}, ${palette.wallS}%, ${palette.wallL}%)`;
   const wallBottom = `hsl(${palette.wallH}, ${palette.wallS}%, ${palette.wallBottomL}%)`;
   const gradId = "relay-room-mood-wall-grad";
+  const cssVars = {
+    ["--hamlet-mood-hue" as never]: `${palette.wallH}deg`,
+    ["--hamlet-mood-saturation" as never]: `${palette.wallS}%`,
+    ["--hamlet-mood-lightness" as never]: `${palette.wallL}%`,
+    ["--hamlet-mood-bottom-lightness" as never]: `${palette.wallBottomL}%`,
+    transition:
+      "--hamlet-mood-hue 1.2s ease-out, --hamlet-mood-saturation 1.2s ease-out, --hamlet-mood-lightness 1.2s ease-out, --hamlet-mood-bottom-lightness 1.2s ease-out",
+  } as const;
   return (
-    <g aria-hidden>
+    <g aria-hidden style={cssVars}>
       <defs>
         <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={wallTop} />
-          <stop offset="100%" stopColor={wallBottom} />
+          <stop
+            offset="0%"
+            stopColor={wallTop}
+            style={{
+              stopColor:
+                "hsl(var(--hamlet-mood-hue), var(--hamlet-mood-saturation), var(--hamlet-mood-lightness))",
+            }}
+          />
+          <stop
+            offset="100%"
+            stopColor={wallBottom}
+            style={{
+              stopColor:
+                "hsl(var(--hamlet-mood-hue), var(--hamlet-mood-saturation), var(--hamlet-mood-bottom-lightness))",
+            }}
+          />
         </linearGradient>
       </defs>
       <rect

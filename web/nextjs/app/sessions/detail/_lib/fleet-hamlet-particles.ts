@@ -206,10 +206,15 @@ export function selectActiveRoom(
 }
 
 // ---------------------------------------------------------------------------
-// Accessories — derived from a sim's top skills
+// Accessories — derived from a sim's top skills + seeded Open-Peeps style picks
 // ---------------------------------------------------------------------------
 
 export type HatKind = "scholar" | "cap" | "tophat" | "none";
+export type GlassesKind = "round" | "square" | "sunglasses" | "none";
+export type MustacheKind = "handlebar" | "chevron" | "pencil" | "none";
+export type BeardKind = "full" | "goatee" | "stubble" | "none";
+export type EarringKind = "left" | "right" | "both" | "none";
+export type ScarfKind = "striped" | "solid" | "knit" | "none";
 
 export interface Accessories {
   /** Lv 7+ → an agent-specific hat. */
@@ -218,6 +223,29 @@ export interface Accessories {
   crown: boolean;
   /** Optional badge text — first language at Lv 7+. */
   badge: string | null;
+  /** Open-Peeps-inspired face accessories (seed-deterministic). */
+  glasses: GlassesKind;
+  mustache: MustacheKind;
+  beard: BeardKind;
+  earring: EarringKind;
+  scarf: ScarfKind;
+}
+
+// Pull a fresh 0..1 pseudo-random from the avatar seed by mixing in a
+// channel index — different channels stay decorrelated so the picks for
+// glasses / mustache / etc. aren't accidentally coupled.
+function seedRoll(seed: number, channel: number): number {
+  const mixed = ((seed ^ (channel * 0x9E3779B1)) * 2654435761) >>> 0;
+  return (mixed % 10000) / 10000;
+}
+
+function pickFromSeed<T extends string>(
+  seed: number,
+  channel: number,
+  kinds: readonly T[],
+): T {
+  const idx = Math.floor(seedRoll(seed, channel + 7) * kinds.length);
+  return kinds[Math.min(idx, kinds.length - 1)] as T;
 }
 
 export function deriveAccessories(
@@ -225,15 +253,9 @@ export function deriveAccessories(
   detail: SessionDetail | undefined,
 ): Accessories {
   const skills = computeSkills(card, detail);
-  if (skills.length === 0) {
-    return { hat: "none", crown: false, badge: null };
-  }
   const tops = topSkills(skills, 4);
   const top = tops[0];
-  if (!top) {
-    return { hat: "none", crown: false, badge: null };
-  }
-  const maxLevel = top.level;
+  const maxLevel = top?.level ?? 0;
   const crown = maxLevel >= 10;
   const hat: HatKind =
     maxLevel >= 7
@@ -248,5 +270,46 @@ export function deriveAccessories(
   // Pick the highest-level lang/tool skill at Lv 7+ for a 2-char badge.
   const badgeSkill = tops.find((s) => s.level >= 7 && (s.kind === "lang" || s.kind === "tool"));
   const badge = badgeSkill ? badgeSkill.icon : null;
-  return { hat, crown, badge };
+
+  // ---- seeded Open-Peeps-inspired picks -----------------------------------
+  const seed = card.avatarSeed;
+  const stage = card.stage.key;
+  const mood = card.mood.key;
+  const isChildish = stage === "newborn" || stage === "infant" || stage === "toddler";
+  const studious = maxLevel >= 7;
+
+  // Glasses: base 25%, +30 percentage points for studious sims.
+  const glassesP = studious ? 0.55 : 0.25;
+  const glasses: GlassesKind =
+    seedRoll(seed, 1) < glassesP
+      ? pickFromSeed(seed, 11, ["round", "square", "sunglasses"] as const)
+      : "none";
+
+  // Mustache & beard share one channel — at most one of the two can appear.
+  // Children never grow facial hair.
+  let mustache: MustacheKind = "none";
+  let beard: BeardKind = "none";
+  if (!isChildish) {
+    const facialRoll = seedRoll(seed, 2);
+    if (facialRoll < 0.15) {
+      mustache = pickFromSeed(seed, 12, ["handlebar", "chevron", "pencil"] as const);
+    } else if (facialRoll < 0.3) {
+      beard = pickFromSeed(seed, 13, ["full", "goatee", "stubble"] as const);
+    }
+  }
+
+  // Earring: base 10%.
+  const earring: EarringKind =
+    seedRoll(seed, 3) < 0.1
+      ? pickFromSeed(seed, 14, ["left", "right", "both"] as const)
+      : "none";
+
+  // Scarf: base 20%, bored / asleep moods bump it (cold and lonely).
+  const scarfP = mood === "bored" || mood === "asleep" ? 0.55 : 0.2;
+  const scarf: ScarfKind =
+    seedRoll(seed, 4) < scarfP
+      ? pickFromSeed(seed, 15, ["striped", "solid", "knit"] as const)
+      : "none";
+
+  return { hat, crown, badge, glasses, mustache, beard, earring, scarf };
 }

@@ -79,6 +79,16 @@ export function Bookshelf({
         stroke="rgba(0,0,0,0.45)"
         strokeWidth={0.8}
       />
+      {/* F-3 — wood-grain texture overlay on the frame. */}
+      <rect
+        x={x}
+        y={y}
+        width={w}
+        height={h}
+        fill="#7A5A38"
+        filter={`url(#${DIORAMA_DEFS.woodGrain})`}
+        opacity={0.30}
+      />
       {/* D2 — frame top-edge highlight + bottom-edge shadow. */}
       <rect x={x} y={y} width={w} height={0.5} fill="rgba(255,235,200,0.55)" />
       <rect x={x} y={y + h - 0.5} width={w} height={0.5} fill="rgba(0,0,0,0.45)" />

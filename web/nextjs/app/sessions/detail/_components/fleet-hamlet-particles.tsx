@@ -22,6 +22,7 @@ import {
 import { AvatarBody } from "./fleet-hamlet-decor";
 import { HAMLET_AVATAR_CSS, HeadFace, clothingForAgent } from "./fleet-hamlet-avatar";
 import { getExpressionForMood } from "../_lib/fleet-hamlet-avatar-expression";
+import { DIORAMA_DEFS } from "../_lib/fleet-hamlet-diorama-tokens";
 
 // ---------------------------------------------------------------------------
 // Walking sims — small avatars that traverse the street
@@ -529,10 +530,13 @@ function SeasonParticle({
 }
 
 function SeasonGlyph({ season, hue }: { season: Season; hue: number }) {
+  // F-3 — apply a watercolor wash filter to season particles so petals /
+  // leaves / snow read as a soft paper sketch rather than crisp shapes.
+  const wash = `url(#${DIORAMA_DEFS.watercolor})`;
   if (season === "winter") {
     return (
       <svg width={6} height={6} viewBox="0 0 6 6" aria-hidden>
-        <circle cx={3} cy={3} r={2.6} fill="#FFFFFF" opacity={0.95} />
+        <circle cx={3} cy={3} r={2.6} fill="#FFFFFF" opacity={0.95} filter={wash} />
       </svg>
     );
   }
@@ -543,6 +547,7 @@ function SeasonGlyph({ season, hue }: { season: Season; hue: number }) {
           d="M5 1 C 7 2 9 3 9 5 C 9 7 7 8 5 9 C 3 8 1 7 1 5 C 1 3 3 2 5 1 Z"
           fill={`hsl(${hue}, 80%, 50%)`}
           opacity={0.85}
+          filter={wash}
         />
         <line x1="5" y1="1" x2="5" y2="9" stroke="#5D3A1F" strokeWidth="0.4" />
       </svg>
@@ -551,7 +556,7 @@ function SeasonGlyph({ season, hue }: { season: Season; hue: number }) {
   // spring petal
   return (
     <svg width={8} height={8} viewBox="0 0 8 8" aria-hidden>
-      <ellipse cx={4} cy={4} rx={3.5} ry={2} fill={`hsl(${hue}, 80%, 78%)`} opacity={0.9} />
+      <ellipse cx={4} cy={4} rx={3.5} ry={2} fill={`hsl(${hue}, 80%, 78%)`} opacity={0.9} filter={wash} />
     </svg>
   );
 }

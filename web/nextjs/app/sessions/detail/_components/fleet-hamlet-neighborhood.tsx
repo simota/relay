@@ -79,6 +79,7 @@ import {
 } from "./fleet-hamlet-park-residents";
 import { HOUSE_CHAT_CSS, HouseChatLayer } from "./fleet-hamlet-house-chat";
 import { HamletDioramaDefs } from "./fleet-hamlet-diorama-defs";
+import { DIORAMA_DEFS } from "../_lib/fleet-hamlet-diorama-tokens";
 import { pickHousesWithBubbles } from "../_lib/fleet-hamlet-last-message";
 import {
   EventBurst,
@@ -90,6 +91,11 @@ import {
   WalkingSimLayer,
   seedFromCards,
 } from "./fleet-hamlet-particles";
+import {
+  pickStreetProps,
+  streetPropSeedFromKeys,
+} from "../_lib/fleet-hamlet-street-props";
+import { StreetPropsLayer } from "./fleet-hamlet-street-props";
 import { TinyHouseSvg } from "./fleet-hamlet-tiny-house";
 
 // Fit-All layout (see _lib/fleet-hamlet-fit-layout.ts) sizes cells
@@ -345,6 +351,19 @@ export function FleetHamletNeighborhood({
     [weather.kind, sims],
   );
 
+  // Street props — utility poles, billboards, benches, vending machines, etc.
+  // Density scales with the active grid; tiny mode skips them so the village
+  // doesn't drown in clutter at 30+ households. Seeded by the visible card
+  // keys so the layout is stable across renders within a session.
+  const streetProps = useMemo(() => {
+    if (fit.useTiny) return [];
+    const seed = streetPropSeedFromKeys(visibleActive.map((s) => s.key));
+    return pickStreetProps(visibleActive.length, cols, activeRows, seed, {
+      weather: weather.kind,
+      season,
+    });
+  }, [fit.useTiny, visibleActive, cols, activeRows, weather.kind, season]);
+
   // Whether the night-window glow should run. Active sims at evening/night
   // light up their windows; this also drives streetlamp visibility logic.
   const isNightish = sky.tod === "evening" || sky.tod === "night";
@@ -416,6 +435,7 @@ export function FleetHamletNeighborhood({
           width={containerSize.w || activeW}
           height={skyHeight}
           weather={weather.kind}
+          season={season}
         />
         {/* Ground-fade overlay — bottom 45% of the scene blends to grass so
             houses don't float against pure sky. */}
@@ -577,6 +597,22 @@ export function FleetHamletNeighborhood({
                 />
               ))}
             </svg>
+          )}
+
+          {/* Street props — utility poles / billboards / benches / vending
+              machines / bus stops / trash cans / signs scattered into the
+              gaps between houses (Codrops Generative CSS Worlds inspired,
+              but pure SVG, no 3D transforms). Sits behind streetlamps and
+              chat bubbles but in front of the road. */}
+          {!fit.useTiny && streetProps.length > 0 && (
+            <StreetPropsLayer
+              props={streetProps}
+              cellW={activeCellW}
+              cellH={activeCellH}
+              totalW={activeW}
+              totalH={activeH}
+              litLamps={sky.lampsLit}
+            />
           )}
 
           {/* Streetlamps — between each pair of cells along the top row of
@@ -1094,6 +1130,17 @@ function HouseSvg({ sim, size, chimneyActive, highlight, dim, event, windowsLit,
         width={dim_.wallH * 0.22}
         height={dim_.wallH * 0.55}
         fill="hsl(25, 35%, 25%)"
+        rx={1}
+      />
+      {/* F-3 — wood-grain texture on the door panel. */}
+      <rect
+        x={W * 0.32}
+        y={H - dim_.wallH * 0.55}
+        width={dim_.wallH * 0.22}
+        height={dim_.wallH * 0.55}
+        fill="hsl(25, 50%, 18%)"
+        filter={`url(#${DIORAMA_DEFS.woodGrain})`}
+        opacity={0.35}
         rx={1}
       />
       {/* Door inner recessed plate */}

@@ -15,7 +15,18 @@ import type { SimCardModel } from "../_lib/fleet-hamlet";
 import type { SkyPalette, TreeKind, YardDecor } from "../_lib/fleet-hamlet-decor";
 import type { WeatherKind } from "../_lib/fleet-hamlet-layout";
 import { DIORAMA_DEFS } from "../_lib/fleet-hamlet-diorama-tokens";
+import type { Season } from "../_lib/fleet-hamlet-particles";
 import { StandingMiniAvatar } from "./fleet-hamlet-park-residents";
+
+// F-4 — season tint colours interpolated via the `--hamlet-season-tint`
+// registered custom property (declared in DECOR_CSS). Browsers without
+// `@property` support fall back to the literal colour without animation.
+const SEASON_TINT: Record<Season, string> = {
+  spring: "rgba(255, 200, 220, 0.10)",
+  summer: "rgba(255, 240, 180, 0.00)",
+  autumn: "rgba(220, 130, 60, 0.10)",
+  winter: "rgba(200, 220, 245, 0.14)",
+};
 
 // ---------------------------------------------------------------------------
 // Sky band — fixed gradient + sun/moon + clouds + stars
@@ -26,11 +37,19 @@ export function SkyBand({
   width,
   height,
   weather = "clear",
+  season,
 }: {
   palette: SkyPalette;
   width: number;
   height: number;
   weather?: WeatherKind;
+  /**
+   * F-4 — optional season for the tint overlay. When provided, the
+   * `--hamlet-season-tint` registered custom property animates between
+   * seasons (handled by DECOR_CSS @property + transition). Omit to keep
+   * the time-of-day-only behaviour.
+   */
+  season?: Season;
 }) {
   // Deterministic cloud + star positions seeded by time-of-day so they
   // remain stable across renders within a session.
@@ -93,12 +112,27 @@ export function SkyBand({
   // facing the sun and a soft shadow on the opposite side.
   const sunDirX = sunX < width * 0.5 ? -1 : sunX > width * 0.5 ? 1 : 0;
 
+  // F-4 — season tint applied via the registered custom property so cross-
+  // season changes interpolate the colour rather than snap-switching. The
+  // fallback literal `background` keeps SSR / non-Baseline browsers happy.
+  const seasonTint = season ? SEASON_TINT[season] : "rgba(255,255,255,0)";
+  const skyVars = {
+    ["--hamlet-season-tint" as never]: seasonTint,
+    transition: "--hamlet-season-tint 1.6s ease-out",
+  } as const;
   return (
     <div
       aria-hidden
       className="absolute inset-x-0 top-0 pointer-events-none overflow-hidden"
-      style={{ height, background: skyBackground }}
+      style={{ height, background: skyBackground, ...skyVars }}
     >
+      {/* F-4 — season tint overlay. Reads `--hamlet-season-tint` so the
+          colour interpolates smoothly when the season changes. */}
+      <div
+        aria-hidden
+        className="absolute inset-0 pointer-events-none"
+        style={{ background: "var(--hamlet-season-tint)" }}
+      />
       <svg
         width={width}
         height={height}
@@ -219,6 +253,10 @@ function CloudPath({ sunDirX = 0 }: { sunDirX?: number }) {
         <ellipse cx={24} cy={9} rx={10} ry={6} />
         <ellipse cx={6} cy={3} rx={6} ry={4} />
         <ellipse cx={18} cy={3} rx={5.5} ry={3.6} />
+      </g>
+      {/* F-3 — feTurbulence puff overlay for volumetric softness. */}
+      <g filter={`url(#${DIORAMA_DEFS.cloudPuff})`} opacity={0.35}>
+        <ellipse cx={12} cy={6} rx={18} ry={8} fill="rgba(255, 255, 255, 0.95)" />
       </g>
       {/* Sun-side highlight — a slim bright sliver tucked on the lit edge */}
       <ellipse cx={hiX} cy={2} rx={5} ry={1.5} fill="rgba(255, 255, 240, 0.85)" />
@@ -1032,6 +1070,41 @@ export function ConfettiBurst() {
 // ---------------------------------------------------------------------------
 
 export const DECOR_CSS = `
+/* F-4 — @property registered custom properties for typed colour / number
+ * interpolation across mood + season changes. Supported in Chrome 85+,
+ * Safari 16.4+, Firefox 128+ (Baseline 2024). Browsers without support
+ * fall back to instant transitions, which is the existing behaviour. */
+@property --hamlet-mood-hue {
+  syntax: "<angle>";
+  inherits: true;
+  initial-value: 40deg;
+}
+@property --hamlet-mood-saturation {
+  syntax: "<percentage>";
+  inherits: true;
+  initial-value: 50%;
+}
+@property --hamlet-mood-lightness {
+  syntax: "<percentage>";
+  inherits: true;
+  initial-value: 80%;
+}
+@property --hamlet-mood-bottom-lightness {
+  syntax: "<percentage>";
+  inherits: true;
+  initial-value: 70%;
+}
+@property --hamlet-season-tint {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: rgba(255, 255, 255, 0);
+}
+@property --hamlet-breathe {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 1;
+}
+
 @keyframes relayHamletCloudDrift {
   0%   { transform: translate(0, 0) scale(var(--s, 1)); }
   100% { transform: translate(140vw, 0) scale(var(--s, 1)); }

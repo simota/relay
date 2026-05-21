@@ -28,6 +28,20 @@ import {
   type MouthShape,
   type AvatarPose,
 } from "../_lib/fleet-hamlet-avatar-expression";
+import type {
+  BeardKind,
+  EarringKind,
+  GlassesKind,
+  MustacheKind,
+  ScarfKind,
+} from "../_lib/fleet-hamlet-particles";
+import {
+  BeardSvg,
+  EarringSvg,
+  GlassesSvg,
+  MustacheSvg,
+  ScarfSvg,
+} from "./fleet-hamlet-avatar-accessories";
 
 // ---------------------------------------------------------------------------
 // Shared palette helpers
@@ -87,6 +101,11 @@ export interface HeadFaceProps {
   enableBlink?: boolean;
   /** Skip the cheek blush (used at very small sizes where 2 px blobs blur into the face). */
   enableCheeks?: boolean;
+  /** Open-Peeps-inspired accessories — all optional, default "none". */
+  glasses?: GlassesKind;
+  mustache?: MustacheKind;
+  beard?: BeardKind;
+  earring?: EarringKind;
 }
 
 export function HeadFace({
@@ -96,6 +115,10 @@ export function HeadFace({
   haloColor,
   enableBlink = true,
   enableCheeks = true,
+  glasses = "none",
+  mustache = "none",
+  beard = "none",
+  earring = "none",
 }: HeadFaceProps) {
   const skin = `hsl(${parts.skinHue}, 45%, 72%)`;
   const skinShadow = `hsl(${parts.skinHue}, 50%, 58%)`;
@@ -120,6 +143,9 @@ export function HeadFace({
           <ellipse cx={rx * 0.95} cy={ry * 0.08} rx={rx * 0.1} ry={ry * 0.13} fill={skinShadow} opacity={0.65} />
         </>
       )}
+      {/* Earring — sits below the ear, drawn in front so it isn't masked
+          by the face oval. */}
+      {parts.hasEars && earring !== "none" && <EarringSvg side={earring} radius={radius} />}
       {/* Face oval (egg shape) */}
       <ellipse cx={0} cy={0} rx={rx} ry={ry} fill={skin} />
       {/* Jaw shadow — subtle, lower-right */}
@@ -146,6 +172,9 @@ export function HeadFace({
           <ellipse cx={rx * 0.5} cy={ry * 0.22} rx={rx * 0.22} ry={ry * 0.13} fill={cheek} opacity={0.45} />
         </>
       )}
+      {/* Beard — wraps the jaw; drawn before hair so the hair fringe still
+          covers any beard escaping toward the temple. */}
+      {beard !== "none" && <BeardSvg kind={beard} radius={radius} />}
       {/* Hair — drawn after face so it sits in front of the forehead */}
       <HairShape parts={parts} radius={radius} hair={hair} hairHi={hairHi} />
       {/* Brows */}
@@ -165,6 +194,10 @@ export function HeadFace({
       </g>
       {/* Mouth */}
       <Mouth mouth={expression.mouth} radius={radius} />
+      {/* Mustache — under nose, above mouth */}
+      {mustache !== "none" && <MustacheSvg kind={mustache} radius={radius} />}
+      {/* Glasses — on top of eyes & brows */}
+      {glasses !== "none" && <GlassesSvg kind={glasses} radius={radius} />}
       {/* Sweat drop overlay (Stressed) */}
       {expression.showSweat && (
         <g
@@ -502,6 +535,8 @@ export interface BodyTorsoProps {
   enableRim?: boolean;
   /** Skip individual leg drawing at very small sizes (single trunk used). */
   enableLegs?: boolean;
+  /** Open-Peeps-inspired scarf accessory. */
+  scarf?: ScarfKind;
 }
 
 export function BodyTorso({
@@ -510,6 +545,7 @@ export function BodyTorso({
   height = 32,
   enableRim = true,
   enableLegs = true,
+  scarf = "none",
 }: BodyTorsoProps) {
   const h = height;
   const w = h * 0.7;
@@ -638,6 +674,10 @@ export function BodyTorso({
       {/* Two front buttons */}
       <circle cx={0} cy={h * 0.32} r={Math.max(0.5, w * 0.04)} fill={clothing.shirtDark} />
       <circle cx={0} cy={h * 0.48} r={Math.max(0.5, w * 0.04)} fill={clothing.shirtDark} />
+      {/* Scarf — wraps the neck/collar; rendered after the torso/collar so
+          it sits in front. Arms are drawn after, so they remain in front
+          of the scarf as if dangling outside it. */}
+      {scarf !== "none" && !isSleeping && <ScarfSvg kind={scarf} width={w} />}
       {/* Arms — explicit foreground layer. Each limb's local origin is its shoulder. */}
       <g>
         <g transform={`translate(${-shoulderX}, ${shoulderY + armCrouchY}) rotate(${leftArmRot})`}>
@@ -726,6 +766,12 @@ export interface HamletAvatarProps {
   children?: ReactNode;
   /** Group transform from caller (translate/scale). */
   transform?: string;
+  /** Open-Peeps-inspired accessory layer. */
+  glasses?: GlassesKind;
+  mustache?: MustacheKind;
+  beard?: BeardKind;
+  earring?: EarringKind;
+  scarf?: ScarfKind;
 }
 
 export function HamletAvatar({
@@ -739,6 +785,11 @@ export function HamletAvatar({
   haloColor,
   children,
   transform,
+  glasses = "none",
+  mustache = "none",
+  beard = "none",
+  earring = "none",
+  scarf = "none",
 }: HamletAvatarProps) {
   // Head radius is ~22% of total height (slightly larger than realistic to
   // read as "cute character" at small sizes).
@@ -768,7 +819,12 @@ export function HamletAvatar({
           fill={`hsl(${parts.skinHue}, 45%, 65%)`}
         />
         <g transform={`translate(0, ${bodyTopY})`}>
-          <BodyTorso clothing={clothing} pose={expression.pose} height={bodyH} />
+          <BodyTorso
+            clothing={clothing}
+            pose={expression.pose}
+            height={bodyH}
+            scarf={scarf}
+          />
         </g>
         <g transform={`translate(0, ${headCy}) rotate(${expression.leanDeg})`}>
           <HeadFace
@@ -778,6 +834,10 @@ export function HamletAvatar({
             haloColor={haloColor}
             enableBlink={enableBlink}
             enableCheeks={enableCheeks}
+            glasses={glasses}
+            mustache={mustache}
+            beard={beard}
+            earring={earring}
           />
         </g>
       </g>
