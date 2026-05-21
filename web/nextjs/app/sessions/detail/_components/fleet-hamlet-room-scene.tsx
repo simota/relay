@@ -1130,36 +1130,26 @@ function RoomAvatar({
           scarf={accessories.scarf}
         />
       </g>
-      {/* Sweat drops — only while the resident is actively working. Two
-          drops with a half-cycle stagger keep the stream continuous. */}
+      {/* Working-state "thinking / typing" dots — three small pips above
+          the head that fade in/out on a rolling stagger, the same pattern
+          Slack and IDE chat clients use for "typing…". Reads as "session
+          is actively processing" without the panicked feel of 💦. */}
       {motion === "working" && (
-        <g aria-hidden>
-          <text
-            x={10}
-            y={12}
-            fontSize={10}
-            textAnchor="middle"
-            style={{
-              animation: "relayRoomAvatarSweat 1.8s ease-out infinite",
-              transformBox: "fill-box",
-              transformOrigin: "center",
-            }}
-          >
-            💦
-          </text>
-          <text
-            x={12}
-            y={16}
-            fontSize={9}
-            textAnchor="middle"
-            style={{
-              animation: "relayRoomAvatarSweat 1.8s ease-out 0.9s infinite",
-              transformBox: "fill-box",
-              transformOrigin: "center",
-            }}
-          >
-            💦
-          </text>
+        <g aria-hidden transform="translate(0, -4)">
+          {[-4, 0, 4].map((dx, i) => (
+            <circle
+              key={dx}
+              cx={dx}
+              cy={0}
+              r={1.3}
+              fill="hsl(45, 90%, 58%)"
+              style={{
+                animation: `relayRoomAvatarThink 1.05s ease-in-out ${i * 0.18}s infinite`,
+                transformBox: "fill-box",
+                transformOrigin: "center",
+              }}
+            />
+          ))}
         </g>
       )}
       {/* Zzz — floats above the lying avatar's head (which after rotation
@@ -1468,13 +1458,12 @@ export const ROOM_SCENE_CSS = `
   0%, 100% { transform: rotate(90deg) scaleY(1);    }
   50%      { transform: rotate(90deg) scaleY(1.05); }
 }
-/* Working-state sweat drops — small 💦 emerges from the head area,
-   drifts up-right, and fades. */
-@keyframes relayRoomAvatarSweat {
-  0%   { transform: translate(0, 0)     scale(0.5); opacity: 0; }
-  15%  { opacity: 0.95; }
-  60%  { transform: translate(3px, -14px) scale(1.05); opacity: 0.85; }
-  100% { transform: translate(6px, -22px) scale(1.2);  opacity: 0; }
+/* Working-state thinking dots — three pips rolling in/out above the
+   head, scale + opacity together so it reads as a soft "blink" rather
+   than a hard flash. */
+@keyframes relayRoomAvatarThink {
+  0%, 100% { opacity: 0.18; transform: scale(0.85); }
+  50%      { opacity: 1;    transform: scale(1.15); }
 }
 /* Resting-state Zzz — floats up from above the sleeping head. */
 @keyframes relayRoomAvatarZzz {
@@ -1488,7 +1477,7 @@ export const ROOM_SCENE_CSS = `
   [style*="relayRoomAvatarPace"],
   [style*="relayRoomAvatarFocus"],
   [style*="relayRoomAvatarRest"],
-  [style*="relayRoomAvatarSweat"],
+  [style*="relayRoomAvatarThink"],
   [style*="relayRoomAvatarZzz"] {
     animation: none !important;
   }
