@@ -58,6 +58,36 @@ export interface RoomState {
   events: LifeEvent[];
   /** Up to 4 whiteboard items, each ≤ 30 chars. Empty when nothing extractable. */
   whiteboardItems: WhiteboardItem[];
+  // ---------------------------------------------------------------------------
+  // NEW axes (4-gimmick enhancement)
+  // ---------------------------------------------------------------------------
+  /**
+   * Axis 1 — TODO sticky-note cluster count (0..6).
+   * Counts TODO:/FIXME:/XXX:/HACK: tokens in messages from the last 1 h.
+   * 0 = nothing to show; 6 = maximum density.
+   */
+  todoStickyCount: number;
+  /**
+   * Axis 2 — Monitor live-code lines (0..4 entries, each ≤ 16 chars).
+   * Extracted from recent tool_call paths/commands.  Empty array = no PC in room.
+   */
+  monitorLines: string[];
+  /**
+   * Axis 3 — Plant growth stage derived from session age.
+   * 0 = seedling 🌱, 1 = small 🪴, 2 = grown 🌿, 3 = large 🌳.
+   * Overridden by plantsWilted → 🥀 (existing logic).
+   */
+  plantStage: 0 | 1 | 2 | 3;
+  /**
+   * Axis 4a — All-nighter flag: session running ≥ 12 h AND no achievement
+   * in the last 1 h.  Drives extra late-night mess items.
+   */
+  allNighter: boolean;
+  /**
+   * Axis 4b — Recent celebration: a quest/achievement event within the last
+   * 10 minutes.  Suppresses the mess layer to show a tidy room.
+   */
+  recentCelebration: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -66,6 +96,24 @@ export interface RoomState {
 
 const TOOL_WINDOW_MS = 2 * 60 * 1000; // 2 min
 const MESS_WINDOW_MS = 5 * 60 * 1000; // 5 min
+// Axis 1 — TODO sticky cluster
+const TODO_WINDOW_MS = 60 * 60 * 1000; // 1 h
+const TODO_CAP = 6;
+const TODO_RE = /\b(TODO|FIXME|XXX|HACK):/g;
+// Axis 2 — Monitor live-code
+const MONITOR_MAX_LINES = 4;
+const MONITOR_MAX_CHARS = 16;
+const MONITOR_TOOL_WINDOW_MS = 5 * 60 * 1000; // 5 min
+// Axis 3 — plant growth thresholds
+const PLANT_STAGE_THRESHOLDS = [
+  { hours: 48, stage: 3 as const },
+  { hours: 12, stage: 2 as const },
+  { hours: 2,  stage: 1 as const },
+] satisfies ReadonlyArray<{ hours: number; stage: 0 | 1 | 2 | 3 }>;
+// Axis 4 — all-nighter / celebration
+const ALL_NIGHTER_MS = 12 * 60 * 60 * 1000; // 12 h
+const ACHIEVEMENT_QUIET_MS = 60 * 60 * 1000; // 1 h silence from achievement
+const CELEBRATION_WINDOW_MS = 10 * 60 * 1000; // 10 min
 const MESS_PER_MIN_THRESHOLDS: ReadonlyArray<{ rate: number; level: 0 | 1 | 2 | 3 }> = [
   { rate: 5.0, level: 3 },
   { rate: 2.0, level: 2 },
@@ -109,6 +157,16 @@ export function deriveRoomState(
   const events = getActiveRoomEvents(card, detail, allCards, now);
   const whiteboardItems = extractWhiteboardItems(detail);
 
+  // Axis 1 — TODO sticky cluster
+  const todoStickyCount = computeTodoStickyCount(detail, now);
+  // Axis 2 — Monitor live-code
+  const monitorLines = extractMonitorLines(detail, now);
+  // Axis 3 — Plant growth stage from session age
+  const plantStage = computePlantStage(card, now);
+  // Axis 4 — All-nighter + celebration
+  const allNighter = computeAllNighter(card, events, now);
+  const recentCelebration = computeRecentCelebration(events, now);
+
   return {
     toolProp,
     messLevel,
@@ -116,6 +174,11 @@ export function deriveRoomState(
     errorBoost,
     events,
     whiteboardItems,
+    todoStickyCount,
+    monitorLines,
+    plantStage,
+    allNighter,
+    recentCelebration,
   };
 }
 
@@ -248,6 +311,179 @@ function collectDoneFlags(detail: SessionDetail): Map<string, boolean> {
 function truncate(s: string, n: number): string {
   if (s.length <= n) return s;
   return s.slice(0, Math.max(0, n - 1)) + "…";
+}
+
+// ---------------------------------------------------------------------------
+// D1 — Event Decor
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Axis 1 — TODO sticky cluster
+// ---------------------------------------------------------------------------
+
+/**
+ * Count TODO:/FIXME:/XXX:/HACK: tokens in messages from the last `TODO_WINDOW_MS`.
+ * Returns a value capped at `TODO_CAP` (6).
+ */
+function computeTodoStickyCount(
+  detail: SessionDetail | undefined,
+  now: number,
+): number {
+  if (!detail) return 0;
+  let count = 0;
+  for (const m of detail.messages) {
+    const ts = Date.parse(m.timestamp);
+    if (!Number.isFinite(ts) || now - ts > TODO_WINDOW_MS) continue;
+    const matches = m.text.match(TODO_RE);
+    if (matches) count += matches.length;
+    if (count >= TODO_CAP) return TODO_CAP;
+  }
+  return Math.min(count, TODO_CAP);
+}
+
+// ---------------------------------------------------------------------------
+// Axis 2 — Monitor live-code lines
+// ---------------------------------------------------------------------------
+
+const MONITOR_TOOLS = new Set([
+  "read", "view", "cat",
+  "edit", "multiedit", "write", "create",
+  "grep", "glob", "find", "search",
+  "bash", "shell", "exec",
+]);
+
+/**
+ * Extract up to `MONITOR_MAX_LINES` lines from recent tool_calls.
+ * Each line is a basename / short command, max `MONITOR_MAX_CHARS` chars.
+ * Returns an empty array when no suitable calls were found in the window.
+ */
+function extractMonitorLines(
+  detail: SessionDetail | undefined,
+  now: number,
+): string[] {
+  if (!detail) return [];
+  const relevant = detail.tool_calls
+    .filter((tc) => {
+      const ts = Date.parse(tc.timestamp);
+      if (!Number.isFinite(ts) || now - ts > MONITOR_TOOL_WINDOW_MS) return false;
+      const lower = tc.name.toLowerCase();
+      return (
+        MONITOR_TOOLS.has(lower) ||
+        lower.includes("edit") ||
+        lower.includes("write") ||
+        lower.includes("bash")
+      );
+    })
+    .sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp));
+
+  const seen = new Set<string>();
+  const lines: string[] = [];
+  for (const tc of relevant) {
+    if (lines.length >= MONITOR_MAX_LINES) break;
+    const raw = extractMonitorLabel(tc.name, tc.args_summary, tc.args_json);
+    if (!raw) continue;
+    const label = raw.slice(0, MONITOR_MAX_CHARS);
+    if (seen.has(label)) continue;
+    seen.add(label);
+    lines.push(label);
+  }
+  return lines;
+}
+
+function extractMonitorLabel(
+  toolName: string,
+  argsSummary: string | null | undefined,
+  argsJson: string | null | undefined,
+): string | null {
+  // Try structured args first
+  if (argsJson) {
+    try {
+      const parsed = JSON.parse(argsJson) as Record<string, unknown>;
+      for (const key of ["path", "file_path", "file", "filename", "pattern", "command"]) {
+        const v = parsed[key];
+        if (typeof v === "string" && v.length > 0) {
+          return basename(v);
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+  if (argsSummary) {
+    const pathMatch = argsSummary.match(/(\/[\w./\-_]+|[\w./\-_]+\/[\w./\-_]+)/);
+    if (pathMatch?.[1]) return basename(pathMatch[1]);
+    // Use first meaningful word
+    const word = argsSummary.trim().split(/\s+/)[0];
+    if (word && word.length > 0) return word.slice(0, MONITOR_MAX_CHARS);
+  }
+  return toolName.slice(0, MONITOR_MAX_CHARS);
+}
+
+function basename(p: string): string {
+  const parts = p.split("/").filter(Boolean);
+  return (parts[parts.length - 1] ?? p).slice(0, MONITOR_MAX_CHARS);
+}
+
+// ---------------------------------------------------------------------------
+// Axis 3 — Plant growth stage
+// ---------------------------------------------------------------------------
+
+/**
+ * Derive plant growth stage from session age (card.bornAt → now).
+ *  0 = 🌱 seedling  (0–2 h)
+ *  1 = 🪴 small     (2–12 h)
+ *  2 = 🌿 grown     (12–48 h)
+ *  3 = 🌳 large     (48 h+)
+ */
+export function computePlantStage(
+  card: SimCardModel,
+  now: number,
+): 0 | 1 | 2 | 3 {
+  const ageMs = Math.max(0, now - card.bornAt);
+  const ageH = ageMs / 3_600_000;
+  for (const { hours, stage } of PLANT_STAGE_THRESHOLDS) {
+    if (ageH >= hours) return stage;
+  }
+  return 0;
+}
+
+// ---------------------------------------------------------------------------
+// Axis 4 — All-nighter + recent celebration
+// ---------------------------------------------------------------------------
+
+/**
+ * Session is considered "all-nighter" when:
+ *   - age ≥ 12 h (ALL_NIGHTER_MS), AND
+ *   - no achievement/quest event within the last ACHIEVEMENT_QUIET_MS (1 h)
+ */
+function computeAllNighter(
+  card: SimCardModel,
+  events: readonly LifeEvent[],
+  now: number,
+): boolean {
+  const ageMs = Math.max(0, now - card.bornAt);
+  if (ageMs < ALL_NIGHTER_MS) return false;
+  // Suppress if a celebration happened recently
+  const recentAchievement = events.some((ev) => {
+    const isCelebration = ev.kind === "achievement" || ev.kind === "quest";
+    return isCelebration && now - ev.timestamp < ACHIEVEMENT_QUIET_MS;
+  });
+  return !recentAchievement;
+}
+
+/**
+ * Returns true when a quest or achievement event occurred within the last
+ * CELEBRATION_WINDOW_MS (10 min).  Triggers "tidy room" visual.
+ */
+function computeRecentCelebration(
+  events: readonly LifeEvent[],
+  now: number,
+): boolean {
+  return events.some(
+    (ev) =>
+      (ev.kind === "achievement" || ev.kind === "quest") &&
+      now - ev.timestamp < CELEBRATION_WINDOW_MS,
+  );
 }
 
 // ---------------------------------------------------------------------------

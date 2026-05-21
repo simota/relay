@@ -224,6 +224,10 @@ export interface MessLayerProps {
   slots: readonly MessSlot[];
   /** Stable seed so we always pick the same slots between renders. */
   seed: number;
+  /** Axis 4a — show extra late-night clutter (☕🍜🍕🥫) when true. */
+  allNighter?: boolean;
+  /** Axis 4b — suppress all mess to simulate post-celebration tidy room. */
+  recentCelebration?: boolean;
 }
 
 interface MessItem {
@@ -253,9 +257,35 @@ function planMess(level: 0 | 1 | 2 | 3, errorBoost: boolean): MessItem[] {
   return out;
 }
 
-export function MessLayer({ level, errorBoost, slots, seed }: MessLayerProps) {
-  if (level === 0 || slots.length === 0) return null;
+// Extra late-night clutter items added when allNighter is true.
+const ALL_NIGHTER_EXTRAS: ReadonlyArray<MessItem> = [
+  { glyph: "☕", scale: 0.9, fluttering: false },
+  { glyph: "🍜", scale: 0.9, fluttering: false },
+  { glyph: "🍕", scale: 0.95, fluttering: false },
+  { glyph: "🥫", scale: 0.85, fluttering: false },
+];
+
+export function MessLayer({
+  level,
+  errorBoost,
+  slots,
+  seed,
+  allNighter = false,
+  recentCelebration = false,
+}: MessLayerProps) {
+  // Axis 4b — celebration tidies the room completely.
+  if (recentCelebration) return null;
+  if (level === 0 && !allNighter) return null;
+  if (slots.length === 0) return null;
   const items = planMess(level, errorBoost);
+  // Axis 4a — append extra all-nighter clutter (up to 3 extra items).
+  if (allNighter) {
+    const budget = Math.min(3, slots.length - items.length);
+    for (let i = 0; i < budget && i < ALL_NIGHTER_EXTRAS.length; i++) {
+      const extra = ALL_NIGHTER_EXTRAS[i];
+      if (extra) items.push({ ...extra });
+    }
+  }
   if (items.length === 0) return null;
   // Pick slots deterministically — rotate by seed so the same session uses
   // the same arrangement across rerenders.
@@ -611,6 +641,116 @@ export function RoomWhiteboard({
 }
 
 // ---------------------------------------------------------------------------
+// Axis 1 — TODO sticky-note cluster
+// ---------------------------------------------------------------------------
+
+export interface TodoStickyClusterProps {
+  count: number;
+  /** Wall x anchor in scene coords (default: 310 — right wall clear of whiteboard). */
+  anchorX?: number;
+  /** Wall y anchor in scene coords (default: 20 — upper wall). */
+  anchorY?: number;
+}
+
+/**
+ * Renders 1..6 small yellow sticky-note rectangles on the wall when count > 0.
+ * Entirely decorative — pointer-events:none + aria-hidden.
+ */
+export function TodoStickyCluster({
+  count,
+  anchorX = 310,
+  anchorY = 20,
+}: TodoStickyClusterProps) {
+  if (count <= 0) return null;
+  // Pre-computed offsets so the stickies scatter naturally without randomness.
+  const OFFSETS: ReadonlyArray<readonly [number, number, number]> = [
+    [0, 0, -8],
+    [12, 6, 6],
+    [-10, 12, -4],
+    [8, 20, 10],
+    [-6, 28, -12],
+    [16, 14, 4],
+  ];
+  return (
+    <g aria-hidden pointerEvents="none">
+      {OFFSETS.slice(0, count).map(([dx, dy, rot], i) => (
+        <g key={`sticky-${i}`} transform={`translate(${anchorX + dx}, ${anchorY + dy}) rotate(${rot})`}>
+          {/* Shadow */}
+          <rect x={1.5} y={1.5} width={7} height={7} fill="rgba(0,0,0,0.18)" rx={0.5} />
+          {/* Sticky body */}
+          <rect x={0} y={0} width={7} height={7} fill="#FFE566" rx={0.5} />
+          {/* Fold corner */}
+          <polygon points="4.5,0 7,0 7,2.5" fill="rgba(200,160,0,0.35)" />
+          {/* Text lines */}
+          <line x1={1} y1={2.5} x2={6} y2={2.5} stroke="rgba(100,80,0,0.45)" strokeWidth={0.5} />
+          <line x1={1} y1={4} x2={5} y2={4} stroke="rgba(100,80,0,0.35)" strokeWidth={0.5} />
+          <line x1={1} y1={5.5} x2={4} y2={5.5} stroke="rgba(100,80,0,0.25)" strokeWidth={0.5} />
+        </g>
+      ))}
+    </g>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Axis 2 — Monitor screen overlay
+// ---------------------------------------------------------------------------
+
+export interface MonitorScreenProps {
+  lines: readonly string[];
+  /** Scene-coordinate center of the PC emoji. */
+  sx: number;
+  sy: number;
+}
+
+/**
+ * Overlays a tiny CRT-style code screen on top of the 🖥 emoji.
+ * Uses amber (#FFB300) monospace text on a dark background.
+ * Scrolls vertically on a 7s loop (reduced-motion: static).
+ * pointer-events:none + aria-hidden — purely decorative.
+ */
+export function MonitorScreen({ lines, sx, sy }: MonitorScreenProps) {
+  if (lines.length === 0) return null;
+  // Screen dimensions (scene units)
+  const SW = 18;
+  const SH = 11;
+  const x = sx - SW / 2 - 2;
+  const y = sy - SH - 8; // sits above the center baseline of the emoji
+  const AMBER = "#FFB300";
+  const BG = "#0A0F1A";
+  const FONT_SIZE = 2.6;
+  const LINE_H = 2.8;
+  return (
+    <g aria-hidden pointerEvents="none">
+      {/* Bezel */}
+      <rect x={x - 1} y={y - 1} width={SW + 2} height={SH + 2} fill="#1C2535" rx={1} />
+      {/* Screen bg */}
+      <rect x={x} y={y} width={SW} height={SH} fill={BG} rx={0.5} />
+      {/* Animated text group */}
+      <g style={{ animation: "relayHamletMonitorScroll 7s linear infinite", transformOrigin: `${x + SW / 2}px ${y + SH / 2}px` }}>
+        {lines.map((line, i) => (
+          <text
+            key={`mon-${i}`}
+            x={x + 1.5}
+            y={y + 2 + (i + 0.8) * LINE_H}
+            fontSize={FONT_SIZE}
+            fontFamily="ui-monospace, monospace"
+            fill={AMBER}
+            opacity={1 - i * 0.15}
+          >
+            {line}
+          </text>
+        ))}
+      </g>
+      {/* Scan-line overlay */}
+      <rect x={x} y={y} width={SW} height={SH} fill="rgba(0,0,0,0.12)" rx={0.5}
+        style={{ mixBlendMode: "multiply" }} />
+      {/* Top-left glare */}
+      <polygon points={`${x},${y} ${x + 5},${y} ${x},${y + 3}`} fill="rgba(255,255,255,0.07)" />
+    </g>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -651,5 +791,13 @@ export const ROOM_STATE_CSS = `
 @keyframes relayHamletToolBob {
   0%, 100% { transform: translate(0, 0); }
   50% { transform: translate(0, -0.6px); }
+}
+@keyframes relayHamletMonitorScroll {
+  0%, 100% { transform: translateY(0); }
+  45%  { transform: translateY(-1.5px); }
+  55%  { transform: translateY(-1.5px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .relayHamletMonitorScreen * { animation: none !important; }
 }
 `;

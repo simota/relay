@@ -71,8 +71,10 @@ import {
 import {
   EventDecorLayer,
   MessLayer,
+  MonitorScreen,
   ROOM_STATE_CSS,
   RoomWhiteboard,
+  TodoStickyCluster,
   ToolPropSvg,
 } from "./fleet-hamlet-room-state";
 import {
@@ -129,6 +131,10 @@ const SCENE_H = 220;
 // Window box used by both RoomWindow and the R6 F2 WindowSceneView overlay.
 const WINDOW_BOX = { x: 60, y: 18, w: 84, h: 64 } as const;
 
+// Axis 3 — plant stage glyph + scale maps (module-level so useMemo deps stay clean).
+const PLANT_GLYPHS: Record<0 | 1 | 2 | 3, string> = { 0: "🌱", 1: "🪴", 2: "🌿", 3: "🌳" };
+const PLANT_SCALES: Record<0 | 1 | 2 | 3, number> = { 0: 1.0, 1: 1.05, 2: 1.10, 3: 1.15 };
+
 export function RoomScene({
   card,
   detail,
@@ -174,14 +180,39 @@ export function RoomScene({
     return false;
   }, [detail, now]);
 
-  // Swap any plant-tagged furniture to a wilted glyph when silence is long.
+  // Swap any plant-tagged furniture depending on state:
+  //   plantsWilted → 🥀 (silence ≥ 1h, overrides growth stage)
+  //   plantStage 0 → 🌱, 1 → 🪴 (default), 2 → 🌿, 3 → 🌳 (with scale bump)
   const furniture = useMemo(() => {
-    if (!roomState.plantsWilted) return furnitureRaw;
-    return furnitureRaw.map((it) =>
-      it.swapKind === "plant" ? { ...it, glyph: "🥀" } : it,
-    );
-  }, [furnitureRaw, roomState.plantsWilted]);
+    return furnitureRaw.map((it) => {
+      if (it.swapKind !== "plant") return it;
+      if (roomState.plantsWilted) return { ...it, glyph: "🥀" };
+      const stage = roomState.plantStage;
+      return {
+        ...it,
+        glyph: PLANT_GLYPHS[stage],
+        scale: it.scale * PLANT_SCALES[stage],
+      };
+    });
+  }, [furnitureRaw, roomState.plantsWilted, roomState.plantStage]);
   const dynamicSlots = useMemo(() => getRoomDynamicSlots(roomKind), [roomKind]);
+
+  // Axis 2 — find the 🖥 furniture item's scene position for the MonitorScreen overlay.
+  // Uses the same trapezoid mapping as the static furniture layer so the overlay
+  // lands precisely on top of the emoji.
+  const monitorPos = useMemo<{ sx: number; sy: number } | null>(() => {
+    const pcItem = furnitureRaw.find((it) => it.glyph === "🖥");
+    if (!pcItem) return null;
+    // Mirror the perspective compression used by FurnitureLayer.
+    const depth = 1 - pcItem.y;
+    const compress = depth * 0.18;
+    const sx = SCENE_W / 2 + (pcItem.x - 0.5) * SCENE_W * (1 - compress);
+    const FLOOR_TOP = 120;
+    const FLOOR_BOTTOM = 216;
+    const sy = FLOOR_TOP + pcItem.y * (FLOOR_BOTTOM - FLOOR_TOP);
+    return { sx, sy };
+  }, [furnitureRaw]);
+
   // R3 — accumulated life (achievements + relationship photos).
   const achievements = useMemo(
     () => deriveAchievements(card, detail),
@@ -461,6 +492,8 @@ export function RoomScene({
             />
           </Clickable>
         )}
+        {/* Axis 1 — TODO sticky-note cluster on the right wall, clear of whiteboard. */}
+        <TodoStickyCluster count={roomState.todoStickyCount} />
         <FurnitureLayer items={furniture} layer="ceiling" />
         {dynamicSlots.eventSlots && (
           <Clickable id={{ kind: "events" }} label="Event decor — 直近 1h イベント">
@@ -511,10 +544,20 @@ export function RoomScene({
               errorBoost={roomState.errorBoost}
               slots={dynamicSlots.messSlots}
               seed={seed}
+              allNighter={roomState.allNighter}
+              recentCelebration={roomState.recentCelebration}
             />
           </Clickable>
         )}
         <FurnitureLayer items={furniture} layer="floor-mid" />
+        {/* Axis 2 — Monitor live-code overlay on top of 🖥 emoji (workshop only). */}
+        {monitorPos && roomState.monitorLines.length > 0 && (
+          <MonitorScreen
+            lines={roomState.monitorLines}
+            sx={monitorPos.sx}
+            sy={monitorPos.sy}
+          />
+        )}
         {/* F1 — pets sit on the floor in front of furniture, behind the
             avatar so the resident remains the visual anchor. */}
         {dynamicSlots.petSlots && petBundle.pets.length > 0 && (
