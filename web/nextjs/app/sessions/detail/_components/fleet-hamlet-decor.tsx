@@ -15,6 +15,7 @@ import type { SimCardModel } from "../_lib/fleet-hamlet";
 import type { SkyPalette, TreeKind, YardDecor } from "../_lib/fleet-hamlet-decor";
 import type { WeatherKind } from "../_lib/fleet-hamlet-layout";
 import { DIORAMA_DEFS } from "../_lib/fleet-hamlet-diorama-tokens";
+import { StandingMiniAvatar } from "./fleet-hamlet-park-residents";
 
 // ---------------------------------------------------------------------------
 // Sky band — fixed gradient + sun/moon + clouds + stars
@@ -513,11 +514,19 @@ export function YardLayer({
   cellW,
   cellH,
   nightLamps,
+  resident,
 }: {
   decor: YardDecor;
   cellW: number;
   cellH: number;
   nightLamps: boolean;
+  /**
+   * Out-of-house signal (gimmick A.3). When `kind === "home"`, render a
+   * tiny resident standing on the front lawn. When `kind === "out"`, hang
+   * an "Out" placard on the door. Omit/`undefined` to keep the original
+   * yard behavior unchanged (back-compat with existing callers).
+   */
+  resident?: ResidentSignal;
 }) {
   return (
     <div className="absolute inset-0 pointer-events-none" aria-hidden>
@@ -559,7 +568,136 @@ export function YardLayer({
           <BirdSvg delay={(decor.plate.charCodeAt(0) % 5) * 0.3} />
         </span>
       )}
+      {resident && resident.kind === "home" && (
+        // Anchor the resident to the bottom-right of the cell so they read
+        // as "standing on the lawn next to the door" rather than floating.
+        <span
+          style={{
+            position: "absolute",
+            // Right side of the house front (door sits ~32% across), slightly
+            // outside the door so the resident isn't visually blocked by it.
+            left: cellW * 0.6,
+            bottom: cellH * 0.1,
+            transformOrigin: "bottom center",
+            opacity: 0.95,
+          }}
+        >
+          <ResidentAvatar
+            agentKind={resident.agentKind}
+            hue={resident.hue}
+            sim={resident.sim}
+          />
+        </span>
+      )}
+      {resident && resident.kind === "out" && (
+        // Sign hangs to the right of the door, level with the upper sash so
+        // it reads as "tacked beside the door".
+        <span
+          style={{
+            position: "absolute",
+            // Door front is at ~cellW * 0.32 in HouseSvg's local frame, but
+            // YardLayer covers the whole cell; the house is centered, so the
+            // door sits roughly at cellW * 0.42 from the cell's left edge.
+            left: cellW * 0.5,
+            // Door top ~ cellH * 0.42 from the bottom (wallH * 0.55 of a
+            // mid-sized house, with cellH ≈ wallH + roofH + padding).
+            bottom: cellH * 0.34,
+          }}
+        >
+          <OutSign cellW={cellW} />
+        </span>
+      )}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Resident signal — encodes "is anyone home right now?" for the yard layer.
+// ---------------------------------------------------------------------------
+
+export type ResidentSignal =
+  | {
+      kind: "home";
+      agentKind: SimCardModel["sessionType"];
+      hue: number;
+      sim?: SimCardModel;
+    }
+  | { kind: "out" };
+
+// ---------------------------------------------------------------------------
+// ResidentAvatar — tiny standing sim used for the "at home" yard signal.
+// Uses the same StandingMiniAvatar primitive as the park residents so the
+// character family is consistent across active and park zones.
+// ---------------------------------------------------------------------------
+
+export function ResidentAvatar({
+  agentKind,
+  hue,
+  sim,
+}: {
+  agentKind: SimCardModel["sessionType"];
+  hue: number;
+  sim?: SimCardModel;
+}) {
+  return (
+    <span
+      // Sized at ~70% so the resident reads as "small but visible" in front
+      // of the house. Idle breathe is inherited from StandingMiniAvatar.
+      style={{ display: "inline-block", transform: "scale(0.7)", transformOrigin: "bottom center" }}
+    >
+      <StandingMiniAvatar agentKind={agentKind} hue={hue} sim={sim} />
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// OutSign — small door placard for the "out" yard signal.
+//
+// Wood-grain rectangle with a key glyph + "OUT" letters, drawn at a size
+// proportional to the cell so it scales with the house. Animated with a
+// slow sway so it visually reads as hanging.
+// ---------------------------------------------------------------------------
+
+export function OutSign({ cellW }: { cellW: number }) {
+  // Target ~ 18% of cellW for the sign width, clamped to sensible bounds so
+  // it never disappears or swallows the door.
+  const w = Math.max(16, Math.min(24, cellW * 0.18));
+  const h = w * 0.7;
+  return (
+    <svg
+      width={w}
+      height={h + 4}
+      viewBox={`0 0 ${w} ${h + 4}`}
+      aria-hidden
+      style={{
+        animation: `relayHamletOutSignSway 3.6s ease-in-out infinite`,
+        transformOrigin: `${w * 0.5}px 0px`,
+        overflow: "visible",
+      }}
+    >
+      {/* String — anchors the sign to the wall above. */}
+      <line x1={w * 0.5} y1={0} x2={w * 0.5} y2={2.5} stroke="#3A2A1F" strokeWidth={0.6} />
+      {/* Drop shadow */}
+      <rect x={1.2} y={3.4} width={w - 1.2} height={h} rx={1.6} fill="rgba(0,0,0,0.32)" />
+      {/* Wood plaque */}
+      <rect x={0.6} y={2.6} width={w - 1.2} height={h} rx={1.6} fill="#C9A878" stroke="#5C3D1F" strokeWidth={0.7} />
+      {/* Wood grain — two faint horizontal lines */}
+      <line x1={2} y1={2.6 + h * 0.35} x2={w - 2} y2={2.6 + h * 0.35} stroke="#8B6A3E" strokeWidth={0.3} opacity={0.6} />
+      <line x1={2} y1={2.6 + h * 0.65} x2={w - 2} y2={2.6 + h * 0.65} stroke="#8B6A3E" strokeWidth={0.3} opacity={0.6} />
+      {/* "OUT" lettering — centered, monospace-ish stroke */}
+      <text
+        x={w * 0.5}
+        y={2.6 + h * 0.62}
+        textAnchor="middle"
+        fontSize={Math.max(6, h * 0.55)}
+        fontFamily="ui-monospace, monospace"
+        fontWeight="700"
+        fill="#3A2A1F"
+        letterSpacing="0.4"
+      >
+        OUT
+      </text>
+    </svg>
   );
 }
 
@@ -957,5 +1095,9 @@ export const DECOR_CSS = `
   50%  { transform: translate(20px, -16px); opacity: 0.9; }
   80%  { opacity: 1; }
   100% { transform: translate(0, 0); opacity: 0.0; }
+}
+@keyframes relayHamletOutSignSway {
+  0%, 100% { transform: rotate(-3deg); }
+  50%      { transform: rotate(3deg); }
 }
 `;

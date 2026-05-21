@@ -55,7 +55,12 @@ import {
   currentSeason,
   lightningBolts,
 } from "../_lib/fleet-hamlet-particles";
-import { pickOutingSims } from "../_lib/fleet-hamlet-outing";
+import {
+  countWalkingState,
+  isAtHome,
+  isOut,
+  pickOutingSims,
+} from "../_lib/fleet-hamlet-outing";
 import {
   type Bustle,
   bustleSpriteCount,
@@ -320,9 +325,18 @@ export function FleetHamletNeighborhood({
   // state (silence 5m..1h). We sample from the full sim set rather than
   // just the visible active slice so a resident who's about to head to
   // the park can still appear on the road, leaving their house.
+  //
+  // The count scales with how many residents are *currently* walking:
+  // base 3, plus ~1.5× the walking-state population, capped at 6 so the
+  // street never overflows. When the village is quiet (no one mid-stride)
+  // we still draw 3 so the road never feels empty.
+  const walkerCount = useMemo(() => {
+    const walking = countWalkingState(sims, now);
+    return Math.min(6, Math.max(3, Math.ceil(walking * 1.5)));
+  }, [sims, now]);
   const walkers = useMemo(
-    () => pickOutingSims(sims, now, 3, Math.max(80, activeH * 0.6)),
-    [sims, now, activeH],
+    () => pickOutingSims(sims, now, walkerCount, Math.max(80, activeH * 0.6)),
+    [sims, now, walkerCount, activeH],
   );
 
   // Lightning bolts for stormy weather — keyed off a stable card seed.
@@ -613,6 +627,15 @@ export function FleetHamletNeighborhood({
             const event = eventByKey.get(sim.key);
             const decor = yardDecorFor(sim);
             const bustle = computeBustle(sim, sims, now);
+            // Out-of-house signals (gimmick A.3) — silence <5m = resident in
+            // the yard, silence >30m = Out placard on the door. Tiny mode
+            // skips both to avoid clutter when the village has 30+ households.
+            const homeNow = !fit.useTiny && isAtHome(sim, now);
+            const outNow = !fit.useTiny && !homeNow && isOut(sim, now);
+            // Night windows only glow when the resident is actually home —
+            // a 10-minute-silent house looks dark even at dusk so the user
+            // can tell at a glance which lights are *currently* on.
+            const liveWindows = isRecent && isNightish && homeNow;
             return (
               <div
                 key={sim.key}
@@ -639,6 +662,18 @@ export function FleetHamletNeighborhood({
                     cellW={activeCellW}
                     cellH={activeCellH}
                     nightLamps={sky.lampsLit}
+                    resident={
+                      homeNow
+                        ? {
+                            kind: "home",
+                            agentKind: sim.sessionType,
+                            hue: sim.hue,
+                            sim,
+                          }
+                        : outNow
+                          ? { kind: "out" }
+                          : undefined
+                    }
                   />
                 )}
                 <button
@@ -671,7 +706,7 @@ export function FleetHamletNeighborhood({
                       chimneyActive={isRecent}
                       highlight={selected || isOpen}
                       event={event}
-                      windowsLit={isRecent && isNightish}
+                      windowsLit={liveWindows}
                       bustle={bustle}
                     />
                   )}

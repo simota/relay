@@ -162,7 +162,7 @@ export function ParkResidentLayer({
 // character family as the Sim Card / Room avatars.
 // ---------------------------------------------------------------------------
 
-function StandingMiniAvatar({
+export function StandingMiniAvatar({
   agentKind,
   hue,
   sim,

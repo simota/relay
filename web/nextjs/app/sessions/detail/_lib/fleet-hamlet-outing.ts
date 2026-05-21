@@ -35,6 +35,64 @@ export function computeOutingState(card: SimCardModel, now: number): OutingState
 }
 
 // ---------------------------------------------------------------------------
+// Out-of-house signals — coarse "at home" / "out" booleans.
+//
+// These are the visual gimmick A.3 hooks: the neighborhood reads these per
+// active-zone card to decide whether to render a tiny resident in the yard
+// (at-home) or hang an "Out" sign by the door (out). They intentionally do
+// not overlap with `computeOutingState` so an "out" house can still be in
+// either the `walking` or pre-park OutingState bucket — the sign is the
+// signal at the **house**, the OutingState is the signal at the **street**.
+// ---------------------------------------------------------------------------
+
+/** Silence below which a resident is treated as "in the house right now". */
+const AT_HOME_MAX_MS = 5 * 60 * 1000; // 5m — matches WALK_MIN_MS
+/** Silence above which a resident is treated as "out for a while". */
+const OUT_MIN_MS = 30 * 60 * 1000; // 30m
+
+/**
+ * `true` when the card is recent enough that we can plausibly show a
+ * resident standing in front of their own house.
+ */
+export function isAtHome(
+  card: SimCardModel,
+  now: number,
+  thresholdMs: number = AT_HOME_MAX_MS,
+): boolean {
+  return Math.max(0, now - card.lastActiveAt) < thresholdMs;
+}
+
+/**
+ * `true` when the card has been silent long enough to warrant an "Out"
+ * placard on the door. The default 30m window sits between the walking and
+ * park thresholds so a resident heading out shows the sign before they hit
+ * the park zone.
+ */
+export function isOut(
+  card: SimCardModel,
+  now: number,
+  thresholdMs: number = OUT_MIN_MS,
+): boolean {
+  return Math.max(0, now - card.lastActiveAt) > thresholdMs;
+}
+
+/**
+ * Count cards currently in the "walking" OutingState. Used by the
+ * Neighborhood view to scale the street pedestrian count dynamically — the
+ * more residents are mid-stride, the busier the street feels.
+ */
+export function countWalkingState(
+  cards: readonly SimCardModel[],
+  now: number,
+): number {
+  let n = 0;
+  for (const c of cards) {
+    if (computeOutingState(c, now) === "walking") n++;
+  }
+  return n;
+}
+
+// ---------------------------------------------------------------------------
 // Walking sims picker — outing-aware
 // ---------------------------------------------------------------------------
 
