@@ -143,6 +143,31 @@ export interface OrphansResponse {
   }>;
 }
 
+export interface BurndownResponse {
+  days: number;
+  rows: Array<{ date: string; open: number; in_progress: number; done: number }>;
+}
+
+export interface VelocityResponse {
+  weeks: number;
+  rows: Array<{ repo: string; closed: number; avg_lifetime_days: number }>;
+}
+
+export interface DuplicateCluster {
+  id: number;
+  tasks: Array<{ id: number; title: string; repo: string; source_type: string }>;
+}
+
+export interface DuplicatesResponse {
+  clusters: DuplicateCluster[];
+}
+
+export interface StaleCloseResponse {
+  ok: true;
+  closed: number;
+  ids: number[];
+}
+
 // --- 60s in-memory cache --------------------------------------------------
 
 const CACHE_TTL_MS = 60_000;
@@ -466,6 +491,65 @@ export function createInsightsApi() {
     return c.json(value);
   });
 
+  // 16. burndown timeseries -------------------------------------------
+  app.get("/burndown", (c) => {
+    const days = parseBurndownDays(c.req.query("days"));
+    if (days === null) {
+      return c.json({ error: "days must be between 7 and 90" }, 400);
+    }
+    const value = withCache<BurndownResponse>(c, () => {
+      const db = new RelayDB();
+      const rows = db.insightsBurndown(days);
+      db.close();
+      return { days, rows };
+    });
+    return c.json(value);
+  });
+
+  // 17. velocity per repo --------------------------------------------
+  app.get("/velocity", (c) => {
+    const weeks = parseVelocityWeeks(c.req.query("weeks"));
+    if (weeks === null) {
+      return c.json({ error: "weeks must be between 1 and 52" }, 400);
+    }
+    const value = withCache<VelocityResponse>(c, () => {
+      const db = new RelayDB();
+      const rows = db.insightsVelocity(weeks);
+      db.close();
+      return { weeks, rows };
+    });
+    return c.json(value);
+  });
+
+  // 18. duplicate detection ------------------------------------------
+  app.get("/duplicates", (c) => {
+    const value = withCache<DuplicatesResponse>(c, () => {
+      const db = new RelayDB();
+      const clusters = db.insightsDuplicates();
+      db.close();
+      return { clusters };
+    });
+    return c.json(value);
+  });
+
+  // 19. stale auto-close (POST, mutates DB) --------------------------
+  app.post("/stale/close", (c) => {
+    const threshold = parseStaleCloseThreshold(c.req.query("threshold"));
+    if (threshold === null) {
+      return c.json({ error: "threshold must be between 1 and 365" }, 400);
+    }
+    const db = new RelayDB();
+    const result = db.closeStaleTasks(threshold);
+    db.close();
+    // Invalidate stale-related cache entries
+    for (const key of cache.keys()) {
+      if (key.includes("/stale") || key.includes("/burndown") || key.includes("/velocity")) {
+        cache.delete(key);
+      }
+    }
+    return c.json<StaleCloseResponse>({ ok: true, closed: result.closed, ids: result.ids });
+  });
+
   return app;
 }
 
@@ -601,6 +685,27 @@ function parseOrphansLimit(value?: string): number | null {
   if (!value) return 20;
   const n = Number(value);
   if (!Number.isInteger(n) || n < 1 || n > 100) return null;
+  return n;
+}
+
+function parseBurndownDays(value?: string): number | null {
+  if (!value) return 30;
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 7 || n > 90) return null;
+  return n;
+}
+
+function parseVelocityWeeks(value?: string): number | null {
+  if (!value) return 4;
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 1 || n > 52) return null;
+  return n;
+}
+
+function parseStaleCloseThreshold(value?: string): number | null {
+  if (!value) return 30;
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 1 || n > 365) return null;
   return n;
 }
 

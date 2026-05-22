@@ -419,3 +419,246 @@ export function insightsOrphans(
     days_since_updated: r.days_since_updated ?? 0,
   }));
 }
+
+// --- Axis A: Burndown timeseries ------------------------------------------
+
+/**
+ * Daily open/in_progress/done snapshot for the trailing `days` days.
+ * Each row answers: "how many tasks were open/in_progress at end of that day?"
+ * A task counts as open on day D if created_at <= D and (closed_at IS NULL OR closed_at > D).
+ */
+export function insightsBurndown(
+  db: Database,
+  days: number,
+): Array<{ date: string; open: number; in_progress: number; done: number }> {
+  const rows: Array<{ date: string; open: number; in_progress: number; done: number }> = [];
+
+  // Prepare day-end boundary: each iteration resolves "date('now', -i days)"
+  const dayStmt = db.prepare(`SELECT date('now', ?) AS d`);
+  const countStmt = db.prepare(
+    `SELECT
+       SUM(CASE WHEN status = 'open' THEN 1 ELSE 0 END)        AS open_n,
+       SUM(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END) AS ip_n,
+       SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END)        AS done_n
+     FROM tasks
+     WHERE created_at <= datetime(?, '23:59:59')
+       AND (closed_at IS NULL OR closed_at > datetime(?, '23:59:59'))`,
+  );
+
+  for (let i = days - 1; i >= 0; i--) {
+    const { d } = dayStmt.get(`-${i} days`) as { d: string };
+    const r = countStmt.get(d, d) as {
+      open_n: number | null;
+      ip_n: number | null;
+      done_n: number | null;
+    };
+    rows.push({
+      date: d,
+      open: r.open_n ?? 0,
+      in_progress: r.ip_n ?? 0,
+      done: r.done_n ?? 0,
+    });
+  }
+  return rows;
+}
+
+// --- Axis B: Velocity per repo --------------------------------------------
+
+/**
+ * Closed count + average lifecycle days per repo for the trailing `weeks` weeks.
+ * Returns top 10 repos ordered by closed count desc.
+ */
+export function insightsVelocity(
+  db: Database,
+  weeks: number,
+): Array<{ repo: string; closed: number; avg_lifetime_days: number }> {
+  const rows = db
+    .prepare(
+      `SELECT repo,
+         COUNT(*) AS closed,
+         AVG(julianday(closed_at) - julianday(created_at)) AS avg_lifetime_days
+       FROM tasks
+       WHERE status = 'done'
+         AND closed_at IS NOT NULL
+         AND closed_at >= datetime('now', ?)
+       GROUP BY repo
+       ORDER BY closed DESC
+       LIMIT 10`,
+    )
+    .all(`-${weeks * 7} days`) as Array<{
+    repo: string;
+    closed: number | null;
+    avg_lifetime_days: number | null;
+  }>;
+  return rows.map((r) => ({
+    repo: r.repo,
+    closed: r.closed ?? 0,
+    avg_lifetime_days: r.avg_lifetime_days != null ? Number(r.avg_lifetime_days.toFixed(1)) : 0,
+  }));
+}
+
+// --- Axis C: Duplicate detection ------------------------------------------
+
+export interface DuplicateCluster {
+  id: number;
+  tasks: Array<{ id: number; title: string; repo: string; source_type: string }>;
+}
+
+/** Normalize a title for comparison: lowercase + strip non-alphanumeric chars */
+function normalizeTitle(title: string): Set<string> {
+  const words = title
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((w) => w.length > 2);
+  return new Set(words);
+}
+
+function jaccardSimilarity(a: Set<string>, b: Set<string>): number {
+  if (a.size === 0 && b.size === 0) return 1;
+  let intersect = 0;
+  for (const w of a) {
+    if (b.has(w)) intersect++;
+  }
+  const union = a.size + b.size - intersect;
+  return union === 0 ? 0 : intersect / union;
+}
+
+/**
+ * Detects near-duplicate open tasks within the same repo using Jaccard
+ * similarity on word sets. Returns clusters with >= 2 tasks, up to 10 clusters.
+ */
+export function insightsDuplicates(
+  db: Database,
+  minSimilarity: number = 0.85,
+): DuplicateCluster[] {
+  const tasks = db
+    .prepare(
+      `SELECT id, title, repo, source_type FROM tasks WHERE status = 'open' ORDER BY repo, id`,
+    )
+    .all() as Array<{ id: number; title: string; repo: string; source_type: string }>;
+
+  // Group by repo for efficiency
+  const byRepo = new Map<string, typeof tasks>();
+  for (const t of tasks) {
+    let arr = byRepo.get(t.repo);
+    if (!arr) {
+      arr = [];
+      byRepo.set(t.repo, arr);
+    }
+    arr.push(t);
+  }
+
+  // Union-find cluster structure
+  const parent = new Map<number, number>();
+  function find(x: number): number {
+    let root = x;
+    while (parent.get(root) !== root) {
+      root = parent.get(root) ?? root;
+    }
+    // path compression
+    let cur = x;
+    while (cur !== root) {
+      const next = parent.get(cur) ?? cur;
+      parent.set(cur, root);
+      cur = next;
+    }
+    return root;
+  }
+  function union(a: number, b: number): void {
+    const ra = find(a);
+    const rb = find(b);
+    if (ra !== rb) parent.set(ra, rb);
+  }
+
+  // Initialize each task as its own cluster
+  for (const t of tasks) parent.set(t.id, t.id);
+
+  // O(N²) within each repo
+  for (const group of byRepo.values()) {
+    const wordSets = group.map((t) => ({ id: t.id, words: normalizeTitle(t.title) }));
+    for (let i = 0; i < wordSets.length; i++) {
+      for (let j = i + 1; j < wordSets.length; j++) {
+        const sim = jaccardSimilarity(wordSets[i]!.words, wordSets[j]!.words);
+        if (sim >= minSimilarity) {
+          union(wordSets[i]!.id, wordSets[j]!.id);
+        }
+      }
+    }
+  }
+
+  // Collect clusters
+  const clusters = new Map<number, typeof tasks>();
+  for (const t of tasks) {
+    const root = find(t.id);
+    let group = clusters.get(root);
+    if (!group) {
+      group = [];
+      clusters.set(root, group);
+    }
+    group.push(t);
+  }
+
+  const result: DuplicateCluster[] = [];
+  let clusterIdx = 0;
+  for (const group of clusters.values()) {
+    if (group.length < 2) continue;
+    result.push({ id: clusterIdx++, tasks: group });
+    if (result.length >= 10) break;
+  }
+  return result;
+}
+
+// --- Axis D: Stale auto-close ---------------------------------------------
+
+/**
+ * Closes all open tasks with wait_on='self' not updated within `thresholdDays`.
+ * Records an undo entry so the action can be reversed.
+ * Returns the count and IDs of closed tasks.
+ */
+export function closeStaleTasks(
+  db: Database,
+  thresholdDays: number,
+): { closed: number; ids: number[] } {
+  const now = new Date().toISOString();
+
+  // Find candidate rows first (for undo payload)
+  const candidates = db
+    .prepare(
+      `SELECT id, status, closed_at FROM tasks
+       WHERE status = 'open'
+         AND wait_on = 'self'
+         AND julianday('now') - julianday(updated_at) > ?`,
+    )
+    .all(thresholdDays) as Array<{ id: number; status: string; closed_at: string | null }>;
+
+  if (candidates.length === 0) return { closed: 0, ids: [] };
+
+  const ids = candidates.map((r) => r.id);
+  const placeholders = ids.map(() => "?").join(", ");
+
+  db.prepare(
+    `UPDATE tasks SET status = 'done', closed_at = ?, updated_at = ?
+     WHERE id IN (${placeholders})`,
+  ).run(now, now, ...ids);
+
+  // Record undo entry
+  const inverse = candidates.map((r) => ({
+    id: r.id,
+    status: r.status,
+    closed_at: r.closed_at,
+  }));
+  db
+    .prepare(
+      `INSERT INTO undo_log (op_kind, payload, inverse, created_at, status)
+       VALUES (?, ?, ?, ?, 'active')`,
+    )
+    .run(
+      "stale_close",
+      JSON.stringify({ ids, threshold_days: thresholdDays }),
+      JSON.stringify(inverse),
+      now,
+    );
+
+  return { closed: ids.length, ids };
+}

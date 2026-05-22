@@ -70,7 +70,9 @@ import {
 } from "./queries/contexts.js";
 import {
   insightsAgeHistogram as _insightsAgeHistogram,
+  insightsBurndown as _insightsBurndown,
   insightsContextFreshness as _insightsContextFreshness,
+  insightsDuplicates as _insightsDuplicates,
   insightsFlowTimeseries as _insightsFlowTimeseries,
   insightsNewlyActive as _insightsNewlyActive,
   insightsOrphans as _insightsOrphans,
@@ -81,9 +83,11 @@ import {
   insightsSyncReliabilityRaw as _insightsSyncReliabilityRaw,
   insightsThroughput as _insightsThroughput,
   insightsTouched as _insightsTouched,
+  insightsVelocity as _insightsVelocity,
   insightsWaitAgeRaw as _insightsWaitAgeRaw,
   insightsWaitMix as _insightsWaitMix,
   insightsWfr as _insightsWfr,
+  closeStaleTasks as _closeStaleTasks,
 } from "./queries/insights.js";
 import {
   agendaInRange as _agendaInRange,
@@ -575,6 +579,22 @@ export class RelayDB {
 
   insightsOrphans(ageDays: number, limit: number): ReturnType<typeof _insightsOrphans> {
     return _insightsOrphans(this.db, ageDays, limit);
+  }
+
+  insightsBurndown(days: number): ReturnType<typeof _insightsBurndown> {
+    return _insightsBurndown(this.db, days);
+  }
+
+  insightsVelocity(weeks: number): ReturnType<typeof _insightsVelocity> {
+    return _insightsVelocity(this.db, weeks);
+  }
+
+  insightsDuplicates(minSimilarity?: number): ReturnType<typeof _insightsDuplicates> {
+    return _insightsDuplicates(this.db, minSimilarity);
+  }
+
+  closeStaleTasks(thresholdDays: number): ReturnType<typeof _closeStaleTasks> {
+    return _closeStaleTasks(this.db, thresholdDays);
   }
 
   // --- runs / sync_history / queue / undo --------------------------------

@@ -25,6 +25,10 @@ import type {
   SyncReliabilityResponse,
   ContextFreshnessResponse,
   OrphansResponse,
+  BurndownResponse,
+  VelocityResponse,
+  DuplicatesResponse,
+  StaleCloseResponse,
 } from "./types";
 
 // Origin prefix for EventSource / fetch streaming. In `next dev` the /api/*
@@ -241,6 +245,16 @@ export const api = {
       request<ContextFreshnessResponse>(`/api/insights/context_freshness?limit=${limit}`),
     orphans: (age = 30, limit = 20) =>
       request<OrphansResponse>(`/api/insights/orphans?age=${age}&limit=${limit}`),
+    burndown: (days = 30) =>
+      request<BurndownResponse>(`/api/insights/burndown?days=${days}`),
+    velocity: (weeks = 4) =>
+      request<VelocityResponse>(`/api/insights/velocity?weeks=${weeks}`),
+    duplicates: () =>
+      request<DuplicatesResponse>("/api/insights/duplicates"),
+    staleClose: (threshold = 30) =>
+      request<StaleCloseResponse>(`/api/insights/stale/close?threshold=${threshold}`, {
+        method: "POST",
+      }),
   },
   standup: (since: string = "24h") =>
     request<StandupReport>(`/api/standup?since=${encodeURIComponent(since)}`),

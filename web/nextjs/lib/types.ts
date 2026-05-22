@@ -275,6 +275,38 @@ export interface OrphansResponse {
   }>;
 }
 
+export interface BurndownResponse {
+  days: number;
+  rows: Array<{ date: string; open: number; in_progress: number; done: number }>;
+}
+
+export interface VelocityResponse {
+  weeks: number;
+  rows: Array<{ repo: string; closed: number; avg_lifetime_days: number }>;
+}
+
+export interface DuplicateTask {
+  id: number;
+  title: string;
+  repo: string;
+  source_type: string;
+}
+
+export interface DuplicateCluster {
+  id: number;
+  tasks: DuplicateTask[];
+}
+
+export interface DuplicatesResponse {
+  clusters: DuplicateCluster[];
+}
+
+export interface StaleCloseResponse {
+  ok: true;
+  closed: number;
+  ids: number[];
+}
+
 export type SyncEvent =
   | { type: "adapter_start"; adapter: SourceType }
   | { type: "adapter_done"; adapter: SourceType; inserted: number; updated: number; unchanged: number; fetched: number; elapsedMs: number; sampleSourceIds?: string[] }

@@ -4,16 +4,20 @@ import { useMemo, useState } from "react";
 import useSWR from "swr";
 
 import { AgeHistogram } from "@/components/insights/age-histogram";
+import { BurndownChart } from "@/components/insights/burndown";
 import { ContextFreshness } from "@/components/insights/context-freshness";
+import { DuplicatesList } from "@/components/insights/duplicates-list";
 import { FlowBar } from "@/components/insights/flow-bar";
 import { NewlyActiveList } from "@/components/insights/newly-active-list";
 import { OrphansTable } from "@/components/insights/orphans-table";
 import { ReviewerBlockedList } from "@/components/insights/reviewer-blocked-list";
 import { RunsByAgent } from "@/components/insights/runs-by-agent";
 import { SourceInflow } from "@/components/insights/source-inflow";
+import { StaleCloseButton } from "@/components/insights/stale-close-button";
 import { StalledList } from "@/components/insights/stalled-list";
 import { StatTile } from "@/components/insights/stat-tile";
 import { SyncReliability } from "@/components/insights/sync-reliability";
+import { VelocityTable } from "@/components/insights/velocity-table";
 import { WaitDonut } from "@/components/insights/wait-donut";
 import { Wfr12wLine } from "@/components/insights/wfr-12w-line";
 import { Heatmap } from "@/components/heatmap";
@@ -226,6 +230,13 @@ export default function InsightsPage() {
             error={stale.error}
             online={online}
             onRetry={() => stale.mutate()}
+            trailing={
+              !stale.isLoading && !stale.error ? (
+                <div className="mt-1.5 flex justify-end">
+                  <StaleCloseButton threshold={14} onClosed={() => stale.mutate()} />
+                </div>
+              ) : undefined
+            }
           />
           <StatTile
             className="col-span-6 sm:col-span-3 md:col-span-3"
@@ -365,6 +376,28 @@ export default function InsightsPage() {
         <div className="grid grid-cols-12 gap-4">
           <div className="col-span-12">
             <OrphansTable />
+          </div>
+        </div>
+
+        {/* Section 7: Burndown + Velocity */}
+        <div>
+          <h2 className="mb-2 text-[12px] uppercase tracking-wider text-[var(--color-fg-dim)] font-medium">
+            Pace &amp; Velocity
+          </h2>
+          <div className="grid grid-cols-12 gap-4">
+            <div className="col-span-12 md:col-span-8">
+              <BurndownChart days={30} />
+            </div>
+            <div className="col-span-12 md:col-span-4">
+              <VelocityTable weeks={4} />
+            </div>
+          </div>
+        </div>
+
+        {/* Section 8: Duplicate Detection */}
+        <div className="grid grid-cols-12 gap-4">
+          <div className="col-span-12">
+            <DuplicatesList />
           </div>
         </div>
       </div>
