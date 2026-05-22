@@ -103,6 +103,8 @@ import {
   type Headline,
 } from "../_lib/fleet-hamlet-news";
 import { collectAllEvents } from "../_lib/fleet-hamlet-events";
+import { detectFestival } from "../_lib/fleet-hamlet-festival";
+import { pickWildlife, type WildlifeSpec } from "../_lib/fleet-hamlet-wildlife";
 
 // Fit-All layout (see _lib/fleet-hamlet-fit-layout.ts) sizes cells
 // dynamically so every house + park resident is visible without scroll
@@ -323,6 +325,11 @@ export function FleetHamletNeighborhood({
   // chime on page open; subsequent additions do until the user mutes.
   const { muted: chimeMuted, toggleMute: toggleChime } =
     useHamletMessageNotify(houseBubbles);
+  // Stable ref so event handlers that run outside React's render cycle
+  // (toggleSelect, festival chime interval) can read the latest mute state
+  // without being re-registered on every chimeMuted flip.
+  const chimeMutedRef = useRef(chimeMuted);
+  useEffect(() => { chimeMutedRef.current = chimeMuted; }, [chimeMuted]);
 
   // Sky + ground scenery layers. Time-of-day is re-evaluated on each
   // `now` tick so dusk → night transitions appear without a reload.
@@ -416,10 +423,89 @@ export function FleetHamletNeighborhood({
     return oldest?.key ?? null;
   }, [sims, now]);
 
+  // --- Axis A: Festival mode ---------------------------------------------------
+  const festival = useMemo(
+    () => detectFestival(sims, allEvents, now),
+    [sims, allEvents, now],
+  );
+
+  // --- Axis B: Wildlife layer --------------------------------------------------
+  const wildlife = useMemo(
+    () =>
+      fit.useTiny
+        ? []
+        : pickWildlife(sims, weather.kind, season, sky.tod, now),
+    [sims, weather.kind, season, sky.tod, now, fit.useTiny],
+  );
+
+  // --- Axis C: Thought bubble (「!」/「?」) pop --------------------------------
+  // One random house flashes a small thought emoji for 1s every 5–10s.
+  const [thoughtKey, setThoughtKey] = useState<string | null>(null);
+  useEffect(() => {
+    if (fit.useTiny || visibleActive.length === 0) return;
+    let handle: ReturnType<typeof setTimeout>;
+    const schedule = () => {
+      const interval = 5000 + Math.floor(Math.random() * 5000);
+      handle = setTimeout(() => {
+        const idx = Math.floor(Math.random() * visibleActive.length);
+        const sim = visibleActive[idx];
+        if (sim) {
+          setThoughtKey(sim.key);
+          setTimeout(() => setThoughtKey(null), 1000);
+        }
+        schedule();
+      }, interval);
+    };
+    schedule();
+    return () => clearTimeout(handle);
+  }, [fit.useTiny, visibleActive]);
+
+  // --- Axis D: Konami code → Rainbow mode ------------------------------------
+  const [rainbowMode, setRainbowMode] = useState(false);
+  const [rainbowToast, setRainbowToast] = useState(false);
+  useEffect(() => {
+    const KONAMI = [
+      "ArrowUp", "ArrowUp", "ArrowDown", "ArrowDown",
+      "ArrowLeft", "ArrowRight", "ArrowLeft", "ArrowRight",
+      "b", "a",
+    ];
+    let pos = 0;
+    let clearTimer: ReturnType<typeof setTimeout> | null = null;
+    const onKey = (e: KeyboardEvent) => {
+      // Ignore when focus is inside an input / textarea.
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA") return;
+      if (e.key === KONAMI[pos]) {
+        pos += 1;
+        if (pos === KONAMI.length) {
+          pos = 0;
+          setRainbowMode(true);
+          setRainbowToast(true);
+          if (clearTimer) clearTimeout(clearTimer);
+          clearTimer = setTimeout(() => {
+            setRainbowMode(false);
+            setRainbowToast(false);
+            clearTimer = null;
+          }, 5000);
+        }
+      } else {
+        pos = 0;
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      if (clearTimer) clearTimeout(clearTimer);
+    };
+  }, []);
+
   return (
     <div
       ref={containerRef}
-      className="h-full w-full overflow-hidden relative bg-[var(--color-bg)]"
+      className={cn(
+        "h-full w-full overflow-hidden relative bg-[var(--color-bg)]",
+        rainbowMode && "relay-hamlet-rainbow",
+      )}
     >
       {/* Cinematic diorama shared `<defs>` — must be mounted before any SVG
           that references the gradients / filters by id. */}
@@ -668,6 +754,23 @@ export function FleetHamletNeighborhood({
               4,
           )}
         />
+        {/* Axis B: Wildlife layer — owls/frogs/cats/butterflies scattered
+            by conditions. Suppressed in tiny mode (done in the useMemo). */}
+        {wildlife.length > 0 && (
+          <WildlifeLayer
+            specs={wildlife}
+            sceneW={containerSize.w || activeW}
+            sceneH={sceneH}
+          />
+        )}
+        {/* Axis A: Festival overlay — confetti + lanterns when 2+ events. */}
+        {festival && !fit.useTiny && (
+          <FestivalOverlay
+            sceneW={containerSize.w || activeW}
+            sceneH={sceneH}
+            skyCeilingY={skyCeilingY}
+          />
+        )}
 
         {/* House grid — centered horizontally AND vertically inside the
             active zone. */}
@@ -880,6 +983,7 @@ export function FleetHamletNeighborhood({
                       event.kind === "baby") && <ConfettiBurst />}
                 </button>
                 {/* Axis D — Founder crown: 👑 on the oldest active sim's roof.
+                    Festival mode adds a 🎉 badge next to it.
                     Tiny mode skips it to avoid clutter. */}
                 {!fit.useTiny && founderKey === sim.key && (
                   <FounderCrown
@@ -887,7 +991,22 @@ export function FleetHamletNeighborhood({
                     now={now}
                     cellW={activeCellW}
                     cellH={activeCellH}
+                    festivalActive={!!festival}
                   />
+                )}
+                {/* Axis C — Character stamp: agent-type emoji on the right
+                    shoulder of the roof, opposite side from Founder crown.
+                    Tiny mode skips to avoid crowding. */}
+                {!fit.useTiny && (
+                  <CharStamp
+                    sim={sim}
+                    cellW={activeCellW}
+                    cellH={activeCellH}
+                  />
+                )}
+                {/* Axis C — Thought bubble: random 「!」/「?」pop for 1s. */}
+                {!fit.useTiny && thoughtKey === sim.key && (
+                  <ThoughtBubble cellW={activeCellW} cellH={activeCellH} seed={sim.key} />
                 )}
                 {/* Hover-only Enter House overlay — full mode only. */}
                 {!fit.useTiny && (
@@ -914,6 +1033,7 @@ export function FleetHamletNeighborhood({
               </div>
             );
           })}
+
         </div>
       </div>
 
@@ -1009,6 +1129,16 @@ export function FleetHamletNeighborhood({
         </div>
       )}
 
+      {/* Axis D: Rainbow mode toast */}
+      {rainbowToast && (
+        <div
+          aria-live="assertive"
+          className="absolute bottom-10 left-1/2 -translate-x-1/2 z-30 px-3 py-1.5 rounded-full border border-[var(--color-border)] bg-[var(--color-bg)]/95 text-[12px] font-mono pointer-events-none relay-rainbow-toast"
+        >
+          ✨ ハッピーレインボー! ✨
+        </div>
+      )}
+
       {/* Chimney smoke keyframes — local style, scoped via .relay-smoke class */}
       <style>{SMOKE_CSS}</style>
       <style>{DECOR_CSS}</style>
@@ -1016,6 +1146,7 @@ export function FleetHamletNeighborhood({
       <style>{BUSTLE_CSS}</style>
       <style>{PARK_RESIDENT_CSS}</style>
       <style>{HOUSE_CHAT_CSS}</style>
+      <style>{FESTIVAL_CSS}</style>
     </div>
   );
 }
@@ -1744,14 +1875,18 @@ function FounderCrown({
   now,
   cellW,
   cellH,
+  festivalActive = false,
 }: {
   sim: SimCardModel;
   now: number;
   cellW: number;
   cellH: number;
+  festivalActive?: boolean;
 }) {
   const daysAlive = Math.floor((now - sim.bornAt) / (1000 * 60 * 60 * 24));
-  const label = `👑 Founder · ${daysAlive}日連続在住`;
+  const label = festivalActive
+    ? `👑🎉 Founder · ${daysAlive}日連続在住 · お祭り中`
+    : `👑 Founder · ${daysAlive}日連続在住`;
 
   // Position: roof's left shoulder. The house SVG is bottom-aligned inside
   // the cell, so the crown sits near the top of the cell.
@@ -1770,10 +1905,222 @@ function FounderCrown({
         zIndex: 5,
       }}
     >
-      👑
+      👑{festivalActive && "🎉"}
     </span>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Axis A — Festival overlay: confetti rain + lantern row
+// ---------------------------------------------------------------------------
+
+function FestivalOverlay({
+  sceneW,
+  sceneH,
+  skyCeilingY,
+}: {
+  sceneW: number;
+  sceneH: number;
+  skyCeilingY: number;
+}) {
+  // 12 confetti pieces, deterministic positions.
+  const confetti = useMemo(() => {
+    return Array.from({ length: 12 }).map((_, i) => {
+      const k = (i * 373 + 17) >>> 0;
+      return {
+        id: i,
+        xPct: ((k * 11) % 90) + 5,
+        delay: -((k % 60) / 10),
+        dur: 2.5 + ((k % 25) / 10),
+        hue: (k * 37) % 360,
+        size: 4 + (k % 4),
+      };
+    });
+  }, []);
+
+  // 3-5 lanterns evenly spaced along the sky-band top.
+  const lanternCount = 3 + ((sceneW > 500 ? 2 : 0));
+  const lanterns = useMemo(() => {
+    return Array.from({ length: lanternCount }).map((_, i) => ({
+      id: i,
+      x: (sceneW / (lanternCount + 1)) * (i + 1),
+      y: skyCeilingY * 0.18 + (i % 2) * 6,
+      delay: i * 0.3,
+    }));
+  }, [lanternCount, sceneW, skyCeilingY]);
+
+  return (
+    <div
+      aria-hidden
+      className="absolute inset-0 pointer-events-none overflow-hidden relay-festival"
+    >
+      {/* Confetti rain */}
+      {confetti.map((p) => (
+        <span
+          key={p.id}
+          style={{
+            position: "absolute",
+            top: -p.size,
+            left: `${p.xPct}%`,
+            width: p.size,
+            height: p.size,
+            borderRadius: "2px",
+            background: `hsl(${p.hue}, 85%, 60%)`,
+            animation: `relayFestivalConfetti ${p.dur.toFixed(1)}s linear ${p.delay.toFixed(1)}s infinite`,
+            ["--relay-fall-distance" as unknown as string]: `${sceneH + 20}px`,
+            ["--relay-fall-sway" as unknown as string]: `${8 + (p.id % 10)}px`,
+          }}
+        />
+      ))}
+      {/* Lantern row */}
+      {lanterns.map((l) => (
+        <span
+          key={l.id}
+          aria-hidden
+          style={{
+            position: "absolute",
+            left: l.x - 6,
+            top: l.y,
+            fontSize: 14,
+            animation: `relayFestivalLantern 3.5s ease-in-out ${l.delay.toFixed(1)}s infinite`,
+          }}
+        >
+          🏮
+        </span>
+      ))}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Axis B — Wildlife layer: owls / frogs / cats / butterflies
+// ---------------------------------------------------------------------------
+
+function WildlifeLayer({
+  specs,
+  sceneW,
+  sceneH,
+}: {
+  specs: readonly WildlifeSpec[];
+  sceneW: number;
+  sceneH: number;
+}) {
+  return (
+    <div aria-hidden className="absolute inset-0 pointer-events-none overflow-hidden">
+      {specs.map((s, i) => (
+        <span
+          key={`${s.kind}-${i}`}
+          title={s.label}
+          style={{
+            position: "absolute",
+            left: s.xFrac * sceneW,
+            top: s.yFrac * sceneH,
+            fontSize: s.kind === "owl" || s.kind === "cat" ? 16 : 13,
+            animation:
+              s.kind === "butterfly"
+                ? `relayHamletHover 4s ease-in-out ${s.delayS.toFixed(1)}s infinite`
+                : s.kind === "frog"
+                ? `relayHamletBounce 2.8s ease-in-out ${s.delayS.toFixed(1)}s infinite`
+                : s.kind === "owl"
+                ? `relayHamletTwinkle 3.5s ease-in-out ${s.delayS.toFixed(1)}s infinite`
+                : undefined,
+          }}
+        >
+          {s.glyph}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Axis C — Character stamp: session-type emoji on the roof right shoulder
+// ---------------------------------------------------------------------------
+
+function agentStamp(sessionType: SimCardModel["sessionType"]): { glyph: string; label: string } {
+  switch (sessionType) {
+    case "claude":       return { glyph: "💎", label: "claude — 思慮の宝石" };
+    case "codex":        return { glyph: "⚡", label: "codex — 素早さ" };
+    case "antigravity":  return { glyph: "🌌", label: "antigravity — 宇宙" };
+    default:             return { glyph: "✨", label: `${sessionType}` };
+  }
+}
+
+function CharStamp({
+  sim,
+  cellW,
+  cellH,
+}: {
+  sim: SimCardModel;
+  cellW: number;
+  cellH: number;
+}) {
+  const stamp = agentStamp(sim.sessionType);
+  return (
+    <span
+      aria-label={stamp.label}
+      title={stamp.label}
+      className="absolute pointer-events-auto select-none"
+      style={{
+        // Right shoulder of the roof — roughly right: 18% of cellW, top: 16% of cellH.
+        right: Math.max(2, Math.floor(cellW * 0.16)),
+        top: Math.max(2, Math.floor(cellH * 0.14)),
+        fontSize: 11,
+        lineHeight: 1,
+        filter: "drop-shadow(0 1px 2px rgba(0,0,0,0.5))",
+        zIndex: 5,
+        opacity: 0.85,
+      }}
+    >
+      {stamp.glyph}
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Axis C — Thought bubble: random 「!」or「?」pop on a house
+// ---------------------------------------------------------------------------
+
+function ThoughtBubble({
+  cellW,
+  cellH,
+  seed,
+}: {
+  cellW: number;
+  cellH: number;
+  seed: string;
+}) {
+  // Toggle between ! and ? based on a simple hash of the key.
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
+  const glyph = h % 2 === 0 ? "!" : "?";
+  return (
+    <span
+      aria-hidden
+      className="absolute pointer-events-none select-none font-bold"
+      style={{
+        left: "50%",
+        top: Math.max(4, Math.floor(cellH * 0.08)),
+        transform: "translateX(-50%)",
+        fontSize: 13,
+        color: "hsl(280, 70%, 55%)",
+        background: "var(--color-bg)",
+        borderRadius: "50%",
+        width: 18,
+        height: 18,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        boxShadow: "0 1px 4px rgba(0,0,0,0.3)",
+        animation: "relayHamletThoughtPop 1s ease-out forwards",
+        zIndex: 10,
+      }}
+    >
+      {glyph}
+    </span>
+  );
+}
+
 
 // ---------------------------------------------------------------------------
 // Keyframes — chimney smoke + panel slide
@@ -1836,3 +2183,53 @@ const SMOKE_CSS = `
   [style*="relayLetterBird"]  { animation: none !important; }
 }
 `;
+
+// ---------------------------------------------------------------------------
+// Festival + wildlife + char-stamp + rainbow CSS
+// ---------------------------------------------------------------------------
+
+const FESTIVAL_CSS = `
+/* Axis A — Festival confetti fall (reuses the petal sway vars) */
+@keyframes relayFestivalConfetti {
+  0%   { transform: translate(0, 0) rotate(0deg); opacity: 0; }
+  10%  { opacity: 1; }
+  100% { transform: translate(var(--relay-fall-sway, 10px), var(--relay-fall-distance, 300px)) rotate(540deg); opacity: 0; }
+}
+
+/* Axis A — Lantern gentle sway */
+@keyframes relayFestivalLantern {
+  0%, 100% { transform: rotate(-6deg) translateY(0px); }
+  50%      { transform: rotate(6deg) translateY(-3px); }
+}
+
+/* Axis C — Thought bubble pop-in and fade */
+@keyframes relayHamletThoughtPop {
+  0%   { transform: translateX(-50%) scale(0.4); opacity: 0; }
+  30%  { transform: translateX(-50%) scale(1.2); opacity: 1; }
+  60%  { transform: translateX(-50%) scale(1); opacity: 1; }
+  100% { transform: translateX(-50%) scale(1); opacity: 0; }
+}
+
+/* Axis D — Rainbow mode: rotating hue on all house SVGs */
+@keyframes relayRainbowHue {
+  0%   { filter: hue-rotate(0deg); }
+  100% { filter: hue-rotate(360deg); }
+}
+.relay-hamlet-rainbow svg[aria-hidden] {
+  animation: relayRainbowHue 2s linear infinite;
+}
+
+/* Axis D — Rainbow toast fade-in */
+.relay-rainbow-toast {
+  animation: relayNewsFadeIn 0.3s ease-out;
+}
+
+/* Reduced-motion: freeze festival, thought, and rainbow animations */
+@media (prefers-reduced-motion: reduce) {
+  .relay-festival [style*="relayFestivalConfetti"],
+  .relay-festival [style*="relayFestivalLantern"]  { animation: none !important; }
+  [style*="relayHamletThoughtPop"]                 { animation: none !important; }
+  .relay-hamlet-rainbow svg[aria-hidden]            { animation: none !important; }
+}
+`;
+

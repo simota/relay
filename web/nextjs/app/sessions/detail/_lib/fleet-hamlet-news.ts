@@ -33,6 +33,20 @@ export function composeVillageHeadlines(
 ): Headline[] {
   const out: Headline[] = [];
 
+  // Festival — multiple celebration events in the past 1h trigger a
+  // village-wide festival headline (軸A).
+  const festiveKinds = new Set(["achievement", "birthday", "baby", "wedding"]);
+  const oneHourAgoForFestival = now - 60 * 60 * 1000;
+  const recentFestiveEvents = events.filter(
+    (e) => festiveKinds.has(e.kind) && e.timestamp >= oneHourAgoForFestival,
+  );
+  if (recentFestiveEvents.length >= 2) {
+    out.push({
+      id: "festival",
+      text: `🎉 今日は村全体の祭り! 過去1hで ${recentFestiveEvents.length}件の慶事`,
+    });
+  }
+
   // Founder — oldest non-archived (bornAt most in the past) active resident.
   const founder = findFounder(sims, now);
   if (founder) {
