@@ -459,7 +459,7 @@ const ROOMS_CHOREO_CSS = `
 .rooms-title-ribbon {
   position: absolute;
   top: 0;
-  left: 0;
+  right: 0;
   display: inline-flex;
   align-items: center;
   gap: 2px;
@@ -468,7 +468,7 @@ const ROOMS_CHOREO_CSS = `
   line-height: 1.4;
   background: rgba(0,0,0,0.55);
   color: #fff;
-  border-bottom-right-radius: 6px;
+  border-bottom-left-radius: 6px;
   z-index: 5;
   pointer-events: none;
   backdrop-filter: blur(4px);
