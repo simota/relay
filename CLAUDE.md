@@ -21,6 +21,7 @@ right repo.
 - `WEB_DESIGN.md` — Web UI design spec.
 - `HOTKEYS.md` — Web UI keybindings.
 - `AGENTS.md` — Codex CLI / Antigravity CLI contributor guide (mirror of this file's scope-relevant parts in English).
+- `SESSIONS.md` — on-disk layout, JSONL/transcript schemas, and relay's extraction logic for Claude / Codex / Antigravity sessions.
 
 ## Runtime: Bun-first
 

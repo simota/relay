@@ -4,7 +4,7 @@
 
 `src/` contains the Bun/TypeScript CLI and local API. Command entry points live in `src/commands/`, API handlers in `src/api/`, SQLite files in `src/db/`, source ingesters in `src/adapters/`, execution helpers in `src/executor/`, and session readers in `src/sessions/`. `src/cli.ts` is the CLI entry; `src/web/server.ts` serves the Hono backend.
 
-`web/nextjs/` is the production Next.js UI. App routes live in `web/nextjs/app/`, components in `web/nextjs/components/`, hooks in `web/nextjs/hooks/`, and utilities/types in `web/nextjs/lib/`. `web/app/` is a vanilla fallback served when `web/nextjs/out/` has not been built yet. The landing page assets in `docs/` are served at `https://simota.github.io/relay/` via GitHub Pages — do not move them. Project docs: `README.md`, `INSTALL.md`, `CHEATSHEET.md`, `SPEC.md`, `ARCHITECTURE.md`, `WEB_DESIGN.md`, and `HOTKEYS.md`.
+`web/nextjs/` is the production Next.js UI. App routes live in `web/nextjs/app/`, components in `web/nextjs/components/`, hooks in `web/nextjs/hooks/`, and utilities/types in `web/nextjs/lib/`. `web/app/` is a vanilla fallback served when `web/nextjs/out/` has not been built yet. The landing page assets in `docs/` are served at `https://simota.github.io/relay/` via GitHub Pages — do not move them. Project docs: `README.md`, `INSTALL.md`, `CHEATSHEET.md`, `SPEC.md`, `ARCHITECTURE.md`, `WEB_DESIGN.md`, `HOTKEYS.md`, and `SESSIONS.md` (Claude/Codex/Antigravity session on-disk layouts and extraction logic).
 
 ## Build, Test, and Development Commands
 
