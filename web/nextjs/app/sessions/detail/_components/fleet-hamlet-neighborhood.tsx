@@ -105,6 +105,8 @@ import {
 import { collectAllEvents } from "../_lib/fleet-hamlet-events";
 import { detectFestival } from "../_lib/fleet-hamlet-festival";
 import { pickWildlife, type WildlifeSpec } from "../_lib/fleet-hamlet-wildlife";
+import { computeTimeRitual } from "../_lib/fleet-hamlet-time-rituals";
+import { playHouseChime } from "../_lib/fleet-hamlet-notify";
 
 // Fit-All layout (see _lib/fleet-hamlet-fit-layout.ts) sizes cells
 // dynamically so every house + park resident is visible without scroll
@@ -256,6 +258,8 @@ export function FleetHamletNeighborhood({
     [sims, selectedSessionId],
   );
   // Toggle helper — clicking the already-selected house clears it.
+  // Wave + house-pitched chime are deferred to a separate click handler
+  // added below (after wavingKey/chimeMutedRef are in scope).
   const toggleSelect = (sim: SimCardModel) => {
     if (!onSelectSession) return;
     onSelectSession(
@@ -499,6 +503,85 @@ export function FleetHamletNeighborhood({
     };
   }, []);
 
+  // --- v3 Axis A: Time ritual ------------------------------------------------
+  const timeRitual = useMemo(
+    () => computeTimeRitual(sky.tod, sims, now),
+    [sky.tod, sims, now],
+  );
+  // Evening-bell: inject the headline once every 5 min by adding it to the
+  // rotating ticker only when it isn't already there. We derive a stable
+  // boolean so we don't mutate headlines (which is a memoized array).
+  const bellHeadlineActive =
+    timeRitual?.kind === "evening-bell" &&
+    !headlines.some((h) => h.text.includes("evening bell"));
+
+  // --- v3 Axis C: Wave on click -----------------------------------------------
+  const [wavingKey, setWavingKey] = useState<string | null>(null);
+  const waveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const triggerWave = (key: string) => {
+    if (waveTimerRef.current) clearTimeout(waveTimerRef.current);
+    setWavingKey(key);
+    waveTimerRef.current = setTimeout(() => {
+      setWavingKey(null);
+      waveTimerRef.current = null;
+    }, 1000);
+  };
+
+  // --- v3 Axis C: Number-key house jump (1-9 → visibleActive[i-1]) -----------
+  useEffect(() => {
+    if (!onSelectSession) return;
+    const onNumKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA") return;
+      const n = parseInt(e.key, 10);
+      if (isNaN(n) || n < 1 || n > 9) return;
+      const sim = visibleActive[n - 1];
+      if (sim) onSelectSession(sim.sessionId);
+    };
+    window.addEventListener("keydown", onNumKey);
+    return () => window.removeEventListener("keydown", onNumKey);
+  }, [visibleActive, onSelectSession]);
+
+  // --- v3 Axis C: 2-second hover nickname tooltip ----------------------------
+  const [hoverNickname, setHoverNickname] = useState<{
+    key: string;
+    label: string;
+    x: number;
+    y: number;
+  } | null>(null);
+  const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const onHouseMouseEnter = (sim: SimCardModel, cellLeft: number, cellTop: number, cellW: number) => {
+    if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+    hoverTimerRef.current = setTimeout(() => {
+      setHoverNickname({
+        key: sim.key,
+        label: buildNickname(sim),
+        x: cellLeft + cellW / 2,
+        y: cellTop,
+      });
+      hoverTimerRef.current = null;
+    }, 2000);
+  };
+  const onHouseMouseLeave = () => {
+    if (hoverTimerRef.current) {
+      clearTimeout(hoverTimerRef.current);
+      hoverTimerRef.current = null;
+    }
+    setHoverNickname(null);
+  };
+
+  // --- v3 Axis B: Festival chime (10s interval, only during festival) --------
+  // hue=359 → playbackRate ≈ 1.15 (highest pitch available) → festive sound.
+  useEffect(() => {
+    if (!festival) return;
+    const id = setInterval(() => {
+      if (!chimeMuted) playHouseChime(359, 0.65);
+    }, 10_000);
+    return () => clearInterval(id);
+  }, [festival, chimeMuted]);
+
   return (
     <div
       ref={containerRef}
@@ -602,7 +685,11 @@ export function FleetHamletNeighborhood({
           )}
           style={{ top: HUD_RESERVE }}
         >
-          <span className="truncate">{currentHeadline.text}</span>
+          <span className="truncate">
+            {bellHeadlineActive && timeRitual?.kind === "evening-bell"
+              ? timeRitual.headline
+              : currentHeadline.text}
+          </span>
         </div>
       )}
 
@@ -898,7 +985,11 @@ export function FleetHamletNeighborhood({
             // Night windows only glow when the resident is actually home —
             // a 10-minute-silent house looks dark even at dusk so the user
             // can tell at a glance which lights are *currently* on.
-            const liveWindows = isRecent && isNightish && homeNow;
+            // v3 Axis A lights-out: silence > 5min at night also extinguishes.
+            const lightsOutNight =
+              timeRitual?.kind === "lights-out" &&
+              timeRitual.darkKeys.has(sim.key);
+            const liveWindows = isRecent && isNightish && homeNow && !lightsOutNight;
             return (
               <div
                 key={sim.key}
@@ -941,8 +1032,16 @@ export function FleetHamletNeighborhood({
                 )}
                 <button
                   type="button"
-                  onClick={() => toggleSelect(sim)}
+                  onClick={() => {
+                    toggleSelect(sim);
+                    // v3 Axis C: wave emoji pop
+                    triggerWave(sim.key);
+                    // v3 Axis B: house-pitched chime
+                    if (!chimeMutedRef.current) playHouseChime(hashRepoToHue(sim.repo));
+                  }}
                   onDoubleClick={() => onEnterHouse(sim)}
+                  onMouseEnter={() => onHouseMouseEnter(sim, left, top, activeCellW)}
+                  onMouseLeave={onHouseMouseLeave}
                   className="flex flex-col items-center justify-end p-0 m-0 bg-transparent border-0 cursor-pointer w-full h-full relative"
                   title={
                     event
@@ -1008,6 +1107,10 @@ export function FleetHamletNeighborhood({
                 {!fit.useTiny && thoughtKey === sim.key && (
                   <ThoughtBubble cellW={activeCellW} cellH={activeCellH} seed={sim.key} />
                 )}
+                {/* v3 Axis C — Wave emoji: 👋 pop-fade on house click. */}
+                {!fit.useTiny && wavingKey === sim.key && (
+                  <WaveEmoji cellW={activeCellW} cellH={activeCellH} />
+                )}
                 {/* Hover-only Enter House overlay — full mode only. */}
                 {!fit.useTiny && (
                   <button
@@ -1034,7 +1137,54 @@ export function FleetHamletNeighborhood({
             );
           })}
 
+          {/* v3 Axis C — Nickname tooltip: appears after 2s hover. */}
+          {!fit.useTiny && hoverNickname && (
+            <div
+              aria-hidden
+              className="pointer-events-none select-none"
+              style={{
+                position: "absolute",
+                left: hoverNickname.x,
+                top: Math.max(4, hoverNickname.y - 24),
+                transform: "translateX(-50%)",
+                zIndex: 30,
+                background: "var(--color-bg)",
+                border: "1px solid var(--color-border)",
+                borderRadius: 6,
+                padding: "2px 6px",
+                fontSize: 10,
+                fontFamily: "monospace",
+                color: "var(--color-fg-muted)",
+                whiteSpace: "nowrap",
+                boxShadow: "0 2px 6px rgba(0,0,0,0.2)",
+              }}
+            >
+              {hoverNickname.label}
+            </div>
+          )}
+
+          {/* v3 Axis D — Clock tower: always visible (including tiny mode),
+              centered above the house grid. Height ~60px, width ~24px. */}
+          <ClockTower
+            now={now}
+            cellW={activeCellW}
+            gridH={Math.max(activeH, activeCellH)}
+            isNight={sky.tod === "night"}
+          />
         </div>
+
+        {/* v3 Axis A — Newspaper delivery: walking paperboy at scene bottom. */}
+        {!fit.useTiny && timeRitual?.kind === "newspaper" && (
+          <NewspaperDelivery
+            sceneW={containerSize.w || activeW}
+            sceneH={sceneH}
+          />
+        )}
+
+        {/* v3 Axis A — Evening bell: 🔔 in sky band + ripple. */}
+        {!fit.useTiny && timeRitual?.kind === "evening-bell" && (
+          <EveningBell sceneW={containerSize.w || activeW} skyCeilingY={skyCeilingY} />
+        )}
       </div>
 
       {/* Park (silent residents) — anchored to the bottom of the pane.
@@ -1147,6 +1297,7 @@ export function FleetHamletNeighborhood({
       <style>{PARK_RESIDENT_CSS}</style>
       <style>{HOUSE_CHAT_CSS}</style>
       <style>{FESTIVAL_CSS}</style>
+      <style>{V3_CSS}</style>
     </div>
   );
 }
@@ -2121,6 +2272,270 @@ function ThoughtBubble({
   );
 }
 
+// ---------------------------------------------------------------------------
+// v3 Axis C — Wave emoji: 👋 pop-fade on house click
+// ---------------------------------------------------------------------------
+
+function WaveEmoji({ cellH }: { cellW: number; cellH: number }) {
+  return (
+    <span
+      aria-hidden
+      className="absolute pointer-events-none select-none"
+      style={{
+        left: "50%",
+        top: Math.max(4, Math.floor(cellH * 0.06)),
+        fontSize: 16,
+        lineHeight: 1,
+        animation: "relayWavePop 1s ease-out forwards",
+        zIndex: 12,
+        // Keep it visible above the moodlet bubble area
+        marginTop: -4,
+      }}
+    >
+      👋
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// v3 Axis D — Clock tower: real-time clock SVG centered above house grid
+// ---------------------------------------------------------------------------
+
+function ClockTower({
+  now,
+  gridH,
+  isNight,
+}: {
+  now: number;
+  cellW: number;
+  gridH: number;
+  isNight: boolean;
+}) {
+  const date = new Date(now);
+  const hours = date.getHours() % 12;
+  const minutes = date.getMinutes();
+  const seconds = date.getSeconds();
+
+  // Angles in degrees; 0° = 12 o'clock (top)
+  const minAngle = (minutes / 60) * 360 + (seconds / 60) * 6;
+  const hrAngle = (hours / 12) * 360 + (minutes / 60) * 30;
+
+  const W = 24;
+  const H = 60;
+  const cx = W / 2;
+  // Tower body
+  const towerTop = 16;
+  const towerBottom = H - 6;
+  const towerW = 14;
+  const towerLeft = (W - towerW) / 2;
+  // Clock face
+  const clockCY = towerTop + 14;
+  const clockR = 7;
+
+  // Minute / hour hand endpoints from clock center
+  const toRad = (deg: number) => ((deg - 90) * Math.PI) / 180;
+  const minX = cx + Math.cos(toRad(minAngle)) * (clockR - 1.5);
+  const minY = clockCY + Math.sin(toRad(minAngle)) * (clockR - 1.5);
+  const hrX = cx + Math.cos(toRad(hrAngle)) * (clockR - 3);
+  const hrY = clockCY + Math.sin(toRad(hrAngle)) * (clockR - 3);
+
+  const glowStyle: React.CSSProperties = isNight
+    ? { animation: "relayClockGlow 3s ease-in-out infinite" }
+    : {};
+
+  return (
+    <span
+      aria-label="Village clock tower"
+      title={`${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`}
+      className="absolute pointer-events-none select-none"
+      style={{
+        // Centered horizontally above the house grid, above the top edge.
+        left: "50%",
+        // Pin to the top of the grid, offset up by half the tower height so
+        // the base aligns with the grid top edge.
+        top: Math.max(4, Math.floor(gridH * 0.04)),
+        transform: "translateX(-50%)",
+        zIndex: 8,
+        opacity: 0.92,
+        ...glowStyle,
+      }}
+    >
+      <svg
+        width={W}
+        height={H}
+        viewBox={`0 0 ${W} ${H}`}
+        aria-hidden
+      >
+        {/* Triangular roof */}
+        <polygon
+          points={`${cx},${towerTop - 10} ${towerLeft - 2},${towerTop} ${towerLeft + towerW + 2},${towerTop}`}
+          fill="hsl(210, 40%, 38%)"
+        />
+        {/* Tower body */}
+        <rect
+          x={towerLeft}
+          y={towerTop}
+          width={towerW}
+          height={towerBottom - towerTop}
+          fill="hsl(220, 20%, 72%)"
+          rx={1}
+        />
+        {/* Tower shadow side */}
+        <rect
+          x={towerLeft + towerW - 3}
+          y={towerTop}
+          width={3}
+          height={towerBottom - towerTop}
+          fill="hsl(220, 20%, 55%)"
+          rx={1}
+        />
+        {/* Clock face */}
+        <circle
+          cx={cx}
+          cy={clockCY}
+          r={clockR}
+          fill={isNight ? "hsl(48, 90%, 80%)" : "hsl(0, 0%, 96%)"}
+          stroke="hsl(220, 20%, 50%)"
+          strokeWidth={0.8}
+        />
+        {/* Minute hand */}
+        <line
+          x1={cx}
+          y1={clockCY}
+          x2={minX}
+          y2={minY}
+          stroke="hsl(220, 30%, 30%)"
+          strokeWidth={1}
+          strokeLinecap="round"
+        />
+        {/* Hour hand */}
+        <line
+          x1={cx}
+          y1={clockCY}
+          x2={hrX}
+          y2={hrY}
+          stroke="hsl(220, 30%, 20%)"
+          strokeWidth={1.5}
+          strokeLinecap="round"
+        />
+        {/* Door */}
+        <rect
+          x={cx - 2}
+          y={towerBottom - 8}
+          width={4}
+          height={8}
+          fill="hsl(25, 40%, 30%)"
+          rx={1}
+        />
+      </svg>
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// v3 Axis A — Newspaper delivery: 🚶 walks left→right at scene bottom
+// ---------------------------------------------------------------------------
+
+function NewspaperDelivery({
+  sceneW,
+  sceneH,
+}: {
+  sceneW: number;
+  sceneH: number;
+}) {
+  const yPos = Math.max(sceneH * 0.82, sceneH - 40);
+  return (
+    <div
+      aria-hidden
+      className="absolute pointer-events-none overflow-hidden relay-paperboy"
+      style={{
+        left: 0,
+        top: yPos,
+        width: sceneW,
+        height: 24,
+        ["--relay-scene-w" as string]: `${sceneW}px`,
+        animation: "relayPaperboyWalk 15s linear infinite",
+      }}
+    >
+      <span style={{ fontSize: 14, lineHeight: 1, display: "inline-block" }}>🚶📰</span>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// v3 Axis A — Evening bell: 🔔 centered in sky band + ripple ring
+// ---------------------------------------------------------------------------
+
+function EveningBell({
+  sceneW,
+  skyCeilingY,
+}: {
+  sceneW: number;
+  skyCeilingY: number;
+}) {
+  const cx = sceneW / 2;
+  const bellY = Math.max(8, Math.floor(skyCeilingY * 0.12));
+  return (
+    <div
+      aria-hidden
+      className="absolute pointer-events-none"
+      style={{ left: 0, top: 0, width: sceneW, height: skyCeilingY }}
+    >
+      {/* Ripple ring */}
+      <span
+        className="relay-bell-ripple absolute"
+        style={{
+          left: cx - 12,
+          top: bellY - 4,
+          width: 24,
+          height: 24,
+          borderRadius: "50%",
+          border: "1.5px solid hsla(48, 90%, 65%, 0.7)",
+          animation: "relayBellRipple 5s ease-out infinite",
+        }}
+      />
+      {/* Bell glyph */}
+      <span
+        style={{
+          position: "absolute",
+          left: cx - 8,
+          top: bellY,
+          fontSize: 14,
+          lineHeight: 1,
+          filter: "drop-shadow(0 1px 2px rgba(0,0,0,0.4))",
+        }}
+      >
+        🔔
+      </span>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// v3 Axis C — Nickname helper: seed-based stable nickname from repo + type
+// ---------------------------------------------------------------------------
+
+const NICKNAME_ADJECTIVES = [
+  "冒険家", "探検家", "博士", "研究者", "魔法使い",
+  "職人", "旅人", "守護者", "発明家", "詩人",
+];
+const NICKNAME_ROLES: Partial<Record<string, string>> = {
+  claude: "思慮の達人",
+  codex: "コード職人",
+  antigravity: "宇宙の旅人",
+};
+
+function buildNickname(sim: { repo?: string | null; sessionType: string; key: string }): string {
+  // Stable hash from key.
+  let h = 0;
+  for (let i = 0; i < sim.key.length; i++) {
+    h = (Math.imul(h, 31) + sim.key.charCodeAt(i)) >>> 0;
+  }
+  const adj = NICKNAME_ADJECTIVES[h % NICKNAME_ADJECTIVES.length] ?? "旅人";
+  const role = NICKNAME_ROLES[sim.sessionType] ?? adj;
+  const repo = sim.repo ?? sim.sessionType;
+  return `${repo} の${role}`;
+}
 
 // ---------------------------------------------------------------------------
 // Keyframes — chimney smoke + panel slide
@@ -2233,3 +2648,42 @@ const FESTIVAL_CSS = `
 }
 `;
 
+// ---------------------------------------------------------------------------
+// v3 Time Rituals + Wave + Bell + Clock CSS
+// ---------------------------------------------------------------------------
+
+const V3_CSS = `
+/* v3 Axis C — Wave emoji pop-fade on click */
+@keyframes relayWavePop {
+  0%   { transform: translateX(-50%) scale(0.5); opacity: 0; }
+  25%  { transform: translateX(-50%) scale(1.3); opacity: 1; }
+  70%  { transform: translateX(-50%) scale(1);   opacity: 1; }
+  100% { transform: translateX(-50%) scale(1);   opacity: 0; }
+}
+
+/* v3 Axis A — Paperboy walk (left→right, 15s per cycle) */
+@keyframes relayPaperboyWalk {
+  0%   { transform: translateX(-40px); }
+  100% { transform: translateX(calc(var(--relay-scene-w, 400px) + 40px)); }
+}
+
+/* v3 Axis A — Evening bell ripple */
+@keyframes relayBellRipple {
+  0%   { transform: scale(1); opacity: 0.9; }
+  60%  { transform: scale(1.6); opacity: 0.4; }
+  100% { transform: scale(2.2); opacity: 0; }
+}
+
+/* v3 Axis D — Clock tower night glow */
+@keyframes relayClockGlow {
+  0%, 100% { opacity: 0.6; }
+  50%      { opacity: 1; }
+}
+
+/* Reduced-motion: freeze paperboy + bell */
+@media (prefers-reduced-motion: reduce) {
+  .relay-paperboy    { animation: none !important; }
+  .relay-bell-ripple { animation: none !important; }
+  [style*="relayWavePop"] { animation: none !important; }
+}
+`;

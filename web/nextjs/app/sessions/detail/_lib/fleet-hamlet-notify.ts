@@ -55,9 +55,15 @@ function loadBuffer(c: AudioContext): Promise<AudioBuffer | null> {
   return bufferLoad;
 }
 
-function playBuffer(c: AudioContext, buf: AudioBuffer, gain: number): void {
+function playBuffer(
+  c: AudioContext,
+  buf: AudioBuffer,
+  gain: number,
+  playbackRate = 1,
+): void {
   const src = c.createBufferSource();
   src.buffer = buf;
+  src.playbackRate.value = Math.max(0.1, Math.min(4, playbackRate));
   if (gain === 1) {
     src.connect(c.destination);
   } else {
@@ -87,6 +93,40 @@ export function playMessageChime(gain: number = 1): void {
   }
   void loadBuffer(c).then((buf) => {
     if (buf) playBuffer(c, buf, gain);
+  });
+}
+
+/** Minimum ms between consecutive house chimes (prevents click-spam stacking). */
+let lastHouseChimeAt = 0;
+const HOUSE_CHIME_FLOOR_MS = 200;
+
+/**
+ * Play a house-specific chime pitched by the roof hue (0–359).
+ * Reuses the same AudioBuffer as `playMessageChime`; pitch shifts via
+ * `playbackRate` in the 0.85–1.15 range so each house sounds slightly
+ * different while remaining musically related.
+ *
+ * @param repoHue  HSL hue of the house roof (0–359).
+ * @param gain     Volume multiplier (default 0.7 — quieter than the message chime).
+ */
+export function playHouseChime(repoHue: number, gain = 0.7): void {
+  const now = Date.now();
+  if (now - lastHouseChimeAt < HOUSE_CHIME_FLOOR_MS) return;
+  lastHouseChimeAt = now;
+
+  const c = getCtx();
+  if (!c) return;
+  if (c.state === "suspended") {
+    void c.resume().catch(() => {});
+  }
+  // Map hue 0–359 → playbackRate 0.85–1.15.
+  const rate = 0.85 + ((repoHue % 360) / 360) * 0.3;
+  if (buffer) {
+    playBuffer(c, buffer, gain, rate);
+    return;
+  }
+  void loadBuffer(c).then((buf) => {
+    if (buf) playBuffer(c, buf, gain, rate);
   });
 }
 
