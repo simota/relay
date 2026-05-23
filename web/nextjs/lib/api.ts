@@ -30,6 +30,7 @@ import type {
   DuplicatesResponse,
   StaleCloseResponse,
   SkillRankResponse,
+  SessionsByTypeResponse,
 } from "./types";
 
 // Origin prefix for EventSource / fetch streaming. In `next dev` the /api/*
@@ -240,6 +241,39 @@ export interface SessionPromiseLedger {
   honesty_score: number | null;
 }
 
+export interface RepoPromiseSummary {
+  repo: string;
+  last_session: {
+    type: SessionType;
+    id: string;
+    title: string;
+    last_active: string;
+    unmet_count: number;
+    unverifiable_count: number;
+  };
+  total_unmet: number;
+  total_unfinished_sessions: number;
+}
+
+export interface RepoPromiseSummaryResponse {
+  flag_enabled: boolean;
+  summaries: RepoPromiseSummary[];
+  lookback_days: number;
+}
+
+export interface RepoAgentJournalSummary {
+  repo: string;
+  file_count: number;
+  agents: string[];
+  recent_entries: number;
+  last_entry_at: string | null;
+}
+
+export interface RepoAgentJournalsResponse {
+  summaries: RepoAgentJournalSummary[];
+  lookback_days: number;
+}
+
 export interface SessionTaskSummary {
   id: number;
   title: string;
@@ -329,6 +363,10 @@ export const api = {
       request<DuplicatesResponse>("/api/insights/duplicates"),
     skills: (windowDays = 30) =>
       request<SkillRankResponse>(`/api/insights/skills?window_days=${windowDays}`),
+    sessionsByType: (windowDays = 30) =>
+      request<SessionsByTypeResponse>(
+        `/api/insights/sessions-by-type?window_days=${windowDays}`,
+      ),
     staleClose: (threshold = 30) =>
       request<StaleCloseResponse>(`/api/insights/stale/close?threshold=${threshold}`, {
         method: "POST",
@@ -349,6 +387,14 @@ export const api = {
     }),
   repoPath: (name: string) => request<{ path: string }>(`/api/repos/${encodeURIComponent(name)}/path`),
   repoAgents: (name: string) => request<RepoAgentsResponse>(`/api/repos/${encodeURIComponent(name)}/agents`),
+  reposPromiseSummary: (days = 14) =>
+    request<RepoPromiseSummaryResponse>(
+      `/api/repos/promise-summary?days=${encodeURIComponent(String(days))}`,
+    ),
+  reposAgentJournals: (days = 14) =>
+    request<RepoAgentJournalsResponse>(
+      `/api/repos/agent-journals?days=${encodeURIComponent(String(days))}`,
+    ),
   contexts: (repo?: string, limit = 50) => {
     const q = new URLSearchParams();
     if (repo) q.set("repo", repo);

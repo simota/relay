@@ -1,12 +1,49 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowUpRight, GitBranch, Github, GitPullRequest } from "lucide-react";
+import { AlertTriangle, ArrowUpRight, GitBranch, Github, GitPullRequest, NotebookPen } from "lucide-react";
 import { c, formatNumber } from "@/lib/copy";
 import { cn, timeAgo } from "@/lib/utils";
 import type { RepoStat } from "@/lib/types";
 
-export function RepoCard({ repo, scale }: { repo: RepoStat; scale: number }) {
+/**
+ * Per-card hook for the Unfinished Business surface. When provided, the
+ * card renders a small amber chip near the timestamp so a user scanning
+ * the grid (rather than the lane) still sees which repos have abandoned
+ * AI work. The chip is intentionally compact — the lane is the primary
+ * surface, the chip is the in-grid echo.
+ */
+export interface RepoCardUnfinished {
+  unmetCount: number;
+  unfinishedSessions: number;
+}
+
+/**
+ * Per-card `.agents/*.md` journal signal. Surfaces the agents writing in
+ * this repo and the count of dated entries within the lookback window —
+ * the killer information the agents_note adapter throws away because it
+ * only ingests GitHub-style checkboxes (a tiny subset of how users
+ * actually populate `.agents/`).
+ */
+export interface RepoCardJournal {
+  fileCount: number;
+  /** Filename stems sorted by recent activity (already capped server-side at 8). */
+  agents: string[];
+  recentEntries: number;
+  lookbackDays: number;
+}
+
+export function RepoCard({
+  repo,
+  scale,
+  unfinished,
+  journal,
+}: {
+  repo: RepoStat;
+  scale: number;
+  unfinished?: RepoCardUnfinished;
+  journal?: RepoCardJournal;
+}) {
   const total = repo.open + repo.in_progress;
   const pct = (total / Math.max(1, scale)) * 100;
   const dailyEventCounts = normalizeDailyEventCounts(repo.dailyEventCounts);
@@ -42,7 +79,19 @@ export function RepoCard({ repo, scale }: { repo: RepoStat; scale: number }) {
             </span>
           )}
         </div>
-        <span className="text-[10px] text-[var(--color-fg-dim)] font-mono">{timeAgo(repo.lastTouched)}</span>
+        <div className="flex items-center gap-1.5">
+          {unfinished && (
+            <span
+              className="inline-flex items-center gap-1 px-1.5 py-[1px] rounded-full bg-[var(--color-warm)]/15 text-[var(--color-warm)] border border-[var(--color-warm)]/30 text-[9.5px] font-mono uppercase tracking-wider"
+              title={`${unfinished.unmetCount} unmet promise${unfinished.unmetCount === 1 ? "" : "s"} across ${unfinished.unfinishedSessions} unfinished AI session${unfinished.unfinishedSessions === 1 ? "" : "s"}`}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <AlertTriangle className="w-2.5 h-2.5" />
+              {unfinished.unmetCount}
+            </span>
+          )}
+          <span className="text-[10px] text-[var(--color-fg-dim)] font-mono">{timeAgo(repo.lastTouched)}</span>
+        </div>
       </div>
       <div className="flex items-end justify-between gap-3 mb-3">
         <div className="grid grid-cols-3 gap-2 flex-1 min-w-0">
@@ -52,6 +101,7 @@ export function RepoCard({ repo, scale }: { repo: RepoStat; scale: number }) {
         </div>
         <RepoSparkline counts={dailyEventCounts} />
       </div>
+      {journal && <JournalRow journal={journal} />}
       <RemoteFooter repo={repo} />
       <div className="h-1 rounded-full bg-[var(--color-bg)] overflow-hidden">
         <div
@@ -73,6 +123,42 @@ export function RepoCard({ repo, scale }: { repo: RepoStat; scale: number }) {
     >
       {cardContent}
     </Link>
+  );
+}
+
+function JournalRow({ journal }: { journal: RepoCardJournal }) {
+  // Show up to 3 agent names inline; the rest collapse into "+N" so the
+  // chip stays a single line on a 260px card. file_count carries the
+  // long-tail size in the tooltip.
+  const visible = journal.agents.slice(0, 3);
+  const overflow = journal.agents.length - visible.length;
+  const tooltip = `${journal.fileCount} .agents/*.md files · ${journal.agents.length} agents present (${journal.agents.join(", ")})`;
+  return (
+    <div
+      className="mb-2 flex items-center gap-1.5 text-[10px] font-mono text-[var(--color-fg-dim)]"
+      title={tooltip}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <NotebookPen className="h-3 w-3 shrink-0 text-[var(--color-fg-muted)]" />
+      {visible.length > 0 ? (
+        <span className="truncate min-w-0">
+          {visible.map((a, i) => (
+            <span key={a}>
+              {i > 0 && <span className="text-[var(--color-fg-dim)]">·</span>}
+              <span className="text-[var(--color-fg-muted)]">{a}</span>
+            </span>
+          ))}
+          {overflow > 0 && (
+            <span className="text-[var(--color-fg-dim)]">+{overflow}</span>
+          )}
+        </span>
+      ) : (
+        <span className="text-[var(--color-fg-muted)]">{formatNumber(journal.fileCount)} files</span>
+      )}
+      <span className="ml-auto tabular text-[var(--color-fg-muted)]">
+        {formatNumber(journal.recentEntries)}/{journal.lookbackDays}d
+      </span>
+    </div>
   );
 }
 

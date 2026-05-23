@@ -2,8 +2,8 @@
 
 import { useMemo, useState } from "react";
 import useSWR from "swr";
-import { api } from "@/lib/api";
-import { RepoCard } from "@/components/repo-card";
+import { api, type RepoAgentJournalsResponse, type RepoPromiseSummaryResponse } from "@/lib/api";
+import { RepoCard, type RepoCardJournal, type RepoCardUnfinished } from "@/components/repo-card";
 import { TrackReposDialog } from "@/components/track-repos-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,6 +11,7 @@ import { PageState } from "@/components/page-state";
 import { c, formatNumber } from "@/lib/copy";
 import { cn } from "@/lib/utils";
 import type { RepoStat } from "@/lib/types";
+import { UnfinishedBusinessLane } from "./_components/unfinished-business-lane";
 
 type SortMode = "recent" | "open" | "name";
 const DEFAULT_SORT: SortMode = "recent"; // recent maps to last_activity desc.
@@ -28,6 +29,46 @@ export default function ReposPage() {
   const { data: repos = [] } = useSWR<RepoStat[]>("/api/repos", () => api.repos(), {
     refreshInterval: 60_000,
   });
+  // Same SWR key as UnfinishedBusinessLane — request gets deduped, both
+  // surfaces stay in sync. We need the map at the page level to thread
+  // the per-repo chip into each RepoCard.
+  const { data: promiseData } = useSWR<RepoPromiseSummaryResponse>(
+    "/api/repos/promise-summary",
+    () => api.reposPromiseSummary(),
+    { refreshInterval: 60_000, shouldRetryOnError: false },
+  );
+  const unfinishedByRepo = useMemo(() => {
+    const out = new Map<string, RepoCardUnfinished>();
+    if (!promiseData?.flag_enabled) return out;
+    for (const s of promiseData.summaries) {
+      out.set(s.repo, {
+        unmetCount: s.total_unmet,
+        unfinishedSessions: s.total_unfinished_sessions,
+      });
+    }
+    return out;
+  }, [promiseData]);
+  // .agents/*.md journal signal — surfaces agent activity that the
+  // checkbox-only agents_note adapter doesn't capture (most users write
+  // dated prose journals, not GitHub task lists).
+  const { data: journalsData } = useSWR<RepoAgentJournalsResponse>(
+    "/api/repos/agent-journals",
+    () => api.reposAgentJournals(),
+    { refreshInterval: 120_000, shouldRetryOnError: false },
+  );
+  const journalsByRepo = useMemo(() => {
+    const out = new Map<string, RepoCardJournal>();
+    if (!journalsData) return out;
+    for (const s of journalsData.summaries) {
+      out.set(s.repo, {
+        fileCount: s.file_count,
+        agents: s.agents,
+        recentEntries: s.recent_entries,
+        lookbackDays: journalsData.lookback_days,
+      });
+    }
+    return out;
+  }, [journalsData]);
   const [filter, setFilter] = useState("");
   const [sortMode, setSortMode] = useState<SortMode>(DEFAULT_SORT);
   const [org, setOrg] = useState<string>("all");
@@ -140,9 +181,17 @@ export default function ReposPage() {
           </div>
         </div>
 
+        <UnfinishedBusinessLane />
+
         <div className="grid grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-3">
           {filtered.map((r) => (
-            <RepoCard key={r.name} repo={r} scale={scale} />
+            <RepoCard
+              key={r.name}
+              repo={r}
+              scale={scale}
+              unfinished={unfinishedByRepo.get(r.name)}
+              journal={journalsByRepo.get(r.name)}
+            />
           ))}
         </div>
 

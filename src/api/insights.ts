@@ -191,6 +191,27 @@ export interface SkillRankResponse {
   entries: SkillRankEntry[];
 }
 
+export interface SessionsByTypeEntry {
+  /** Session type — claude / codex / antigravity / cursor. */
+  type: "claude" | "codex" | "antigravity" | "cursor";
+  /** Top-level sessions (subagents excluded) in the window. */
+  session_count: number;
+  /** Sum of `last_active - started_at` across those sessions, in seconds. */
+  total_seconds: number;
+  /** Mean wall-clock duration per session, in seconds. */
+  avg_seconds: number;
+}
+
+export interface SessionsByTypeResponse {
+  /** Rolling window in days. */
+  window_days: number;
+  /** Sum of `session_count` across all types — useful as a denominator. */
+  total_sessions: number;
+  /** Sum of `total_seconds` across all types. */
+  total_seconds: number;
+  entries: SessionsByTypeEntry[];
+}
+
 // --- 60s in-memory cache --------------------------------------------------
 
 const CACHE_TTL_MS = 60_000;
@@ -562,6 +583,35 @@ export function createInsightsApi() {
       const db = new RelayDB();
       try {
         return computeSkillRank(db, windowDays);
+      } finally {
+        db.close();
+      }
+    });
+    return c.json(value);
+  });
+
+  // 21. sessions by CLI type — count + total/avg wall-clock duration -----
+  app.get("/sessions-by-type", (c) => {
+    const windowDays = clampWindowDays(c.req.query("window_days"), 30);
+    const value = withCache<SessionsByTypeResponse>(c, () => {
+      const db = new RelayDB();
+      try {
+        const sinceIso = new Date(Date.now() - windowDays * DAY_MS).toISOString();
+        const rows = db.rawSessionStatsByTypeSince(sinceIso);
+        const entries: SessionsByTypeEntry[] = rows.map((r) => ({
+          type: r.type as SessionsByTypeEntry["type"],
+          session_count: r.session_count,
+          total_seconds: Math.max(0, Math.round(r.total_seconds)),
+          avg_seconds: Math.max(0, Math.round(r.avg_seconds)),
+        }));
+        const total_sessions = entries.reduce((s, e) => s + e.session_count, 0);
+        const total_seconds = entries.reduce((s, e) => s + e.total_seconds, 0);
+        return {
+          window_days: windowDays,
+          total_sessions,
+          total_seconds,
+          entries,
+        };
       } finally {
         db.close();
       }

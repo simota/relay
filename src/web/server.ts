@@ -21,6 +21,8 @@ import { createTasksApi } from "../api/tasks.js";
 import { createUndoApi } from "../api/undo.js";
 import { createViewsApi } from "../api/views.js";
 import { createRepoAgentsApi } from "../api/repo-agents.js";
+import { createReposJournalsApi } from "../api/repos-journals.js";
+import { createReposPromiseApi } from "../api/repos-promise.js";
 import { createScanApi } from "../api/scan.js";
 import { clearFocus, getFocus, setFocus } from "../commands/focus.js";
 import { pruneMissingRepos } from "../commands/prune.js";
@@ -262,6 +264,12 @@ export function buildApp() {
 
   // --- Sessions (claude / codex / antigravity live filesystem browser) ------
   app.route("/api/sessions", createSessionsApi());
+
+  // --- Repos / Promise Ledger summary (Unfinished Business lane) -----
+  app.route("/api/repos", createReposPromiseApi());
+
+  // --- Repos / agent-journal summary (per-card .agents/ chips) -------
+  app.route("/api/repos", createReposJournalsApi());
 
   // --- Scan (discover repos + tracked allowlist) -----------------------
   app.route("/api", createScanApi());

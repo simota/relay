@@ -324,6 +324,20 @@ export interface SkillRankResponse {
   entries: SkillRankEntry[];
 }
 
+export interface SessionsByTypeEntry {
+  type: "claude" | "codex" | "antigravity" | "cursor";
+  session_count: number;
+  total_seconds: number;
+  avg_seconds: number;
+}
+
+export interface SessionsByTypeResponse {
+  window_days: number;
+  total_sessions: number;
+  total_seconds: number;
+  entries: SessionsByTypeEntry[];
+}
+
 export type SyncEvent =
   | { type: "adapter_start"; adapter: SourceType }
   | { type: "adapter_done"; adapter: SourceType; inserted: number; updated: number; unchanged: number; fetched: number; elapsedMs: number; sampleSourceIds?: string[] }

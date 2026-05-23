@@ -617,6 +617,42 @@ export class RelayDB {
     }>;
   }
 
+  /**
+   * Per-CLI aggregate over the sessions table within a rolling window.
+   * Returns one row per `type` (claude / codex / antigravity / cursor) with
+   * the session count and total / average wall-clock duration in seconds.
+   *
+   * Subagents (`parent_session_id IS NOT NULL`) are excluded so that a
+   * parent session and its 8 spawned children don't compound into 9× the
+   * "real" elapsed time the user actually spent.
+   *
+   * `MAX(... , 0)` clamps negative durations to zero — they should never
+   * occur in practice but a clock-skew row would otherwise drag the SUM
+   * negative without trace.
+   */
+  rawSessionStatsByTypeSince(
+    sinceIso: string,
+  ): Array<{ type: string; session_count: number; total_seconds: number; avg_seconds: number }> {
+    return this.db
+      .prepare(
+        `SELECT type,
+                COUNT(*)                                                                AS session_count,
+                COALESCE(SUM(MAX(strftime('%s', last_active) - strftime('%s', started_at), 0)), 0) AS total_seconds,
+                COALESCE(AVG(MAX(strftime('%s', last_active) - strftime('%s', started_at), 0)), 0) AS avg_seconds
+           FROM sessions
+          WHERE last_active >= ?
+            AND parent_session_id IS NULL
+          GROUP BY type
+          ORDER BY total_seconds DESC`,
+      )
+      .all(sinceIso) as Array<{
+      type: string;
+      session_count: number;
+      total_seconds: number;
+      avg_seconds: number;
+    }>;
+  }
+
   closeStaleTasks(thresholdDays: number): ReturnType<typeof _closeStaleTasks> {
     return _closeStaleTasks(this.db, thresholdDays);
   }
