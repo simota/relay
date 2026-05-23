@@ -1,9 +1,11 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { extractPromiseLedger } from "../lib/promise-ledger.js";
 import { resolveRepoForCwd } from "../lib/repo-from-cwd.js";
 import { distinctSkillNames, extractCodexSkills } from "../lib/session-skills.js";
 import { detectCodexSessionStatus } from "../lib/session-status.js";
+import type { GetSessionOptions } from "./index.js";
 import type {
   SessionDetail,
   SessionMessage,
@@ -13,12 +15,16 @@ import type {
 
 const SESSIONS_ROOT = join(homedir(), ".codex", "sessions");
 
-export async function getCodexSession(id: string, roots: string[]): Promise<SessionDetail | null> {
+export async function getCodexSession(
+  id: string,
+  roots: string[],
+  opts: GetSessionOptions = {},
+): Promise<SessionDetail | null> {
   // We don't know the y/m/d path from the id alone — walk the tree.
   const candidates = await collectRecentJsonl(SESSIONS_ROOT, 0);
   for (const c of candidates) {
     if (!c.path.includes(`-${id}.jsonl`)) continue;
-    return readCodexDetail(c.path, roots, c.mtimeMs);
+    return readCodexDetail(c.path, roots, c.mtimeMs, opts);
   }
   return null;
 }
@@ -130,6 +136,7 @@ async function readCodexDetail(
   path: string,
   roots: string[],
   mtimeMs: number,
+  opts: GetSessionOptions,
 ): Promise<SessionDetail | null> {
   const summary = await readCodexSummary(path, roots, mtimeMs);
   if (!summary) return null;
@@ -173,6 +180,9 @@ async function readCodexDetail(
   }
 
   const skills = extractCodexSkills(text);
+  const promise_ledger = opts.promiseLedger
+    ? extractPromiseLedger(messages, toolCalls)
+    : undefined;
   return {
     ...summary,
     messages,
@@ -184,6 +194,7 @@ async function readCodexDetail(
     // but no real-world fixture surfaces them today — leave empty until
     // a concrete need surfaces, so the UI shows a clean "no chain".
     skill_chains: [],
+    ...(promise_ledger ? { promise_ledger } : {}),
   };
 }
 

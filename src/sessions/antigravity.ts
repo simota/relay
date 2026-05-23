@@ -2,9 +2,11 @@ import { existsSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { extractPromiseLedger } from "../lib/promise-ledger.js";
 import { resolveRepoForCwd } from "../lib/repo-from-cwd.js";
 import { distinctSkillNames, extractAntigravitySkills } from "../lib/session-skills.js";
 import { detectAntigravitySessionStatus } from "../lib/session-status.js";
+import type { GetSessionOptions } from "./index.js";
 import type {
   SessionDetail,
   SessionMessage,
@@ -32,11 +34,12 @@ const LAST_CONVERSATIONS_PATH = join(
 export async function getAntigravitySession(
   id: string,
   roots: string[],
+  opts: GetSessionOptions = {},
 ): Promise<SessionDetail | null> {
   const transcriptPath = transcriptPathFor(id);
   if (!existsSync(transcriptPath)) return null;
   const workspaceMap = await loadConversationWorkspaceMap();
-  return readAntigravityDetail(transcriptPath, id, workspaceMap, roots);
+  return readAntigravityDetail(transcriptPath, id, workspaceMap, roots, opts);
 }
 
 export async function getAntigravityPath(id: string): Promise<string | null> {
@@ -122,6 +125,7 @@ async function readAntigravityDetail(
   id: string,
   workspaceMap: Map<string, string>,
   roots: string[],
+  opts: GetSessionOptions,
 ): Promise<SessionDetail | null> {
   const text = await readFile(path, "utf8").catch(() => "");
   if (!text) return null;
@@ -210,6 +214,9 @@ async function readAntigravityDetail(
     ...(skills_used.length > 0 ? { skills_used } : {}),
   };
 
+  const promise_ledger = opts.promiseLedger
+    ? extractPromiseLedger(messages, toolCalls)
+    : undefined;
   return {
     ...summary,
     messages,
@@ -219,6 +226,7 @@ async function readAntigravityDetail(
     // Antigravity has no Skill / Agent spawn structure — chains are not
     // observable from the transcript JSONL.
     skill_chains: [],
+    ...(promise_ledger ? { promise_ledger } : {}),
   };
 }
 

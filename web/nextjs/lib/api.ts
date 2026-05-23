@@ -194,12 +194,50 @@ export interface SessionDetail extends SessionSummary {
   skills: SessionSkillUse[];
   /** Parent → child skill relationships observed in this session. */
   skill_chains: SessionSkillChainEdge[];
+  /**
+   * Promise Ledger — claim vs. tool-call audit. Present only when
+   * `[features].promise_ledger = true` in relay's config.toml. Omitted
+   * field is the signal to hide the Ledger tab.
+   */
+  promise_ledger?: SessionPromiseLedger;
 }
 
 export interface SessionSkillChainEdge {
   parent: string;
   child: string;
   ts: string;
+}
+
+export type PromiseClaimType =
+  | "write_file"
+  | "edit_file"
+  | "delete_file"
+  | "add_test"
+  | "run_test"
+  | "commit"
+  | "generic";
+
+export type PromiseStatus = "verified" | "partial" | "unmet" | "unverifiable";
+
+export interface PromiseEntry {
+  message_index: number;
+  timestamp: string;
+  claim_text: string;
+  claim_type: PromiseClaimType;
+  status: PromiseStatus;
+  evidence: string | null;
+  reason: string | null;
+}
+
+export interface SessionPromiseLedger {
+  entries: PromiseEntry[];
+  total_claims: number;
+  verified: number;
+  partial: number;
+  unmet: number;
+  unverifiable: number;
+  /** 0-100 trust score; null when no scorable claims. */
+  honesty_score: number | null;
 }
 
 export interface SessionTaskSummary {

@@ -7,6 +7,7 @@ import {
   ListChecks,
   MessageSquare,
   Network,
+  ScrollText,
   Sparkles,
   Wrench,
   Workflow,
@@ -41,6 +42,7 @@ import { StatusRibbon } from "./status-ribbon";
 import { SubagentDag } from "./subagent-dag";
 import { SubagentFlockView } from "./subagent-flock-view";
 import { SubagentTree } from "./subagent-tree";
+import { PromiseLedgerPanel } from "./promise-ledger-panel";
 import { SkillsUsedPanel } from "./skills-used-panel";
 import { TabButton } from "./tab-button";
 import { TodosList } from "./todos-list";
@@ -78,6 +80,7 @@ export function SessionTileView({
     | "todos"
     | "tools"
     | "skills"
+    | "ledger"
     | "agents"
     | "files"
     | "dag"
@@ -132,6 +135,12 @@ export function SessionTileView({
   const dagEligible = !isSubagent && hasSubagents;
   const skillCount = data.skills?.length ?? 0;
   const skillsEligible = skillCount > 0;
+  // Ledger eligibility: the API only sets `promise_ledger` when the feature
+  // flag is on, so the field's presence doubles as the gate — no UI knob
+  // needed. Show the tab only when at least one claim was detected so empty
+  // sessions don't get a misleading "0 claims" tab.
+  const ledger = data.promise_ledger ?? null;
+  const ledgerEligible = !!ledger && ledger.total_claims > 0;
 
   // Drop the user back to `messages` if the active tab disappears (e.g. they
   // open a subagent tile while parked on the agents tab of the parent, or
@@ -152,7 +161,10 @@ export function SessionTileView({
     if (tab === "skills" && !skillsEligible) {
       setTab("messages");
     }
-  }, [tab, dagEligible, fileTouchCount, laneEligible, skillsEligible]);
+    if (tab === "ledger" && !ledgerEligible) {
+      setTab("messages");
+    }
+  }, [tab, dagEligible, fileTouchCount, laneEligible, skillsEligible, ledgerEligible]);
 
   const handleAddAllSubagents = useCallback(async () => {
     if (addingSubagents) return;
@@ -471,6 +483,23 @@ export function SessionTileView({
                 <span className="tabular">{formatNumber(skillCount)}</span>
               </TabButton>
             )}
+            {ledgerEligible && ledger && (
+              <TabButton
+                active={tab === "ledger"}
+                onClick={() => setTab("ledger")}
+                compact={compact}
+                title={
+                  ledger.honesty_score === null
+                    ? `ledger · ${formatNumber(ledger.total_claims)} claims`
+                    : `ledger · ${ledger.honesty_score}% honesty (${formatNumber(ledger.total_claims)} claims)`
+                }
+              >
+                <ScrollText className="w-3.5 h-3.5" aria-hidden />
+                <span className="tabular">
+                  {ledger.honesty_score === null ? "—" : `${ledger.honesty_score}%`}
+                </span>
+              </TabButton>
+            )}
             {laneEligible && (
               <TabButton
                 active={tab === "lane"}
@@ -588,6 +617,9 @@ export function SessionTileView({
             skillChains={data.skill_chains ?? []}
             compact={compact}
           />
+        )}
+        {tab === "ledger" && ledgerEligible && ledger && (
+          <PromiseLedgerPanel ledger={ledger} compact={compact} />
         )}
         {tab === "lane" && (
           <SequenceLane

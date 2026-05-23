@@ -182,6 +182,16 @@ const ConfigSchema = z.object({
       }),
     )
     .default([]),
+  features: z
+    .object({
+      // Promise Ledger — assistant-claim vs tool-call audit on session
+      // detail. Default OFF because the audit's value depends on user
+      // trust in the verdict, and claim/evidence pairing precision is
+      // still being tuned on real fixtures. Opt in via
+      // `[features].promise_ledger = true`.
+      promise_ledger: z.boolean().default(false),
+    })
+    .default({}),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;
