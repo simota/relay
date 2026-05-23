@@ -11,6 +11,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { SessionDetail } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useSessionDetails } from "../_hooks/use-session-details";
+import { useHamletSkillBursts } from "../_hooks/use-hamlet-skill-burst";
 import { buildHueMap } from "../_lib/fleet-activity";
 import { isArchived } from "../_lib/fleet-hamlet-cemetery";
 import { collectAllEvents } from "../_lib/fleet-hamlet-events";
@@ -267,6 +268,9 @@ export function FleetHamlet({
   // Sim cards need per-session detail for Fun / Hygiene / Comfort. Reuse
   // the shared hook so all four Fleet tabs share the same detail cache.
   const details = useSessionDetails(sessions);
+  // Diff `details.skills` between renders → transient burst events the
+  // Neighborhood / Panel overlay as a sparkle badge above the resident.
+  const skillBursts = useHamletSkillBursts(details);
   const hueMap = useMemo(() => buildHueMap(sessions), [sessions]);
 
   const sims = useMemo(
@@ -425,6 +429,7 @@ export function FleetHamlet({
             selection={hydratedSelection}
             onSelectionChange={setSelection}
             selectedSim={neighborhoodSelected}
+            skillBursts={skillBursts}
           />
         )}
 
@@ -482,6 +487,7 @@ interface NeighborhoodLayoutProps {
   selection: string | null;
   onSelectionChange: (sessionId: string | null) => void;
   selectedSim: SimCardModel | null;
+  skillBursts: ReadonlyMap<string, import("../_hooks/use-hamlet-skill-burst").SkillBurstEvent[]>;
 }
 
 function NeighborhoodLayout({
@@ -496,6 +502,7 @@ function NeighborhoodLayout({
   selection,
   onSelectionChange,
   selectedSim,
+  skillBursts,
 }: NeighborhoodLayoutProps) {
   // On mobile (single-column), gently scroll the panel into view when a
   // new selection lands so the user immediately sees their choice. We
@@ -530,6 +537,7 @@ function NeighborhoodLayout({
           onEnterHouse={onEnterHouse}
           selectedSessionId={selection}
           onSelectSession={onSelectionChange}
+          skillBurstsByKey={skillBursts}
         />
       </div>
       {/* Rich Sim panel */}

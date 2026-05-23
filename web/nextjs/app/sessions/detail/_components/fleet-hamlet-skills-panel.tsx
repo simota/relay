@@ -48,8 +48,9 @@ export function SkillsPanel({ card, detail, variant, limit = 3 }: Props) {
 }
 
 function sortFull(skills: readonly Skill[]): Skill[] {
-  // Group order: tool first (most expressive of work), then lang, then repo.
-  const order: Record<Skill["kind"], number> = { tool: 0, lang: 1, repo: 2 };
+  // Group order: agent first (highest-level orchestration signal — which
+  // SKILL.md agents the resident used), then tool, then lang, then repo.
+  const order: Record<Skill["kind"], number> = { agent: 0, tool: 1, lang: 2, repo: 3 };
   return [...skills].sort((a, b) => {
     if (order[a.kind] !== order[b.kind]) return order[a.kind] - order[b.kind];
     if (b.level !== a.level) return b.level - a.level;
@@ -108,7 +109,9 @@ function SkillRow({ skill, compact }: { skill: Skill; compact: boolean }) {
             style={{
               background:
                 i < filled
-                  ? skillBarColor(skill.level)
+                  ? skill.kind === "agent"
+                    ? "hsl(280, 60%, 60%)" // matches sequence-lane skill lane
+                    : skillBarColor(skill.level)
                   : "var(--color-border)",
               opacity: i < filled ? 1 : 0.45,
             }}

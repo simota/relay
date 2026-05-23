@@ -2,6 +2,7 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { resolveRepoForCwd } from "../lib/repo-from-cwd.js";
+import { distinctSkillNames, extractCodexSkills } from "../lib/session-skills.js";
 import { detectCodexSessionStatus } from "../lib/session-status.js";
 import type {
   SessionDetail,
@@ -109,6 +110,7 @@ async function readCodexSummary(
   // Live status detection — re-runs on each SSE detail tick so the UI flips
   // to active/waiting_for_user/ended without waiting for the next sync.
   const status = detectCodexSessionStatus(text);
+  const skills_used = distinctSkillNames(extractCodexSkills(text));
   return {
     type: "codex",
     id: sessionId,
@@ -120,6 +122,7 @@ async function readCodexSummary(
     message_count: messageCount,
     todos_count: 0,
     status,
+    ...(skills_used.length > 0 ? { skills_used } : {}),
   };
 }
 
@@ -169,11 +172,18 @@ async function readCodexDetail(
     }
   }
 
+  const skills = extractCodexSkills(text);
   return {
     ...summary,
     messages,
     todos: [],
     tool_calls: toolCalls,
+    skills,
+    // Codex sessions are typically linear (one session = one skill via
+    // session_meta.subagent). spawn_agent chains would warrant edges,
+    // but no real-world fixture surfaces them today — leave empty until
+    // a concrete need surfaces, so the UI shows a clean "no chain".
+    skill_chains: [],
   };
 }
 

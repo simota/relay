@@ -9,6 +9,7 @@ import {
   toSessionRow,
   truncate,
 } from "../lib/session-helpers.js";
+import { distinctSkillNames, extractCodexSkills } from "../lib/session-skills.js";
 import { detectCodexSessionStatus } from "../lib/session-status.js";
 import type { Adapter, AdapterContext, SessionStatus, TaskInput } from "../types.js";
 
@@ -53,6 +54,8 @@ interface CodexParsed {
    * way they render Claude `agent-*` rollouts.
    */
   parentSessionId: string | null;
+  /** Distinct skill names invoked in this session (Codex: session_meta.subagent + spawn_agent). */
+  skillsUsed: string[];
   /**
    * Lifecycle status derived from the JSONL tail. See
    * `detectCodexSessionStatus()` for the heuristic (pending function_call,
@@ -146,6 +149,7 @@ export const codexSessionAdapter: Adapter = {
               lastMessageText: parsed.lastMessageText,
               parentSessionId: parsed.parentSessionId,
               status: parsed.status,
+              skillsUsed: parsed.skillsUsed,
             }),
           );
         } catch (err) {
@@ -239,6 +243,7 @@ async function parseCodexSession(path: string): Promise<CodexParsed> {
       messageCount: 0,
       lastMessageText: null,
       parentSessionId: null,
+      skillsUsed: [],
       status: "idle",
     };
   }
@@ -306,6 +311,7 @@ async function parseCodexSession(path: string): Promise<CodexParsed> {
   // Status detection reuses the same text we just walked — single readFile,
   // single status pass, kept symmetric with the Claude adapter's parseSession.
   const status = detectCodexSessionStatus(text);
+  const skillsUsed = distinctSkillNames(extractCodexSkills(text));
 
   return {
     cwd,
@@ -315,6 +321,7 @@ async function parseCodexSession(path: string): Promise<CodexParsed> {
     messageCount,
     lastMessageText,
     parentSessionId,
+    skillsUsed,
     status,
   };
 }

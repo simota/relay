@@ -1,11 +1,12 @@
 import type {
   SessionMessage,
+  SessionSkillUse,
   SessionStatus,
   SessionToolCall,
 } from "@/lib/api";
 import { messageKey } from "./format";
 
-export type LaneId = "user" | "assistant" | "tool" | "subagent";
+export type LaneId = "user" | "assistant" | "tool" | "subagent" | "skill";
 
 export interface LaneEvent {
   lane: LaneId;
@@ -65,9 +66,21 @@ export interface SequenceLaneOptions {
   lastActive?: string;
   now?: number;
   maxArrows?: number;
+  /**
+   * Optional skill invocation events to render on the dedicated `skill`
+   * lane. When provided, any tool_call that would otherwise land on the
+   * `tool` lane but is actually a Skill invocation is also displaced to
+   * the skill lane (so it isn't double-counted).
+   */
+  skillEvents?: ReadonlyArray<{
+    ts: string;
+    name: string;
+    source: "skill_tool" | "slash_command" | "subagent" | "session_meta";
+    detail?: string | null;
+  }>;
 }
 
-const LANE_ORDER: LaneId[] = ["user", "assistant", "tool", "subagent"];
+const LANE_ORDER: LaneId[] = ["user", "skill", "assistant", "tool", "subagent"];
 const DEFAULT_MAX_ARROWS = 200;
 
 function tsMs(iso: string | undefined): number | undefined {
@@ -113,9 +126,29 @@ export function computeSequenceLane(
       toolArgs: null,
     });
   }
+  // Skill tool calls (Claude `Skill`, Codex `spawn_agent`) are double-counted
+  // — once here on the `tool` lane and once below on the `skill` lane — so
+  // we collapse them by skipping the tool-lane copy when the same ts/name
+  // also appears in `options.skillEvents`. Build the dedup set first.
+  const skillTsSet = new Set<string>();
+  for (const se of options.skillEvents ?? []) {
+    if (se.source === "skill_tool" || se.source === "subagent") {
+      skillTsSet.add(`${se.ts}|${se.source === "subagent" ? "Agent" : "Skill"}`);
+    }
+  }
+
   for (const tc of toolCalls) {
     const ts = tsMs(tc.timestamp);
     if (ts === undefined) continue;
+    // Suppress the tool-lane copy of a Skill / spawn_agent / Agent call when
+    // it has been promoted to the skill lane below.
+    if (
+      (tc.name === "Skill" && skillTsSet.has(`${tc.timestamp}|Skill`)) ||
+      ((tc.name === "Agent" || tc.name === "Task" || tc.name === "spawn_agent") &&
+        skillTsSet.has(`${tc.timestamp}|Agent`))
+    ) {
+      continue;
+    }
     const lane: LaneId = tc.name === "TaskCreate" ? "subagent" : "tool";
     const argsOneLine = tc.args_summary.replace(/\s+/g, " ").trim();
     events.push({
@@ -126,6 +159,21 @@ export function computeSequenceLane(
       rawPreview: `${tc.name} ${argsOneLine}`.trim(),
       toolName: tc.name,
       toolArgs: argsOneLine,
+    });
+  }
+
+  for (const se of options.skillEvents ?? []) {
+    const ts = tsMs(se.ts);
+    if (ts === undefined) continue;
+    const detail = se.detail ?? "";
+    events.push({
+      lane: "skill",
+      ts,
+      key: `skill|${se.ts}|${se.source}|${se.name}`,
+      preview: `${se.source}:${se.name}${detail ? ` ${previewText(detail, 60)}` : ""}`,
+      rawPreview: `${se.source}:${se.name}${detail ? ` ${detail.replace(/\s+/g, " ").trim()}` : ""}`,
+      toolName: se.name,
+      toolArgs: detail || null,
     });
   }
 
@@ -142,9 +190,10 @@ export function computeSequenceLane(
     const a = prev.lane;
     const b = cur.lane;
     const keep =
-      (a === "assistant" && (b === "tool" || b === "subagent")) ||
-      ((a === "tool" || a === "subagent") && b === "assistant") ||
-      (a === "user" && b === "assistant") ||
+      (a === "assistant" && (b === "tool" || b === "subagent" || b === "skill")) ||
+      ((a === "tool" || a === "subagent" || a === "skill") && b === "assistant") ||
+      (a === "user" && (b === "assistant" || b === "skill")) ||
+      (a === "skill" && (b === "assistant" || b === "tool" || b === "subagent")) ||
       (a === "assistant" && b === "user");
     if (!keep) continue;
     rawArrows.push({ from: i - 1, to: i, dtMs: cur.ts - prev.ts });

@@ -12,6 +12,7 @@ import { NewlyActiveList } from "@/components/insights/newly-active-list";
 import { OrphansTable } from "@/components/insights/orphans-table";
 import { ReviewerBlockedList } from "@/components/insights/reviewer-blocked-list";
 import { RunsByAgent } from "@/components/insights/runs-by-agent";
+import { SkillsRankList } from "@/components/insights/skills-rank-list";
 import { SourceInflow } from "@/components/insights/source-inflow";
 import { StaleCloseButton } from "@/components/insights/stale-close-button";
 import { StalledList } from "@/components/insights/stalled-list";
@@ -398,6 +399,13 @@ export default function InsightsPage() {
         <div className="grid grid-cols-12 gap-4">
           <div className="col-span-12">
             <DuplicatesList />
+          </div>
+        </div>
+
+        {/* Section 9: Skill Usage Ranking */}
+        <div className="grid grid-cols-12 gap-4">
+          <div className="col-span-12">
+            <SkillsRankList />
           </div>
         </div>
       </div>

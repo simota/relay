@@ -34,6 +34,55 @@ export interface SessionSummary {
    * whose adapter has not implemented detection yet (codex/antigravity/cursor).
    */
   status?: SessionStatus;
+  /**
+   * Distinct skill names invoked in this session — ordered by descending
+   * call count, capped at 20. Used by the list view for skill chips.
+   * Omitted when no skill activity was detected.
+   */
+  skills_used?: string[];
+}
+
+export type SessionSkillSource =
+  | "skill_tool"      // assistant invoked Skill(skill=...) (Claude only)
+  | "slash_command"   // user typed /<name> (Claude command-name tag, Antigravity SKILL meta)
+  | "subagent"        // spawned via Agent/spawn_agent with a skills/<name>/SKILL.md prompt
+  | "session_meta";   // session_meta.source.subagent — whole session is this skill (Codex)
+
+export interface SessionSkillUse {
+  /** Skill name (e.g. "nexus", "guardian", "review"). Lowercased. */
+  name: string;
+  /** How this skill was invoked. */
+  source: SessionSkillSource;
+  /** ISO timestamp of the first invocation via this source. */
+  first_ts: string;
+  /** ISO timestamp of the most recent invocation via this source. */
+  last_ts: string;
+  /** Number of invocations of this skill via this source. */
+  count: number;
+  /** Latest args/prompt-snippet, truncated to ≤200 chars. Null when unavailable. */
+  last_args: string | null;
+  /**
+   * Latest "recipe" hint — the first token of the args passed to the
+   * Skill tool (e.g. `Skill(skill="nexus", args="apex …")` → "apex").
+   * Used by the UI to render `nexus(apex)` style chips. Null when args
+   * are empty or not a clean leading token.
+   */
+  recipe: string | null;
+  /**
+   * Latest observed status. "failed" when the most recent invocation
+   * carried back a tool_result with `is_error: true` (Skill tool only).
+   * "success" when the most recent paired result was non-error. Null
+   * for sources without a tool_use_id (slash_command / session_meta /
+   * subagent) or when no result has been observed yet.
+   */
+  last_status: "success" | "failed" | null;
+  /**
+   * True iff this aggregate entry corresponds to the very first
+   * appearance of this skill *name* (across all sources) in the
+   * session. Used by the UI to play a louder fanfare on the first use
+   * of a skill the session has never touched before.
+   */
+  is_first_use_in_session: boolean;
 }
 
 export interface SessionMessage {
@@ -65,4 +114,23 @@ export interface SessionDetail extends SessionSummary {
   messages: SessionMessage[];
   todos: SessionTodo[];
   tool_calls: SessionToolCall[];
+  /** Aggregated skill invocations observed in this session. Empty when none. */
+  skills: SessionSkillUse[];
+  /**
+   * Parent → child skill relationships observed in this session. A `parent`
+   * is a Skill (or top-level slash invocation) that, while in its
+   * conversational scope, spawned an Agent / Task / spawn_agent whose
+   * prompt identifies the spawned `child` skill. Order is chronological.
+   * Empty when no such chain was observed.
+   */
+  skill_chains: SessionSkillChainEdge[];
+}
+
+export interface SessionSkillChainEdge {
+  /** Parent skill name (the one in scope when the spawn happened). */
+  parent: string;
+  /** Child skill name spawned via Agent / Task / spawn_agent. */
+  child: string;
+  /** ISO timestamp of the child spawn event. */
+  ts: string;
 }

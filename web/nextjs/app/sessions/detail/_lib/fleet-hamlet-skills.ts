@@ -14,7 +14,7 @@ import type { SimCardModel } from "./fleet-hamlet";
 // Public types
 // ---------------------------------------------------------------------------
 
-export type SkillKind = "tool" | "lang" | "repo";
+export type SkillKind = "agent" | "tool" | "lang" | "repo";
 
 export interface SkillDef {
   id: string;
@@ -143,6 +143,11 @@ export function computeSkills(
 ): Skill[] {
   const tools = new Map<string, number>();
   const langs = new Map<string, number>();
+  // Agent skills are the SKILL.md agents (nexus, guardian, vision, …) invoked
+  // via the Skill tool, user `/<name>` slash commands, or subagent spawn.
+  // Sum across all sources for the same name so a heavily-used skill ranks
+  // higher than one invoked once per channel.
+  const agents = new Map<string, number>();
 
   if (detail) {
     for (const tc of detail.tool_calls) {
@@ -150,10 +155,17 @@ export function computeSkills(
       const lang = languageFromToolCall(tc);
       if (lang) langs.set(lang, (langs.get(lang) ?? 0) + 1);
     }
+    for (const s of detail.skills ?? []) {
+      agents.set(s.name, (agents.get(s.name) ?? 0) + s.count);
+    }
   }
 
   const out: Skill[] = [];
 
+  for (const [name, xp] of agents) {
+    const icon = "✦";
+    out.push(makeSkill({ id: `agent:${name}`, label: name, icon, kind: "agent" }, xp));
+  }
   for (const [name, xp] of tools) {
     const icon = TOOL_ICON[name] ?? name.slice(0, 2);
     out.push(makeSkill({ id: `tool:${name}`, label: name, icon, kind: "tool" }, xp));
@@ -183,12 +195,26 @@ function makeSkill(def: SkillDef, xp: number): Skill {
 }
 
 export function topSkills(skills: readonly Skill[], n: number): Skill[] {
-  return [...skills]
-    .sort((a, b) => {
-      if (b.level !== a.level) return b.level - a.level;
-      return b.xp - a.xp;
-    })
-    .slice(0, n);
+  // Agent skills carry orchestration signal (which SKILL.md agent the
+  // resident invoked). XP for agents is naturally smaller than for raw
+  // tool calls (Bash fires hundreds of times per session, nexus a dozen)
+  // so a pure level/xp sort would push agents off the compact list every
+  // time. Reserve up to 2 slots for the top-XP agent skills, then fill
+  // the rest with the remaining skills sorted by level/xp.
+  const sorted = [...skills].sort((a, b) => {
+    if (b.level !== a.level) return b.level - a.level;
+    return b.xp - a.xp;
+  });
+  const agentSlots = Math.min(2, Math.max(0, n - 1));
+  const agents = sorted.filter((s) => s.kind === "agent").slice(0, agentSlots);
+  const taken = new Set(agents.map((s) => s.id));
+  const out = [...agents];
+  for (const s of sorted) {
+    if (out.length >= n) break;
+    if (taken.has(s.id)) continue;
+    out.push(s);
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------

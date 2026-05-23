@@ -40,6 +40,8 @@ import {
 } from "../_lib/fleet-hamlet-layout";
 import { computeFitLayout } from "../_lib/fleet-hamlet-fit-layout";
 import { sessionKey } from "../_lib/fleet-timeline";
+import type { SkillBurstEvent } from "../_hooks/use-hamlet-skill-burst";
+import { SkillBurstOverlay, SkillBurstStyles } from "./fleet-hamlet-skill-burst";
 import type { TileSpec } from "../_types";
 import {
   BirdSvg,
@@ -138,6 +140,8 @@ interface Props {
   selectedSessionId?: string | null;
   /** Single-click handler that the parent uses to update the URL/panel. */
   onSelectSession?: (sessionId: string | null) => void;
+  /** Active SkillBurst events keyed by sessionKey. Overlays a sparkle badge above the matching house. */
+  skillBurstsByKey?: ReadonlyMap<string, SkillBurstEvent[]>;
 }
 
 export function FleetHamletNeighborhood({
@@ -150,6 +154,7 @@ export function FleetHamletNeighborhood({
   onEnterHouse,
   selectedSessionId = null,
   onSelectSession,
+  skillBurstsByKey,
 }: Props) {
   // Resize-observed container — drives the dynamic fit-all layout. We
   // track both width AND height so the village always fits its pane
@@ -990,6 +995,9 @@ export function FleetHamletNeighborhood({
               timeRitual?.kind === "lights-out" &&
               timeRitual.darkKeys.has(sim.key);
             const liveWindows = isRecent && isNightish && homeNow && !lightsOutNight;
+            const houseKey = sessionKey({ type: sim.sessionType, id: sim.sessionId });
+            const bursts = skillBurstsByKey?.get(houseKey);
+            const topBurst = bursts && bursts.length > 0 ? bursts[0] : undefined;
             return (
               <div
                 key={sim.key}
@@ -998,6 +1006,7 @@ export function FleetHamletNeighborhood({
                   "transition-transform duration-150 ease-out",
                   "hover:-translate-y-1 hover:drop-shadow-lg",
                   isOpen && "-translate-y-1.5 scale-[1.05]",
+                  topBurst && "relay-hamlet-skill-burst-card-pulse",
                 )}
                 style={{
                   left,
@@ -1009,6 +1018,7 @@ export function FleetHamletNeighborhood({
                     : undefined,
                 }}
               >
+                {topBurst && <SkillBurstOverlay burst={topBurst} />}
                 {/* Yard decoration — only at full size; tiny mode skips yards. */}
                 {!fit.useTiny && (
                   <YardLayer
@@ -1298,6 +1308,7 @@ export function FleetHamletNeighborhood({
       <style>{HOUSE_CHAT_CSS}</style>
       <style>{FESTIVAL_CSS}</style>
       <style>{V3_CSS}</style>
+      <SkillBurstStyles />
     </div>
   );
 }

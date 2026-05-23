@@ -12,6 +12,10 @@ import { PageState } from "@/components/page-state";
 import { SessionTitle } from "@/components/session-title";
 import { c, formatNumber } from "@/lib/copy";
 import { cn } from "@/lib/utils";
+import {
+  type SkillActivationEvent,
+  useSessionSkillActivations,
+} from "./_hooks/use-session-skill-activations";
 
 const TYPE_FILTERS: ReadonlyArray<{ value: SessionType | "all"; label: string }> = [
   { value: "all", label: "all" },
@@ -98,6 +102,11 @@ export default function SessionsPage() {
   const prevPollRef = useRef<Map<string, { last_active: string; message_count: number }>>(
     new Map(),
   );
+  // Surfaces transient "skill fired" toasts on each row when a new skill
+  // name appears in `skills_used` between polls. Drives the row flash +
+  // ✦ pill — see SessionRow below.
+  const skillActivations = useSessionSkillActivations(sessions);
+
   const streamingDeltas = useMemo(() => {
     const out = new Map<string, number>();
     for (const s of sessions) {
@@ -383,6 +392,7 @@ export default function SessionsPage() {
                       onToggle={() => toggleSelect(key)}
                       isSubagent={!!s.parent_session_id}
                       streamingDelta={streamingDeltas.get(key)}
+                      skillActivations={skillActivations.get(key)}
                     />
                   );
                 })}
@@ -402,6 +412,7 @@ function SessionRow({
   onToggle,
   isSubagent,
   streamingDelta,
+  skillActivations,
 }: {
   session: SessionSummary;
   nowMs: number;
@@ -409,6 +420,7 @@ function SessionRow({
   onToggle: () => void;
   isSubagent: boolean;
   streamingDelta?: number;
+  skillActivations?: SkillActivationEvent[];
 }) {
   const active = isActiveSession(s.last_active, nowMs);
   const waiting = s.status === "waiting_for_user";
@@ -422,6 +434,10 @@ function SessionRow({
   // Streaming = mtime/message_count advanced between polls. Subset of
   // active but actually observed during this poll cycle.
   const streaming = (streamingDelta ?? 0) > 0;
+  // Most recent activation drives the gold flash + ✦ pill. Older ones
+  // still expire on schedule but only the newest one is rendered to keep
+  // the row scannable.
+  const topActivation = skillActivations && skillActivations.length > 0 ? skillActivations[0] : null;
   return (
     <tr
       className={cn(
@@ -432,6 +448,7 @@ function SessionRow({
         waiting && "bg-[color-mix(in_oklch,var(--color-warm)_8%,transparent)]",
         checked && "bg-[var(--color-accent)]/5",
         isSubagent && "opacity-90",
+        topActivation && "relay-skill-activation-row",
       )}
     >
       <td className="px-3 py-2">
@@ -519,6 +536,10 @@ function SessionRow({
             <SessionTitle raw={s.last_message} />
           </div>
         )}
+        {s.skills_used && s.skills_used.length > 0 && (
+          <SkillsChips names={s.skills_used} />
+        )}
+        {topActivation && <SkillActivationPill name={topActivation.name} />}
       </td>
       <td className="px-3 py-2 tabular text-right text-[var(--color-fg-muted)]">
         {formatNumber(s.message_count)}
@@ -546,6 +567,57 @@ function SessionRow({
         {formatAge(s.last_active)}
       </td>
     </tr>
+  );
+}
+
+function SkillActivationPill({ name }: { name: string }) {
+  // Lives ~4s before the parent row clears it (see hook TTL). The keyframe
+  // does the fade-in + glide-out so we don't have to track timers here.
+  return (
+    <span
+      className="relay-skill-activation-pill ml-1 inline-flex items-center gap-1 px-1.5 py-[1px] rounded-full font-mono text-[10px]"
+      style={{
+        color: "hsl(45, 90%, 22%)",
+        background: "linear-gradient(180deg, hsl(45, 100%, 78%), hsl(38, 90%, 60%))",
+        boxShadow:
+          "0 1px 0 rgba(255,255,255,0.6) inset, 0 0 0 1px rgba(140, 80, 0, 0.3), 0 2px 6px rgba(245, 200, 80, 0.55)",
+        whiteSpace: "nowrap",
+      }}
+      title={`skill activated: ${name}`}
+    >
+      <span aria-hidden>✦</span>
+      <span>{name}</span>
+      <span className="text-[8.5px] opacity-70">just now</span>
+    </span>
+  );
+}
+
+function SkillsChips({ names, max = 3 }: { names: string[]; max?: number }) {
+  // Compact list (≤ max), with a "+N" overflow chip when truncated. Keeps the
+  // row scannable — the full list is in the detail tile's Skills tab.
+  const visible = names.slice(0, max);
+  const extra = names.length - visible.length;
+  return (
+    <div className="mt-0.5 flex flex-wrap gap-1 items-center">
+      {visible.map((name) => (
+        <span
+          key={name}
+          className="font-mono text-[10px] px-1.5 py-[1px] rounded-[var(--radius-sm)] border border-[var(--color-border)] text-[var(--color-fg-muted)]"
+          style={{ color: "hsl(280, 50%, 60%)" }}
+          title={`skill: ${name}`}
+        >
+          {name}
+        </span>
+      ))}
+      {extra > 0 && (
+        <span
+          className="font-mono text-[10px] text-[var(--color-fg-dim)]"
+          title={names.slice(max).join(", ")}
+        >
+          +{extra}
+        </span>
+      )}
+    </div>
   );
 }
 

@@ -77,6 +77,9 @@ interface SessionListItem {
   // Truncated preview of the latest user/assistant message. Omitted when
   // the adapter can't cheaply produce one (e.g. cursor chat sessions).
   last_message?: string;
+  // Distinct skill names invoked in the session. Decoded from
+  // `sessions.skills_used` (JSON-encoded array). Omitted when empty.
+  skills_used?: string[];
 }
 
 export function createSessionsApi() {
@@ -245,6 +248,10 @@ export function createSessionsApi() {
           status: r.status,
           last_message_text: r.last_message_text ?? existing?.last_message_text ?? null,
           title: existing?.title ?? null,
+          // Live-scan path doesn't re-extract skills (lightweight pass —
+          // skills are populated by the full sync's adapter loop). Keep
+          // any value already stored.
+          skills_used: existing?.skills_used ?? null,
         });
         const item: SessionListItem = {
           type: r.type,
@@ -269,6 +276,17 @@ export function createSessionsApi() {
         // could be extracted.
         const preview = r.last_message_text ?? existing?.last_message_text ?? null;
         if (preview) item.last_message = preview;
+        if (existing?.skills_used) {
+          try {
+            const parsed = JSON.parse(existing.skills_used);
+            if (Array.isArray(parsed)) {
+              const names = parsed.filter((v): v is string => typeof v === "string");
+              if (names.length > 0) item.skills_used = names;
+            }
+          } catch {
+            // Corrupt JSON — skip.
+          }
+        }
         items.push(item);
       }
     } finally {
@@ -551,6 +569,17 @@ function rowToListItem(
   if (!isSubagent && subagentCounts) {
     const n = subagentCounts.get(row.id);
     if (n && n > 0) item.subagent_count = n;
+  }
+  if (row.skills_used) {
+    try {
+      const parsed = JSON.parse(row.skills_used);
+      if (Array.isArray(parsed)) {
+        const names = parsed.filter((v): v is string => typeof v === "string");
+        if (names.length > 0) item.skills_used = names;
+      }
+    } catch {
+      // Corrupt JSON — silently skip; the next sync overwrites it.
+    }
   }
   return item;
 }

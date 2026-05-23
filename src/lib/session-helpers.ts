@@ -119,7 +119,15 @@ export function toSessionRow(args: {
   status?: SessionRow["status"];
   lastMessageText?: string | null;
   title?: string | null;
+  /**
+   * Distinct skill names invoked in the session (e.g. `["nexus","guardian"]`).
+   * Adapters pass the result of `distinctSkillNames(extract*Skills(text))`.
+   * Empty array → stored as NULL to keep the column compact for the long
+   * tail of sessions with no skill activity.
+   */
+  skillsUsed?: readonly string[] | null;
 }): SessionRow {
+  const skills = args.skillsUsed && args.skillsUsed.length > 0 ? JSON.stringify(args.skillsUsed) : null;
   return {
     id: args.id,
     type: args.type,
@@ -134,5 +142,6 @@ export function toSessionRow(args: {
     status: args.status ?? "idle",
     last_message_text: args.lastMessageText ?? null,
     title: args.title ?? null,
+    skills_used: skills,
   };
 }

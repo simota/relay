@@ -3,7 +3,7 @@
 // references as the previous inline maps, so swapping to this module must be
 // a no-op visually.
 
-export type Lane = "user" | "assistant" | "tool" | "subagent" | "system";
+export type Lane = "user" | "assistant" | "tool" | "subagent" | "skill" | "system";
 export type Role = "user" | "assistant" | "tool" | "system";
 export type RibbonState =
   | "active"
@@ -24,6 +24,12 @@ export function getLaneColor(lane: Lane): string {
       return "var(--color-warm)";
     case "subagent":
       return "var(--color-cool)";
+    case "skill":
+      // Distinct from user(accent) / assistant(cool) / tool(warm) and
+      // sits above the tool lane in render order — purple/violet reads
+      // as a higher-order orchestration event without colliding with the
+      // existing palette.
+      return "hsl(280, 60%, 60%)";
     case "system":
     default:
       return "var(--color-fg-dim)";

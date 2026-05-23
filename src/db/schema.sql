@@ -1,4 +1,4 @@
--- relay storage schema v8
+-- relay storage schema v9
 
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
@@ -149,6 +149,11 @@ CREATE TABLE IF NOT EXISTS sessions (
   -- conversations). NULL when the adapter cannot extract one; the API
   -- layer falls back to cwd basename → `(no prompt)` in that order.
   title              TEXT,
+  -- skills_used: schema v9. JSON-encoded array of distinct skill names
+  -- invoked in this session (e.g. ["nexus","guardian"]). Capped at 20
+  -- names server-side. NULL when no skill activity was detected.
+  -- Drives the skill chips on the session list view.
+  skills_used        TEXT,
   PRIMARY KEY (type, id)
 );
 
@@ -172,3 +177,5 @@ INSERT OR IGNORE INTO schema_version (version, applied_at)
   VALUES (7, datetime('now'));
 INSERT OR IGNORE INTO schema_version (version, applied_at)
   VALUES (8, datetime('now'));
+INSERT OR IGNORE INTO schema_version (version, applied_at)
+  VALUES (9, datetime('now'));

@@ -95,6 +95,11 @@ export const SessionRow = z.object({
   // (subagents, cwd-less conversations). Null when the adapter cannot
   // extract one; the API falls back to cwd basename → `(no prompt)`.
   title: z.string().nullable().default(null),
+  // JSON-encoded array of distinct skill names invoked in this session
+  // (e.g. `["nexus","guardian"]`). Capped at 20 names server-side. Null
+  // when no skill activity was detected. Drives the session-list skill
+  // chips.
+  skills_used: z.string().nullable().default(null),
 });
 export type SessionRow = z.infer<typeof SessionRow>;
 

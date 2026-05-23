@@ -9,6 +9,7 @@ import {
   toSessionRow,
   truncate,
 } from "../lib/session-helpers.js";
+import { distinctSkillNames, extractAntigravitySkills } from "../lib/session-skills.js";
 import { detectAntigravitySessionStatus } from "../lib/session-status.js";
 import type { Adapter, AdapterContext, SessionStatus, TaskInput } from "../types.js";
 
@@ -50,6 +51,8 @@ interface AntigravityParsed {
    * (see `detectAntigravitySessionStatus`).
    */
   status: SessionStatus;
+  /** Distinct skill names invoked via `/<name>` slash commands. */
+  skillsUsed: string[];
 }
 
 interface TranscriptEntry {
@@ -171,6 +174,7 @@ export const antigravitySessionAdapter: Adapter = {
               lastMessageText: parsed.lastMessageText,
               title: titleForRow,
               status: parsed.status,
+              skillsUsed: parsed.skillsUsed,
             }),
           );
         } catch (err) {
@@ -259,6 +263,7 @@ async function parseAntigravityTranscript(
     messageCount: 0,
     lastMessageText: null,
     status: "idle",
+    skillsUsed: [],
   };
   const text = await readFile(path, "utf8").catch(() => "");
   if (!text) return empty;
@@ -311,6 +316,7 @@ async function parseAntigravityTranscript(
   // Status detection reuses the same text we just walked — one readFile,
   // one status pass. Symmetric with the Claude / Codex adapters.
   const status = detectAntigravitySessionStatus(text);
+  const skillsUsed = distinctSkillNames(extractAntigravitySkills(text));
 
   return {
     conversationId,
@@ -319,6 +325,7 @@ async function parseAntigravityTranscript(
     messageCount: lines.length,
     lastMessageText,
     status,
+    skillsUsed,
   };
 }
 

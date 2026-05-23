@@ -3,6 +3,11 @@ import { readdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { resolveRepoForCwd } from "../lib/repo-from-cwd.js";
+import {
+  distinctSkillNames,
+  extractClaudeSkillChains,
+  extractClaudeSkills,
+} from "../lib/session-skills.js";
 import { detectClaudeSessionStatus } from "../lib/session-status.js";
 import type {
   SessionDetail,
@@ -167,6 +172,8 @@ async function readClaudeSummary(
   // UI flips to "waiting_for_user" in real time, well before the next sync
   // tick would update the DB-backed list view's status field.
   const status = detectClaudeSessionStatus(text);
+  const skills = extractClaudeSkills(text);
+  const skills_used = distinctSkillNames(skills);
 
   return {
     type: "claude",
@@ -179,6 +186,7 @@ async function readClaudeSummary(
     message_count: messageCount,
     todos_count: todoIds.size,
     status,
+    ...(skills_used.length > 0 ? { skills_used } : {}),
   };
 }
 
@@ -250,11 +258,15 @@ async function readClaudeDetail(
     }
   }
 
+  const skills = extractClaudeSkills(text);
+  const skill_chains = extractClaudeSkillChains(text);
   return {
     ...summary,
     messages,
     todos: [...todoMap.values()],
     tool_calls: toolCalls,
+    skills,
+    skill_chains,
   };
 }
 

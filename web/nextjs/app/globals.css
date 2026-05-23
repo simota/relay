@@ -693,6 +693,30 @@ mark.fuzz {
   background: color-mix(in oklch, var(--color-critical) 8%, transparent);
 }
 
+/* Sessions board — transient "skill activated" row + pill highlight.
+   Driven by `useSessionSkillActivations`: the row gets a brief gold wash
+   the moment a new skill name appears in `skills_used`, and the
+   accompanying ✦ pill glides in then fades away. Keyframes are tuned to
+   match the hook's 4s TTL. */
+@keyframes relaySkillActivationRow {
+  0%   { background: color-mix(in srgb, hsl(45, 100%, 60%) 22%, transparent); }
+  40%  { background: color-mix(in srgb, hsl(45, 100%, 60%) 14%, transparent); }
+  100% { background: transparent; }
+}
+.relay-skill-activation-row > td {
+  animation: relaySkillActivationRow 3800ms ease-out forwards;
+}
+@keyframes relaySkillActivationPill {
+  0%   { opacity: 0; transform: translateY(4px) scale(0.85); }
+  18%  { opacity: 1; transform: translateY(0) scale(1.05); }
+  35%  { transform: translateY(0) scale(1); }
+  80%  { opacity: 1; }
+  100% { opacity: 0; transform: translateY(-6px) scale(0.95); }
+}
+.relay-skill-activation-pill {
+  animation: relaySkillActivationPill 3700ms ease-out forwards;
+}
+
 /* WCAG 2.3.3 — honor prefers-reduced-motion globally. Individual
    `motion-safe:` / `motion-reduce:` Tailwind utilities still take
    precedence where authors opted in; this rule catches everything else

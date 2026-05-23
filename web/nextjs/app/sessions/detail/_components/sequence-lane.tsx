@@ -15,6 +15,7 @@ import {
   type LaneEvent,
   type LaneId,
 } from "../_lib/sequence-lane";
+import { computeSkillTimelineEvents, validSkillNamesFromDetail } from "../_lib/skill-events";
 import { HoverDetailPanel } from "./hover-detail-panel";
 
 const VB_WIDTH = 800;
@@ -29,6 +30,7 @@ const LANE_LABEL: Record<LaneId, string> = {
   assistant: "assistant",
   tool: "tool",
   subagent: "subagent",
+  skill: "skill",
 };
 
 function formatHM(ts: number): string {
@@ -55,12 +57,23 @@ export function SequenceLane({
   onJumpToMessage: (key: string) => void;
   onJumpToToolByQuery: (q: string) => void;
 }) {
+  const skillEvents = useMemo(
+    () =>
+      computeSkillTimelineEvents(
+        data.messages,
+        data.tool_calls,
+        validSkillNamesFromDetail(data.skills ?? []),
+      ),
+    [data.messages, data.tool_calls, data.skills],
+  );
+
   const model = useMemo(
     () =>
       computeSequenceLane(data.messages, data.tool_calls, {
         status: data.status,
         startedAt: data.started_at,
         lastActive: data.last_active,
+        skillEvents,
       }),
     [
       data.messages,
@@ -68,6 +81,7 @@ export function SequenceLane({
       data.status,
       data.started_at,
       data.last_active,
+      skillEvents,
     ],
   );
 

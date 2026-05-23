@@ -144,6 +144,11 @@ CREATE TABLE IF NOT EXISTS sessions (
   -- runColumnMigrations() so existing rows materialise as NULL until the
   -- next sync refreshes them.
   title              TEXT,
+  -- skills_used: schema v9 JSON array of distinct skill names invoked in
+  -- this session (e.g. ["nexus","guardian"]). ALTER for pre-v9 DBs in
+  -- runColumnMigrations() so existing rows materialise as NULL until the
+  -- next sync refreshes them.
+  skills_used        TEXT,
   PRIMARY KEY (type, id)
 );
 
@@ -167,6 +172,8 @@ INSERT OR IGNORE INTO schema_version (version, applied_at)
   VALUES (7, datetime('now'));
 INSERT OR IGNORE INTO schema_version (version, applied_at)
   VALUES (8, datetime('now'));
+INSERT OR IGNORE INTO schema_version (version, applied_at)
+  VALUES (9, datetime('now'));
 `;
 
 export interface UndoLogRow {

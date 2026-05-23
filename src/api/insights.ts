@@ -168,6 +168,29 @@ export interface StaleCloseResponse {
   ids: number[];
 }
 
+export interface SkillRankEntry {
+  /** Skill name (e.g. "nexus"). Kebab-case, lowercase. */
+  name: string;
+  /** Distinct sessions in the window that used this skill at least once. */
+  sessions_count: number;
+  /** Same metric in the previous comparable window. */
+  prev_sessions_count: number;
+  /** Most recent session that used this skill, for direct navigation. */
+  latest_session: {
+    type: "claude" | "codex" | "antigravity" | "cursor";
+    id: string;
+    last_active: string;
+  } | null;
+}
+
+export interface SkillRankResponse {
+  /** Number of days the rolling window covers. */
+  window_days: number;
+  /** Distinct sessions in the window (denominator for adoption %). */
+  total_sessions: number;
+  entries: SkillRankEntry[];
+}
+
 // --- 60s in-memory cache --------------------------------------------------
 
 const CACHE_TTL_MS = 60_000;
@@ -532,6 +555,20 @@ export function createInsightsApi() {
     return c.json(value);
   });
 
+  // 20. skill usage ranking ------------------------------------------------
+  app.get("/skills", (c) => {
+    const windowDays = clampWindowDays(c.req.query("window_days"), 30);
+    const value = withCache<SkillRankResponse>(c, () => {
+      const db = new RelayDB();
+      try {
+        return computeSkillRank(db, windowDays);
+      } finally {
+        db.close();
+      }
+    });
+    return c.json(value);
+  });
+
   // 19. stale auto-close (POST, mutates DB) --------------------------
   app.post("/stale/close", (c) => {
     const threshold = parseStaleCloseThreshold(c.req.query("threshold"));
@@ -707,6 +744,96 @@ function parseStaleCloseThreshold(value?: string): number | null {
   const n = Number(value);
   if (!Number.isInteger(n) || n < 1 || n > 365) return null;
   return n;
+}
+
+function clampWindowDays(value: string | undefined, dflt: number): number {
+  if (!value) return dflt;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return dflt;
+  return Math.max(1, Math.min(365, Math.floor(n)));
+}
+
+/**
+ * Aggregate skill usage from `sessions.skills_used` across two windows:
+ *   - `windowDays` ending now ("current")
+ *   - the immediately preceding `windowDays` ("previous")
+ *
+ * Per-skill counts are distinct *sessions* (not invocation count) so a
+ * single session with 30 `/nexus` slashes counts once. Latest-session
+ * pointer comes from the row with the highest `last_active` in the current
+ * window.
+ */
+function computeSkillRank(db: RelayDB, windowDays: number): SkillRankResponse {
+  const now = Date.now();
+  const winMs = windowDays * DAY_MS;
+  const curStart = new Date(now - winMs).toISOString();
+  const prevStart = new Date(now - 2 * winMs).toISOString();
+  const prevEnd = curStart;
+
+  // Both windows in one pass — gather rows for prev window's start to now
+  // and bucket them by comparing each row's last_active.
+  const rows = db.rawGetSessionsSkillsSince(prevStart);
+
+  const cur = new Map<string, { sessions: Set<string>; latest: { type: string; id: string; last_active: string } }>();
+  const prev = new Map<string, Set<string>>();
+  let totalCur = 0;
+
+  for (const row of rows) {
+    if (!row.skills_used) continue;
+    let names: unknown;
+    try {
+      names = JSON.parse(row.skills_used);
+    } catch {
+      continue;
+    }
+    if (!Array.isArray(names)) continue;
+    const inCur = row.last_active >= curStart;
+    const inPrev = !inCur && row.last_active >= prevStart && row.last_active < prevEnd;
+    if (inCur) totalCur += 1;
+    const key = `${row.type}:${row.id}`;
+    for (const raw of names) {
+      if (typeof raw !== "string" || !raw) continue;
+      if (inCur) {
+        const existing = cur.get(raw);
+        if (existing) {
+          existing.sessions.add(key);
+          if (row.last_active > existing.latest.last_active) {
+            existing.latest = { type: row.type, id: row.id, last_active: row.last_active };
+          }
+        } else {
+          cur.set(raw, {
+            sessions: new Set([key]),
+            latest: { type: row.type, id: row.id, last_active: row.last_active },
+          });
+        }
+      } else if (inPrev) {
+        const s = prev.get(raw) ?? new Set<string>();
+        s.add(key);
+        prev.set(raw, s);
+      }
+    }
+  }
+
+  const entries: SkillRankEntry[] = [];
+  for (const [name, info] of cur) {
+    entries.push({
+      name,
+      sessions_count: info.sessions.size,
+      prev_sessions_count: prev.get(name)?.size ?? 0,
+      latest_session: {
+        type: info.latest.type as "claude" | "codex" | "antigravity" | "cursor",
+        id: info.latest.id,
+        last_active: info.latest.last_active,
+      },
+    });
+  }
+  entries.sort((a, b) => b.sessions_count - a.sessions_count || a.name.localeCompare(b.name));
+
+  return {
+    window_days: windowDays,
+    total_sessions: totalCur,
+    entries,
+  };
 }
 
 /** Returns the last N day labels ("YYYY-MM-DD"), oldest first. */

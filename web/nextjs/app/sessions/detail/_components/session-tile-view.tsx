@@ -7,6 +7,7 @@ import {
   ListChecks,
   MessageSquare,
   Network,
+  Sparkles,
   Wrench,
   Workflow,
 } from "lucide-react";
@@ -40,6 +41,7 @@ import { StatusRibbon } from "./status-ribbon";
 import { SubagentDag } from "./subagent-dag";
 import { SubagentFlockView } from "./subagent-flock-view";
 import { SubagentTree } from "./subagent-tree";
+import { SkillsUsedPanel } from "./skills-used-panel";
 import { TabButton } from "./tab-button";
 import { TodosList } from "./todos-list";
 import { ToolCallsList } from "./tool-calls-list";
@@ -75,6 +77,7 @@ export function SessionTileView({
     | "messages"
     | "todos"
     | "tools"
+    | "skills"
     | "agents"
     | "files"
     | "dag"
@@ -127,6 +130,8 @@ export function SessionTileView({
   );
   const laneEligible = data.messages.length + data.tool_calls.length >= 2;
   const dagEligible = !isSubagent && hasSubagents;
+  const skillCount = data.skills?.length ?? 0;
+  const skillsEligible = skillCount > 0;
 
   // Drop the user back to `messages` if the active tab disappears (e.g. they
   // open a subagent tile while parked on the agents tab of the parent, or
@@ -144,7 +149,10 @@ export function SessionTileView({
     if (tab === "lane" && !laneEligible) {
       setTab("messages");
     }
-  }, [tab, dagEligible, fileTouchCount, laneEligible]);
+    if (tab === "skills" && !skillsEligible) {
+      setTab("messages");
+    }
+  }, [tab, dagEligible, fileTouchCount, laneEligible, skillsEligible]);
 
   const handleAddAllSubagents = useCallback(async () => {
     if (addingSubagents) return;
@@ -452,6 +460,17 @@ export function SessionTileView({
                 <span className="tabular">{formatNumber(fileTouchCount)}</span>
               </TabButton>
             )}
+            {skillsEligible && (
+              <TabButton
+                active={tab === "skills"}
+                onClick={() => setTab("skills")}
+                compact={compact}
+                title={`skills · ${formatNumber(skillCount)}`}
+              >
+                <Sparkles className="w-3.5 h-3.5" aria-hidden />
+                <span className="tabular">{formatNumber(skillCount)}</span>
+              </TabButton>
+            )}
             {laneEligible && (
               <TabButton
                 active={tab === "lane"}
@@ -562,6 +581,13 @@ export function SessionTileView({
         )}
         {tab === "files" && (
           <FilesTouchList toolCalls={data.tool_calls} compact={compact} />
+        )}
+        {tab === "skills" && skillsEligible && (
+          <SkillsUsedPanel
+            skills={data.skills ?? []}
+            skillChains={data.skill_chains ?? []}
+            compact={compact}
+          />
         )}
         {tab === "lane" && (
           <SequenceLane

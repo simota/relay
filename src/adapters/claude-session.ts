@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { resolveRepoForCwd } from "../lib/repo-from-cwd.js";
 import { compileExcludePatterns, toSessionRow, truncate } from "../lib/session-helpers.js";
+import { distinctSkillNames, extractClaudeSkills } from "../lib/session-skills.js";
 import { detectClaudeSessionStatus } from "../lib/session-status.js";
 import type { Adapter, AdapterContext, SessionStatus, TaskInput } from "../types.js";
 
@@ -126,7 +127,7 @@ export const claudeSessionAdapter: Adapter = {
             ctx.log?.(`  ✓ would read: ${fullPath}`);
           }
 
-          const { cwd, sessionTasks, messageCount, status, lastMessageText } =
+          const { cwd, sessionTasks, messageCount, status, lastMessageText, skillsUsed } =
             await parseSession(fullPath);
           const repo = resolveRepoForCwd(cwd, ctx.roots) ?? legacyProjectToRepo(project);
 
@@ -173,6 +174,7 @@ export const claudeSessionAdapter: Adapter = {
                   sourcePath: fullPath,
                   status,
                   lastMessageText,
+                  skillsUsed,
                 }),
               );
             } catch (err) {
@@ -216,7 +218,7 @@ export const claudeSessionAdapter: Adapter = {
           // beats cursor — so a stat failure conservatively re-processes.
           if (cursorMs !== null && subStat && subMtimeMs <= cursorMs) continue;
 
-          const { cwd, sessionTasks, messageCount, status, lastMessageText } =
+          const { cwd, sessionTasks, messageCount, status, lastMessageText, skillsUsed } =
             await parseSession(fullPath);
           const repo = resolveRepoForCwd(cwd, ctx.roots) ?? legacyProjectToRepo(project);
 
@@ -263,6 +265,7 @@ export const claudeSessionAdapter: Adapter = {
                   sourcePath: fullPath,
                   status,
                   lastMessageText,
+                  skillsUsed,
                 }),
               );
             } catch (err) {
@@ -423,6 +426,7 @@ async function parseSession(
   messageCount: number;
   status: SessionStatus;
   lastMessageText: string | null;
+  skillsUsed: string[];
 }> {
   const text = await readFile(path, "utf8");
   const { cwd, events } = extractToolEvents(text);
@@ -437,7 +441,15 @@ async function parseSession(
   // string keeps this cheap (one extra tail walk, no second readFile).
   const status = detectClaudeSessionStatus(text);
   const lastMessageText = extractLastMessageText(text);
-  return { cwd, sessionTasks: reduceEvents(events), messageCount, status, lastMessageText };
+  const skillsUsed = distinctSkillNames(extractClaudeSkills(text));
+  return {
+    cwd,
+    sessionTasks: reduceEvents(events),
+    messageCount,
+    status,
+    lastMessageText,
+    skillsUsed,
+  };
 }
 
 /**

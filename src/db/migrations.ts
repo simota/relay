@@ -54,6 +54,13 @@ export function runColumnMigrations(db: Database): void {
     db.exec(`ALTER TABLE sessions ADD COLUMN title TEXT`);
   }
 
+  // schema_version 9: sessions.skills_used. JSON-encoded distinct skill
+  // names invoked in the session. Pre-v9 rows materialise as NULL until
+  // the next sync re-extracts them.
+  if (sessionCols.length > 0 && !sessionCols.some((c) => c.name === "skills_used")) {
+    db.exec(`ALTER TABLE sessions ADD COLUMN skills_used TEXT`);
+  }
+
   // schema_version 6: shrink undo_log's `prune_delete_done` rows. Pre-v6
   // producers serialised full Task snapshots into `inverse.tasks`, which at
   // production scale ballooned undo_log past 400 MB (one row reached 56 MB).

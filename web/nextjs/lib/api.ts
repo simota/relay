@@ -29,6 +29,7 @@ import type {
   VelocityResponse,
   DuplicatesResponse,
   StaleCloseResponse,
+  SkillRankResponse,
 } from "./types";
 
 // Origin prefix for EventSource / fetch streaming. In `next dev` the /api/*
@@ -137,6 +138,33 @@ export interface SessionSummary {
    * extract one (e.g. cursor sessions whose chat blobs are protobuf-encoded).
    */
   last_message?: string;
+  /**
+   * Distinct skill names invoked in this session, ordered by descending
+   * call count and capped at 20. Omitted when no skill activity was
+   * detected. Drives skill chips in the list/board view.
+   */
+  skills_used?: string[];
+}
+
+export type SessionSkillSource =
+  | "skill_tool"
+  | "slash_command"
+  | "subagent"
+  | "session_meta";
+
+export interface SessionSkillUse {
+  name: string;
+  source: SessionSkillSource;
+  first_ts: string;
+  last_ts: string;
+  count: number;
+  last_args: string | null;
+  /** First token of the latest args — surfaced as `nexus(apex)` etc. Null when unavailable. */
+  recipe: string | null;
+  /** "failed" when the most recent paired tool_result had is_error: true. */
+  last_status: "success" | "failed" | null;
+  /** True for the aggregate entry tied to the chronologically-first use of this skill name. */
+  is_first_use_in_session: boolean;
 }
 
 export interface SessionMessage {
@@ -162,6 +190,16 @@ export interface SessionDetail extends SessionSummary {
   messages: SessionMessage[];
   todos: SessionTodo[];
   tool_calls: SessionToolCall[];
+  /** Aggregated skill invocations observed in this session. Empty when none. */
+  skills: SessionSkillUse[];
+  /** Parent → child skill relationships observed in this session. */
+  skill_chains: SessionSkillChainEdge[];
+}
+
+export interface SessionSkillChainEdge {
+  parent: string;
+  child: string;
+  ts: string;
 }
 
 export interface SessionTaskSummary {
@@ -251,6 +289,8 @@ export const api = {
       request<VelocityResponse>(`/api/insights/velocity?weeks=${weeks}`),
     duplicates: () =>
       request<DuplicatesResponse>("/api/insights/duplicates"),
+    skills: (windowDays = 30) =>
+      request<SkillRankResponse>(`/api/insights/skills?window_days=${windowDays}`),
     staleClose: (threshold = 30) =>
       request<StaleCloseResponse>(`/api/insights/stale/close?threshold=${threshold}`, {
         method: "POST",

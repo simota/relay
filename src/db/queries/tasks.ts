@@ -424,8 +424,9 @@ export function upsertSession(db: Database, row: SessionRow): void {
     .prepare(
       `INSERT INTO sessions (
          id, type, repo, cwd, started_at, last_active, message_count,
-         parent_session_id, source_path, sha, status, last_message_text, title
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         parent_session_id, source_path, sha, status, last_message_text, title,
+         skills_used
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(type, id) DO UPDATE SET
          repo              = excluded.repo,
          cwd               = excluded.cwd,
@@ -436,7 +437,8 @@ export function upsertSession(db: Database, row: SessionRow): void {
          sha               = excluded.sha,
          status            = excluded.status,
          last_message_text = excluded.last_message_text,
-         title             = COALESCE(excluded.title, sessions.title)`,
+         title             = COALESCE(excluded.title, sessions.title),
+         skills_used       = COALESCE(excluded.skills_used, sessions.skills_used)`,
     )
     .run(
       row.id,
@@ -452,6 +454,7 @@ export function upsertSession(db: Database, row: SessionRow): void {
       row.status,
       row.last_message_text,
       row.title,
+      row.skills_used,
     );
 }
 
@@ -492,7 +495,7 @@ export function getSessions(
     .prepare(
       `SELECT id, type, repo, cwd, started_at, last_active, message_count,
               parent_session_id, source_path, sha, status, last_message_text,
-              title
+              title, skills_used
          FROM sessions
          ${whereSql}
          ORDER BY last_active DESC
@@ -512,6 +515,7 @@ export function getSessions(
     status: string;
     last_message_text: string | null;
     title: string | null;
+    skills_used: string | null;
   }>;
   return rows.map((r) => ({
     id: r.id,
@@ -527,6 +531,7 @@ export function getSessions(
     status: r.status as SessionRow["status"],
     last_message_text: r.last_message_text,
     title: r.title,
+    skills_used: r.skills_used,
   }));
 }
 
@@ -539,7 +544,7 @@ export function getSessionByTypeId(
     .prepare(
       `SELECT id, type, repo, cwd, started_at, last_active, message_count,
               parent_session_id, source_path, sha, status, last_message_text,
-              title
+              title, skills_used
          FROM sessions
          WHERE type = ? AND id = ?
          LIMIT 1`,
@@ -559,6 +564,7 @@ export function getSessionByTypeId(
         status: string;
         last_message_text: string | null;
         title: string | null;
+        skills_used: string | null;
       }
     | undefined;
   if (!row) return null;
@@ -576,6 +582,7 @@ export function getSessionByTypeId(
     status: row.status as SessionRow["status"],
     last_message_text: row.last_message_text,
     title: row.title,
+    skills_used: row.skills_used,
   };
 }
 

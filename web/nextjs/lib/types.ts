@@ -307,6 +307,23 @@ export interface StaleCloseResponse {
   ids: number[];
 }
 
+export interface SkillRankEntry {
+  name: string;
+  sessions_count: number;
+  prev_sessions_count: number;
+  latest_session: {
+    type: "claude" | "codex" | "antigravity" | "cursor";
+    id: string;
+    last_active: string;
+  } | null;
+}
+
+export interface SkillRankResponse {
+  window_days: number;
+  total_sessions: number;
+  entries: SkillRankEntry[];
+}
+
 export type SyncEvent =
   | { type: "adapter_start"; adapter: SourceType }
   | { type: "adapter_done"; adapter: SourceType; inserted: number; updated: number; unchanged: number; fetched: number; elapsedMs: number; sampleSourceIds?: string[] }

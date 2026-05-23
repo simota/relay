@@ -593,6 +593,30 @@ export class RelayDB {
     return _insightsDuplicates(this.db, minSimilarity);
   }
 
+  /**
+   * Raw projection used by the skill-ranking insight: returns minimal
+   * fields for every session with non-null `skills_used` and a
+   * `last_active` at or after the supplied ISO timestamp. The caller
+   * decodes the JSON-encoded array and buckets per window.
+   */
+  rawGetSessionsSkillsSince(
+    sinceIso: string,
+  ): Array<{ type: string; id: string; last_active: string; skills_used: string | null }> {
+    return this.db
+      .prepare(
+        `SELECT type, id, last_active, skills_used
+           FROM sessions
+          WHERE skills_used IS NOT NULL
+            AND last_active >= ?`,
+      )
+      .all(sinceIso) as Array<{
+      type: string;
+      id: string;
+      last_active: string;
+      skills_used: string | null;
+    }>;
+  }
+
   closeStaleTasks(thresholdDays: number): ReturnType<typeof _closeStaleTasks> {
     return _closeStaleTasks(this.db, thresholdDays);
   }

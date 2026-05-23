@@ -3,6 +3,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { resolveRepoForCwd } from "../lib/repo-from-cwd.js";
+import { distinctSkillNames, extractAntigravitySkills } from "../lib/session-skills.js";
 import { detectAntigravitySessionStatus } from "../lib/session-status.js";
 import type {
   SessionDetail,
@@ -192,6 +193,9 @@ async function readAntigravityDetail(
   // to active/ended without waiting for the next sync.
   const status = detectAntigravitySessionStatus(text);
 
+  const skills = extractAntigravitySkills(text);
+  const skills_used = distinctSkillNames(skills);
+
   const summary: SessionSummary = {
     type: "antigravity",
     id,
@@ -203,6 +207,7 @@ async function readAntigravityDetail(
     message_count: entryCount,
     todos_count: 0,
     status,
+    ...(skills_used.length > 0 ? { skills_used } : {}),
   };
 
   return {
@@ -210,6 +215,10 @@ async function readAntigravityDetail(
     messages,
     todos: [],
     tool_calls: toolCalls,
+    skills,
+    // Antigravity has no Skill / Agent spawn structure — chains are not
+    // observable from the transcript JSONL.
+    skill_chains: [],
   };
 }
 
