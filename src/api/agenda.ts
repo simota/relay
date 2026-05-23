@@ -8,7 +8,7 @@ import { buildAgendaReport } from "../commands/agenda.js";
 export function createAgendaApi() {
   const app = new Hono();
 
-  app.get("/", (c) => {
+  app.get("/", async (c) => {
     const daysRaw = c.req.query("days");
     const daysNum = daysRaw === undefined ? undefined : Number(daysRaw);
     // Reject only obviously-malformed input. Out-of-set values fall back to
@@ -18,7 +18,7 @@ export function createAgendaApi() {
     }
     const db = new RelayDB();
     try {
-      const report = buildAgendaReport(db, { days: daysNum, silent: true });
+      const report = await buildAgendaReport(db, { days: daysNum, silent: true });
       return c.json(report);
     } finally {
       db.close();

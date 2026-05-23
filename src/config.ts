@@ -190,6 +190,13 @@ const ConfigSchema = z.object({
       // still being tuned on real fixtures. Opt in via
       // `[features].promise_ledger = true`.
       promise_ledger: z.boolean().default(false),
+      // Activity Calendar — extends /agenda with a "Recent activity"
+      // band (past 7 days) that mixes Promise Ledger unfinished sessions
+      // and `## YYYY-MM-DD` agent journal entries alongside the existing
+      // future-looking due_at calendar. Default OFF so the classic
+      // Agenda experience is preserved for users who only want the
+      // date-bucketed task view.
+      activity_calendar: z.boolean().default(false),
     })
     .default({}),
 });

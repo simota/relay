@@ -3,15 +3,21 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import useSWR from "swr";
-import { AlertTriangle, CalendarClock } from "lucide-react";
+import { AlertTriangle, CalendarClock, History, NotebookPen, ScrollText } from "lucide-react";
 import { Card, CardHeader, CardBody, CardTitle } from "@/components/ui/card";
 import { Badge, StatusDot } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { PageState } from "@/components/page-state";
 import { api } from "@/lib/api";
 import { c, formatNumber } from "@/lib/copy";
-import { cn } from "@/lib/utils";
-import type { AgendaDay, AgendaReport, Task } from "@/lib/types";
+import { cn, timeAgo } from "@/lib/utils";
+import type {
+  ActivityDay,
+  ActivityItem,
+  AgendaDay,
+  AgendaReport,
+  Task,
+} from "@/lib/types";
 
 const WINDOW_OPTIONS = [7, 14, 30] as const;
 type WindowDays = (typeof WINDOW_OPTIONS)[number];
@@ -27,14 +33,19 @@ export default function AgendaPage() {
     { refreshInterval: 60_000 },
   );
 
+  const recentActivityCount = useMemo(
+    () => (data?.recentActivity ?? []).reduce((s, d) => s + d.items.length, 0),
+    [data?.recentActivity],
+  );
   const isEmpty = useMemo(() => {
     if (!data) return false;
     return (
       data.overdue.length === 0 &&
       data.daysList.every((d) => d.tasks.length === 0) &&
-      data.scheduledNoDate.length === 0
+      data.scheduledNoDate.length === 0 &&
+      recentActivityCount === 0
     );
-  }, [data]);
+  }, [data, recentActivityCount]);
 
   // Scroll Today into view exactly once per mount, after the day grid renders.
   // Honor prefers-reduced-motion so users with vestibular sensitivity don't
@@ -121,10 +132,130 @@ export default function AgendaPage() {
             {data.scheduledNoDate.length > 0 && (
               <ScheduledNoDateCard tasks={data.scheduledNoDate} />
             )}
+
+            {data.recentActivity && recentActivityCount > 0 && (
+              <RecentActivityBand
+                activityDays={data.recentActivity}
+                totalItems={recentActivityCount}
+              />
+            )}
           </>
         )}
       </div>
     </div>
+  );
+}
+
+function RecentActivityBand({
+  activityDays,
+  totalItems,
+}: {
+  activityDays: ActivityDay[];
+  totalItems: number;
+}) {
+  // Hide empty trailing days so the layout compacts when only the last
+  // 2-3 days have anything — the band stays readable without forcing the
+  // user to scroll past N empty cards.
+  const nonEmpty = activityDays.filter((d) => d.items.length > 0);
+  return (
+    <Card>
+      <CardHeader className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <History className="h-4 w-4 text-[var(--color-fg-muted)]" />
+          <CardTitle>
+            Recent activity · {formatNumber(totalItems)}
+          </CardTitle>
+        </div>
+        <span className="text-[10.5px] uppercase tracking-wider text-[var(--color-fg-dim)]">
+          past {activityDays.length} days · agent sessions + journal entries
+        </span>
+      </CardHeader>
+      <CardBody>
+        <div className="space-y-3">
+          {nonEmpty.map((day) => (
+            <div key={day.date}>
+              <div className="flex items-baseline gap-2 mb-1.5">
+                <span className="font-mono text-[12px] font-semibold text-[var(--color-fg)]">
+                  {day.weekday}
+                </span>
+                <span className="font-mono text-[11px] text-[var(--color-fg-dim)]">
+                  {day.date}
+                </span>
+                <span className="text-[10px] uppercase tracking-wider text-[var(--color-fg-dim)] ml-auto">
+                  {formatNumber(day.items.length)}
+                </span>
+              </div>
+              <ul className="space-y-1">
+                {day.items.map((item, i) => (
+                  <ActivityRow key={`${day.date}-${i}`} item={item} />
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+      </CardBody>
+    </Card>
+  );
+}
+
+function ActivityRow({ item }: { item: ActivityItem }) {
+  if (item.kind === "promise_ledger") {
+    const href = `/sessions?type=${encodeURIComponent(item.session.type)}&id=${encodeURIComponent(item.session.id)}`;
+    return (
+      <li>
+        <Link
+          href={href}
+          className="group flex items-start gap-2 rounded-[var(--radius)] px-1.5 py-1 text-[12px] hover:bg-[var(--color-bg-elev-2)] transition-colors"
+          title={`Resume session · ${item.ts}`}
+        >
+          <ScrollText className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--color-warm)]" />
+          <div className="min-w-0 flex-1">
+            <div className="flex items-baseline gap-1.5">
+              <span className="font-mono text-[10px] text-[var(--color-fg-dim)] shrink-0">
+                {item.session.type}
+              </span>
+              {item.repo && (
+                <span className="font-mono text-[11px] text-[var(--color-cool)] truncate">
+                  {item.repo}
+                </span>
+              )}
+              <span className="font-mono text-[10px] text-[var(--color-fg-dim)] shrink-0">
+                {timeAgo(item.ts)}
+              </span>
+            </div>
+            <div className="text-[12px] text-[var(--color-fg)] truncate">{item.title}</div>
+          </div>
+          <Badge
+            className="shrink-0 bg-[var(--color-warm)]/15 text-[var(--color-warm)] border-[var(--color-warm)]/30"
+            title="unmet promises in this session"
+          >
+            {formatNumber(item.unmet_count)} unmet
+          </Badge>
+        </Link>
+      </li>
+    );
+  }
+  // agent_journal
+  return (
+    <li>
+      <div
+        className="flex items-start gap-2 rounded-[var(--radius)] px-1.5 py-1 text-[12px]"
+        title={`${item.repo}/.agents/${item.agent}.md`}
+      >
+        <NotebookPen className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--color-fg-muted)]" />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-baseline gap-1.5">
+            <span className="font-mono text-[11px] text-[var(--color-cool)] truncate">
+              {item.repo}
+            </span>
+            <span className="font-mono text-[10.5px] text-[var(--color-fg-muted)]">
+              {item.agent}
+            </span>
+          </div>
+          <div className="text-[12px] text-[var(--color-fg)] truncate">{item.title}</div>
+        </div>
+      </div>
+    </li>
   );
 }
 

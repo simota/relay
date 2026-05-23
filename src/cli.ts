@@ -118,9 +118,9 @@ program
   .description(
     "Show a calendar of upcoming due_at + scheduled tasks, plus an Overdue section.",
   )
-  .action((opts) => {
+  .action(async (opts) => {
     const parsed = typeof opts.days === "string" ? Number(opts.days) : undefined;
-    runAgenda({
+    await runAgenda({
       days: Number.isFinite(parsed) ? parsed : undefined,
     });
   });

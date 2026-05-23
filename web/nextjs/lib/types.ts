@@ -170,6 +170,40 @@ export interface AgendaReport {
   overdue: Task[];
   daysList: AgendaDay[];
   scheduledNoDate: Task[];
+  /**
+   * Past-N-days "Recent activity" band. Present only when
+   * `[features].activity_calendar = true` on the server. Each entry is
+   * one local day (newest-first) holding heterogeneous ActivityItems
+   * from Promise Ledger + agent journals.
+   */
+  recentActivity?: ActivityDay[];
+}
+
+export interface ActivityItemPromiseLedger {
+  kind: "promise_ledger";
+  date: string;
+  ts: string;
+  session: { type: "claude" | "codex" | "antigravity" | "cursor"; id: string };
+  repo: string | null;
+  title: string;
+  unmet_count: number;
+}
+
+export interface ActivityItemAgentJournal {
+  kind: "agent_journal";
+  date: string;
+  ts: string;
+  repo: string;
+  agent: string;
+  title: string;
+}
+
+export type ActivityItem = ActivityItemPromiseLedger | ActivityItemAgentJournal;
+
+export interface ActivityDay {
+  date: string;
+  weekday: string;
+  items: ActivityItem[];
 }
 
 export type WfrPeriod = "8w" | "12w";

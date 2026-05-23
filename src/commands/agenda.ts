@@ -1,4 +1,9 @@
 import chalk from "chalk";
+import {
+  bucketByDate,
+  collectActivityInWindow,
+  type ActivityDay,
+} from "../lib/activity-calendar.js";
 import { loadConfig, resolveScanRoots } from "../config.js";
 import { RelayDB } from "../db/client.js";
 import { findMissingRepos } from "../repo-metadata.js";
@@ -32,7 +37,18 @@ export interface AgendaReport {
   daysList: AgendaDay[];
   /** wait_on='scheduled' AND due_at IS NULL. */
   scheduledNoDate: Task[];
+  /**
+   * Past-N-days activity band (newest first). Mixes Promise Ledger
+   * unfinished sessions and `## YYYY-MM-DD` agent journal entries.
+   * Present only when `[features].activity_calendar = true`; the field
+   * is omitted entirely otherwise so the classic Agenda payload stays
+   * untouched for users who haven't opted in.
+   */
+  recentActivity?: ActivityDay[];
 }
+
+/** Past-window for the Activity Calendar band. Days are LOCAL dates. */
+const RECENT_ACTIVITY_DAYS = 7;
 
 export interface AgendaOptions {
   days?: number;
@@ -78,10 +94,10 @@ function weekdayLocal(at: Date): string {
   return WEEKDAY_FMT.format(at);
 }
 
-export function buildAgendaReport(
+export async function buildAgendaReport(
   db: RelayDB,
   opts: AgendaOptions = {},
-): AgendaReport {
+): Promise<AgendaReport> {
   const cfg = loadConfig();
   const repoNames = db.repoStats().map((r) => r.name);
   const missing = findMissingRepos(repoNames, resolveScanRoots(cfg));
@@ -121,6 +137,28 @@ export function buildAgendaReport(
     if (bucket) bucket.push(t);
   }
 
+  let recentActivity: ActivityDay[] | undefined;
+  if (cfg.features.activity_calendar) {
+    // Build the past-N-days metadata in the same shape used for daysList
+    // — local YYYY-MM-DD + weekday — so the UI can render both bands
+    // identically. Order: newest-first (today-1, today-2, …).
+    const recentDays: { date: string; weekday: string }[] = [];
+    for (let i = 1; i <= RECENT_ACTIVITY_DAYS; i++) {
+      const at = addDays(todayMidnight, -i);
+      recentDays.push({ date: ymdLocal(at), weekday: weekdayLocal(at) });
+    }
+    const fromDate = recentDays[recentDays.length - 1]?.date ?? ymdLocal(todayMidnight);
+    const toDate = recentDays[0]?.date ?? ymdLocal(todayMidnight);
+    const items = await collectActivityInWindow(db, {
+      fromDate,
+      toDate,
+      scanRoots: resolveScanRoots(cfg),
+      trackedRepos: cfg.scan.tracked_repos,
+      exclude: cfg.scan.exclude,
+    });
+    recentActivity = bucketByDate(items, recentDays);
+  }
+
   return {
     days,
     fromIso,
@@ -129,13 +167,14 @@ export function buildAgendaReport(
     overdue,
     daysList: dayMeta,
     scheduledNoDate,
+    ...(recentActivity ? { recentActivity } : {}),
   };
 }
 
-export function runAgenda(opts: AgendaOptions = {}): AgendaReport {
+export async function runAgenda(opts: AgendaOptions = {}): Promise<AgendaReport> {
   const db = new RelayDB();
   try {
-    const report = buildAgendaReport(db, opts);
+    const report = await buildAgendaReport(db, opts);
     if (!opts.silent) printAgenda(report);
     return report;
   } finally {
@@ -144,10 +183,15 @@ export function runAgenda(opts: AgendaOptions = {}): AgendaReport {
 }
 
 function printAgenda(report: AgendaReport): void {
+  const recentItemCount = (report.recentActivity ?? []).reduce(
+    (s, d) => s + d.items.length,
+    0,
+  );
   const isEmpty =
     report.overdue.length === 0 &&
     report.daysList.every((d) => d.tasks.length === 0) &&
-    report.scheduledNoDate.length === 0;
+    report.scheduledNoDate.length === 0 &&
+    recentItemCount === 0;
 
   console.log(
     chalk.bold("agenda ") +
@@ -173,6 +217,34 @@ function printAgenda(report: AgendaReport): void {
         chalk.red(" past due, still open"),
     );
     printTaskList(report.overdue, { showDue: true });
+  }
+
+  if (report.recentActivity && report.recentActivity.length > 0) {
+    const totalItems = report.recentActivity.reduce((s, d) => s + d.items.length, 0);
+    if (totalItems > 0) {
+      console.log("");
+      console.log(
+        chalk.bold(`Recent activity`) +
+          chalk.gray(`  (${totalItems} item${totalItems === 1 ? "" : "s"} · last ${report.recentActivity.length} days)`),
+      );
+      for (const day of report.recentActivity) {
+        if (day.items.length === 0) continue;
+        const heading = `${day.weekday} ${day.date}`;
+        console.log("");
+        console.log(chalk.bold(heading) + chalk.gray(`  (${day.items.length})`));
+        for (const item of day.items) {
+          if (item.kind === "promise_ledger") {
+            console.log(
+              `  ${chalk.yellow("◐")} ${chalk.cyan((item.repo ?? "—").padEnd(20))} ${chalk.gray(item.session.type + ":" + item.session.id.slice(0, 8))} ${truncate(item.title, 60)} ${chalk.yellow(`(${item.unmet_count} unmet)`)}`,
+            );
+          } else {
+            console.log(
+              `  ${chalk.blue("📓")} ${chalk.cyan(item.repo.padEnd(20))} ${chalk.gray(item.agent.padEnd(10))} ${truncate(item.title, 60)}`,
+            );
+          }
+        }
+      }
+    }
   }
 
   for (const day of report.daysList) {
