@@ -206,14 +206,22 @@ export function closeTasksBySourceIds(
 ): TaskStatusSnapshot[] {
   if (items.length === 0) return [];
   const inverses: TaskStatusSnapshot[] = [];
+  // Exclude snoozed in BOTH the lookup and the update — snooze is the
+  // user's explicit "remind me later" signal and silently flipping it to
+  // done when the upstream source resolves erases that intent (the user
+  // wanted to come back to it themselves, not have the resolution
+  // bookkept for them). The user has to reopen + close manually if they
+  // still want to mark it done after the snooze expires. Keeping the
+  // exclusion symmetric across find and update prevents false inverse
+  // snapshots from polluting the undo log for no-op updates.
   const findStmt = db.prepare(
     `SELECT id, status, due_at, closed_at
        FROM tasks
-      WHERE source_type = ? AND source_id = ? AND status != 'done'`,
+      WHERE source_type = ? AND source_id = ? AND status NOT IN ('done', 'snoozed')`,
   );
   const closeStmt = db.prepare(
     `UPDATE tasks SET status = 'done', closed_at = ?, updated_at = ?
-      WHERE id = ? AND status != 'done'`,
+      WHERE id = ? AND status NOT IN ('done', 'snoozed')`,
   );
   const now = new Date().toISOString();
   const tx = db.transaction((batch: Array<{ source_type: string; source_id: string }>) => {
