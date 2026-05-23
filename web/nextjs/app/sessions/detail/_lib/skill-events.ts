@@ -123,8 +123,8 @@ const AGENT_PERSONA_EN_RE = /You are (?:the\s+)?([A-Za-z][A-Za-z0-9-]{2,40})\s+(
 
 function normalize(name: string, source: SessionSkillSource): string {
   // NFKC absorbs fullwidth ／ / @ variants into ASCII so `/Nexus`, `／nexus`
-  // and `@nexus` all collapse to the same slug.
-  const s = name.normalize("NFKC").trim().replace(/^[@/／]+/, "").toLowerCase();
+  // `@nexus` and Codex's `$nexus` all collapse to the same slug.
+  const s = name.normalize("NFKC").trim().replace(/^[@/／$]+/, "").toLowerCase();
   if (!s) return "";
   if (!/^[a-z][a-z0-9-]{2,40}$/.test(s)) return "";
   if (s.includes("--") || s.endsWith("-")) return "";
@@ -171,9 +171,12 @@ export function computeSkillTimelineEvents(
       const name = normalize(raw, "slash_command");
       push(m.timestamp, name, "slash_command", null);
     }
-    // Codex / bare slash command at start of user message text
+    // Bare slash/dollar command at start of user message text — covers
+    // Codex (`/foo` and `$foo` both leak through as plain user_message) and
+    // Claude transcripts where the CLI didn't wrap the command in a
+    // <command-name> tag.
     const trimmed = m.text.trimStart();
-    const bare = trimmed.match(/^\/([a-z][a-z0-9-]{2,40})\b/);
+    const bare = trimmed.match(/^[/$]([a-z][a-z0-9-]{2,40})\b/);
     if (bare?.[1]) {
       const name = normalize(bare[1], "slash_command");
       push(m.timestamp, name, "slash_command", null);

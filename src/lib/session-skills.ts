@@ -282,13 +282,14 @@ const TOOL_NAME_DENYLIST = new Set([
 
 /**
  * Normalize visually-distinct slash forms (fullwidth ／, leading
- * whitespace, leading `@`) into the canonical lowercase ASCII slug.
+ * whitespace, leading `@`, leading `$` for Codex) into the canonical
+ * lowercase ASCII slug.
  */
 function normalizeRawName(raw: string): string {
   return raw
     .normalize("NFKC")
     .trim()
-    .replace(/^[@/／]+/, "")
+    .replace(/^[@/／$]+/, "")
     .toLowerCase();
 }
 
@@ -390,6 +391,14 @@ const CLAUDE_COMMAND_NAME_RE = /<command-name>\s*\/?([a-z][a-z0-9-]{2,40})\s*<\/
 // first token is kebab-case ASCII it gets surfaced as the recipe (e.g.
 // `/nexus apex …` → recipe = "apex").
 const CLAUDE_COMMAND_ARGS_RE = /<command-args>\s*([\s\S]*?)\s*<\/command-args>/i;
+// Fallback: bare `/<name>` at the start of a user text block — covers the
+// case where the CLI didn't expand the typed slash command into a
+// <command-name> tag (e.g. unknown commands, raw transcripts, certain
+// custom hook plumbing). Anchored at start-of-text so casual mentions like
+// "see /docs for details" mid-message don't false-positive. Role-gated to
+// user messages in the caller so assistant references to slash commands
+// (e.g. "use the /foo command") never leak through.
+const CLAUDE_BARE_SLASH_RE = /^\s*\/([a-z][a-z0-9-]{2,40})\b/;
 
 // Fallback patterns for `Agent` spawn prompts whose body identifies the
 // agent without referencing the SKILL.md path. Two shapes occur in real
@@ -513,12 +522,21 @@ export function extractClaudeSkillChains(text: string): SessionSkillChainEdge[] 
         }
       }
       const m = scanText.match(/<command-name>\s*\/?([a-z][a-z0-9-]{2,40})\s*<\/command-name>/i);
+      let detected: string | null = null;
       if (m?.[1]) {
-        const raw = m[1].toLowerCase();
-        const valid = isValid(raw);
+        detected = m[1].toLowerCase();
+      } else {
+        // Bare `/<name>` fallback when the CLI didn't wrap the command —
+        // anchored at start-of-text so the scope detector doesn't drift on
+        // a casual mention deep in a paragraph.
+        const bare = scanText.match(CLAUDE_BARE_SLASH_RE);
+        if (bare?.[1]) detected = bare[1].toLowerCase();
+      }
+      if (detected) {
+        const valid = isValid(detected);
         if (valid) {
           currentSkill = valid;
-        } else if (BUILTIN_SLASH_COMMANDS.has(raw)) {
+        } else if (BUILTIN_SLASH_COMMANDS.has(detected)) {
           // /init, /clear, /compact … return us to plain mode.
           currentSkill = null;
         }
@@ -588,13 +606,26 @@ export function extractClaudeSkills(text: string): SessionSkillUse[] {
     }
     const ts = typeof obj.timestamp === "string" ? obj.timestamp : "";
     const wrapper = (obj.message as Record<string, unknown> | undefined) ?? obj;
+    const role = (wrapper as Record<string, unknown>).role;
     const content = (wrapper as Record<string, unknown>).content;
+    const isUser = role === "user";
 
     if (typeof content === "string") {
       const argsBody = content.match(CLAUDE_COMMAND_ARGS_RE)?.[1] ?? null;
+      const seenInMessage = new Set<string>();
       for (const match of content.matchAll(CLAUDE_COMMAND_NAME_RE)) {
         const name = match[1];
-        if (name) events.push({ name, source: "slash_command", ts, args: argsBody });
+        if (name) {
+          seenInMessage.add(name.toLowerCase());
+          events.push({ name, source: "slash_command", ts, args: argsBody });
+        }
+      }
+      if (isUser) {
+        const bare = content.match(CLAUDE_BARE_SLASH_RE);
+        const bareName = bare?.[1];
+        if (bareName && !seenInMessage.has(bareName.toLowerCase())) {
+          events.push({ name: bareName, source: "slash_command", ts });
+        }
       }
     } else if (Array.isArray(content)) {
       for (const block of content) {
@@ -603,9 +634,20 @@ export function extractClaudeSkills(text: string): SessionSkillUse[] {
         const blockType = b.type;
         if (blockType === "text" && typeof b.text === "string") {
           const argsBody = b.text.match(CLAUDE_COMMAND_ARGS_RE)?.[1] ?? null;
+          const seenInMessage = new Set<string>();
           for (const match of b.text.matchAll(CLAUDE_COMMAND_NAME_RE)) {
             const name = match[1];
-            if (name) events.push({ name, source: "slash_command", ts, args: argsBody });
+            if (name) {
+              seenInMessage.add(name.toLowerCase());
+              events.push({ name, source: "slash_command", ts, args: argsBody });
+            }
+          }
+          if (isUser) {
+            const bare = b.text.match(CLAUDE_BARE_SLASH_RE);
+            const bareName = bare?.[1];
+            if (bareName && !seenInMessage.has(bareName.toLowerCase())) {
+              events.push({ name: bareName, source: "slash_command", ts });
+            }
           }
         } else if (blockType === "tool_use" && typeof b.name === "string") {
           const input =
@@ -705,15 +747,17 @@ export function extractCodexSkills(text: string): SessionSkillUse[] {
 
     // Codex slash commands appear unmolested in user_message text — they
     // aren't expanded the way Claude wraps them in <command-name> tags.
-    // Limit to a name at the start of the message body to avoid catching
-    // every `/foo` mention in pasted file paths.
+    // Match both `/<name>` and `$<name>` (Codex's recent slash-prefix
+    // variants surface as `$nexus`, `$apex`, …). Anchored at start of the
+    // message body so casual `/foo` / `$foo` mentions in pasted file paths
+    // or shell snippets don't false-positive.
     if (
       obj.type === "event_msg" &&
       (payload as Record<string, unknown>).type === "user_message"
     ) {
       const msg = (payload as Record<string, unknown>).message;
       if (typeof msg === "string") {
-        const match = msg.trimStart().match(/^\/([a-z][a-z0-9-]{2,40})\b/);
+        const match = msg.trimStart().match(/^[/$]([a-z][a-z0-9-]{2,40})\b/);
         if (match?.[1]) {
           events.push({ name: match[1], source: "slash_command", ts });
         }
