@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { extractPromiseLedger } from "../lib/promise-ledger.js";
 import { resolveRepoForCwd } from "../lib/repo-from-cwd.js";
 import {
   distinctSkillNames,
@@ -9,6 +10,7 @@ import {
   extractClaudeSkills,
 } from "../lib/session-skills.js";
 import { detectClaudeSessionStatus } from "../lib/session-status.js";
+import type { GetSessionOptions } from "./index.js";
 import type {
   SessionDetail,
   SessionMessage,
@@ -33,12 +35,16 @@ function isAgentId(id: string): boolean {
   return id.startsWith("agent-");
 }
 
-export async function getClaudeSession(id: string, roots: string[]): Promise<SessionDetail | null> {
+export async function getClaudeSession(
+  id: string,
+  roots: string[],
+  opts: GetSessionOptions = {},
+): Promise<SessionDetail | null> {
   if (!existsSync(PROJECTS_ROOT)) return null;
 
   // Subagent ID: look in <project>/<parent>/subagents/<id>.jsonl
   if (isAgentId(id)) {
-    return getClaudeSubagentSession(id, roots);
+    return getClaudeSubagentSession(id, roots, opts);
   }
 
   // Parent session: <project>/<id>.jsonl
@@ -46,12 +52,16 @@ export async function getClaudeSession(id: string, roots: string[]): Promise<Ses
   for (const project of projects) {
     const full = join(PROJECTS_ROOT, project, `${id}.jsonl`);
     if (!existsSync(full)) continue;
-    return readClaudeDetail(full, project, roots);
+    return readClaudeDetail(full, project, roots, opts);
   }
   return null;
 }
 
-async function getClaudeSubagentSession(agentId: string, roots: string[]): Promise<SessionDetail | null> {
+async function getClaudeSubagentSession(
+  agentId: string,
+  roots: string[],
+  opts: GetSessionOptions,
+): Promise<SessionDetail | null> {
   const projects = await readdir(PROJECTS_ROOT).catch(() => []);
   for (const project of projects) {
     const projectDir = join(PROJECTS_ROOT, project);
@@ -60,7 +70,7 @@ async function getClaudeSubagentSession(agentId: string, roots: string[]): Promi
     for (const parentId of subdirs) {
       const full = join(projectDir, parentId, "subagents", `${agentId}.jsonl`);
       if (!existsSync(full)) continue;
-      return readClaudeSubagentDetail(full, agentId, parentId, project, roots);
+      return readClaudeSubagentDetail(full, agentId, parentId, project, roots, opts);
     }
   }
   return null;
@@ -99,8 +109,9 @@ async function readClaudeSubagentDetail(
   parentId: string,
   projectDir: string,
   roots: string[],
+  opts: GetSessionOptions,
 ): Promise<SessionDetail | null> {
-  const detail = await readClaudeDetail(path, projectDir, roots);
+  const detail = await readClaudeDetail(path, projectDir, roots, opts);
   if (!detail) return null;
   return {
     ...detail,
@@ -194,6 +205,7 @@ async function readClaudeDetail(
   path: string,
   projectDir: string,
   roots: string[],
+  opts: GetSessionOptions,
 ): Promise<SessionDetail | null> {
   const summary = await readClaudeSummary(path, projectDir, roots);
   if (!summary) return null;
@@ -260,6 +272,9 @@ async function readClaudeDetail(
 
   const skills = extractClaudeSkills(text);
   const skill_chains = extractClaudeSkillChains(text);
+  const promise_ledger = opts.promiseLedger
+    ? extractPromiseLedger(messages, toolCalls)
+    : undefined;
   return {
     ...summary,
     messages,
@@ -267,6 +282,7 @@ async function readClaudeDetail(
     tool_calls: toolCalls,
     skills,
     skill_chains,
+    ...(promise_ledger ? { promise_ledger } : {}),
   };
 }
 

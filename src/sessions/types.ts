@@ -124,6 +124,14 @@ export interface SessionDetail extends SessionSummary {
    * Empty when no such chain was observed.
    */
   skill_chains: SessionSkillChainEdge[];
+  /**
+   * Promise Ledger — audit of assistant-message claims ("I've added X")
+   * against the tool_calls in the same turn. Present only when the
+   * `features.promise_ledger` flag is enabled in config. Omitted (not
+   * `null`) when the flag is off so the response payload stays compact for
+   * users who haven't opted in.
+   */
+  promise_ledger?: SessionPromiseLedger;
 }
 
 export interface SessionSkillChainEdge {
@@ -133,4 +141,55 @@ export interface SessionSkillChainEdge {
   child: string;
   /** ISO timestamp of the child spawn event. */
   ts: string;
+}
+
+export type PromiseClaimType =
+  | "write_file"   // "I've added src/foo.ts" → expect Write/Edit on that path
+  | "edit_file"    // "Fixed src/bar.ts" → expect Edit on that path
+  | "delete_file"  // "Removed src/baz.ts" → expect rm/git rm or removal
+  | "add_test"     // "Wrote a test for X" → expect Write/Edit on a test-pattern path
+  | "run_test"     // "Ran the tests" / "tests pass" → expect a test-runner Bash call
+  | "commit"       // "I've committed" → expect a `git commit` Bash call
+  | "generic";     // claim with no specific target → unverifiable
+
+export type PromiseStatus =
+  | "verified"     // tool_call matched the claim within the same turn
+  | "partial"      // multi-part claim, only some pieces verified (reserved for v2)
+  | "unmet"        // claim has a specific target but no matching tool_call
+  | "unverifiable";// claim is too vague to audit (e.g. "Refactored the helper")
+
+export interface PromiseEntry {
+  /** Index into `SessionDetail.messages` where the claim was made. */
+  message_index: number;
+  /** ISO timestamp of the message carrying the claim. */
+  timestamp: string;
+  /** The literal claim sentence as extracted, whitespace-collapsed, ≤200 chars. */
+  claim_text: string;
+  /** Category of action claimed; informs evidence pairing rules. */
+  claim_type: PromiseClaimType;
+  /** Verdict for this claim. */
+  status: PromiseStatus;
+  /**
+   * Short label describing the supporting tool_call when status=verified;
+   * null when status=unmet or unverifiable.
+   */
+  evidence: string | null;
+  /** Human-readable explanation for unmet / unverifiable verdicts; null when verified. */
+  reason: string | null;
+}
+
+export interface SessionPromiseLedger {
+  /** Per-claim audit entries in message-order. */
+  entries: PromiseEntry[];
+  total_claims: number;
+  verified: number;
+  partial: number;
+  unmet: number;
+  unverifiable: number;
+  /**
+   * 0-100 trust score: (verified + 0.5 × partial) ÷ (verified + partial +
+   * unmet) × 100. Null when no scorable claims were found (so the UI can
+   * render "—" rather than a misleading 100%).
+   */
+  honesty_score: number | null;
 }

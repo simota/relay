@@ -345,7 +345,9 @@ export function createSessionsApi() {
     if (!id || !/^[a-zA-Z0-9_-]+$/.test(id)) {
       return c.json({ error: "invalid session id" }, 400);
     }
-    const session = await getSession(typeParam as SessionType, id, roots);
+    const session = await getSession(typeParam as SessionType, id, roots, {
+      promiseLedger: cfg.features.promise_ledger,
+    });
     if (!session) return c.json({ error: "not found" }, 404);
     attachSubagentCount(session, typeParam as SessionType);
     return c.json(session);
@@ -405,7 +407,9 @@ export function createSessionsApi() {
         }
         inFlight = true;
         try {
-          const session = await getSession(typeParam, id, roots);
+          const session = await getSession(typeParam, id, roots, {
+            promiseLedger: cfg.features.promise_ledger,
+          });
           if (closed) return;
           if (!session) {
             await stream.writeSSE({

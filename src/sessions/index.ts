@@ -10,19 +10,29 @@ import type { SessionDetail, SessionType } from "./types.js";
  *
  * Returns null for `cursor` sessions because no plan-file reader exists
  * yet (cursor entries surface only in the DB-backed list).
+ *
+ * `opts.promiseLedger` toggles the Promise Ledger (assistant-claim vs
+ * tool-call audit) on the returned detail. Default false so the field is
+ * omitted entirely from the payload for users who haven't opted in via
+ * `[features].promise_ledger = true` in config.toml.
  */
+export interface GetSessionOptions {
+  promiseLedger?: boolean;
+}
+
 export async function getSession(
   type: SessionType,
   id: string,
   roots: string[],
+  opts: GetSessionOptions = {},
 ): Promise<SessionDetail | null> {
   switch (type) {
     case "claude":
-      return getClaudeSession(id, roots);
+      return getClaudeSession(id, roots, opts);
     case "codex":
-      return getCodexSession(id, roots);
+      return getCodexSession(id, roots, opts);
     case "antigravity":
-      return getAntigravitySession(id, roots);
+      return getAntigravitySession(id, roots, opts);
     case "cursor":
       return null;
   }
