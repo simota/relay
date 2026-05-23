@@ -1,6 +1,5 @@
 import type {
   SessionMessage,
-  SessionSkillUse,
   SessionStatus,
   SessionToolCall,
 } from "@/lib/api";

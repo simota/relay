@@ -102,7 +102,7 @@ function hueFor(name: string): number {
   return h % 360;
 }
 
-export function getToolColor(name: string, _index?: number): string {
+export function getToolColor(name: string): string {
   if (name === "other") return "var(--color-fg-dim)";
   return `hsl(${hueFor(name)} 65% 55%)`;
 }

@@ -266,7 +266,7 @@ function Caveat({ compact }: { compact: boolean }) {
   return (
     <p className={cn("font-mono text-[var(--color-fg-dim)] px-1", compact ? "text-[9.5px]" : "text-[10px]")}>
       heuristic audit · regex claim detection paired with same-turn tool_call evidence · false
-      "unmet" possible when the agent edits via piped stdin or `cat &gt;`.
+      &quot;unmet&quot; possible when the agent edits via piped stdin or `cat &gt;`.
     </p>
   );
 }
