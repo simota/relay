@@ -165,9 +165,23 @@ export function getLatestContextForRepo(db: Database, repo: string): RelayContex
 }
 
 export function listContexts(db: Database, repo?: string, limit = 50): RelayContext[] {
+  // Correlated subquery for linked_tasks_count avoids a GROUP BY across
+  // every contexts column (SQLite would need each one in the GROUP BY
+  // list, and any new column added to the schema would silently break the
+  // query). The subquery hits the idx_tasks_context_hash index per row,
+  // which at limit=50 is negligible — well under 5ms on the user's DB.
   const sql = repo
-    ? `SELECT * FROM contexts WHERE repo = ? ORDER BY created_at DESC LIMIT ?`
-    : `SELECT * FROM contexts ORDER BY created_at DESC LIMIT ?`;
+    ? `SELECT c.*,
+              (SELECT COUNT(*) FROM tasks t WHERE t.context_hash = c.hash) AS linked_tasks_count
+         FROM contexts c
+        WHERE c.repo = ?
+        ORDER BY c.created_at DESC
+        LIMIT ?`
+    : `SELECT c.*,
+              (SELECT COUNT(*) FROM tasks t WHERE t.context_hash = c.hash) AS linked_tasks_count
+         FROM contexts c
+        ORDER BY c.created_at DESC
+        LIMIT ?`;
   const rows = (repo
     ? db.prepare(sql).all(repo, limit)
     : db.prepare(sql).all(limit)) as Array<Record<string, unknown>>;

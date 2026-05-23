@@ -115,4 +115,11 @@ export interface RelayContext {
   createdAt: string;
   generatedAt: string | null;
   modelName: string | null;
+  /**
+   * Number of tasks pointing to this context via `tasks.context_hash`.
+   * Populated by `listContexts` (and `getContext`); other call sites that
+   * fetch a single row without the JOIN leave it at 0. Surfaced inline on
+   * the /contexts list so users see linkage without opening detail.
+   */
+  linkedTasksCount: number;
 }

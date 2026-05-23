@@ -91,6 +91,8 @@ export interface RelayContext {
   summary: string;
   sessionId: string | null;
   createdAt: string;
+  /** Count of tasks pointing at this context via tasks.context_hash. */
+  linkedTasksCount: number;
 }
 
 export interface SyncReport {

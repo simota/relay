@@ -16,6 +16,13 @@ export function hydrateContext(row: Record<string, unknown>): RelayContext {
     createdAt: row.created_at as string,
     generatedAt: (row.generated_at as string | null) ?? null,
     modelName: (row.model_name as string | null) ?? null,
+    // `linked_tasks_count` is computed only by listContexts/getContext via
+    // LEFT JOIN; callers that hydrate single rows from a plain SELECT *
+    // get 0, which the UI renders as "no linked tasks".
+    linkedTasksCount:
+      typeof row.linked_tasks_count === "number"
+        ? row.linked_tasks_count
+        : Number(row.linked_tasks_count ?? 0) || 0,
   };
 }
 

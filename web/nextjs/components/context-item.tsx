@@ -1,38 +1,65 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowUpRight } from "lucide-react";
+import { ListChecks, MessageSquare } from "lucide-react";
 import { c, formatNumber } from "@/lib/copy";
-import { timeAgo } from "@/lib/utils";
+import { cn, timeAgo } from "@/lib/utils";
 import type { RelayContext } from "@/lib/types";
 
-export function ContextItem({ ctx, isLast }: { ctx: RelayContext; isLast: boolean }) {
+/**
+ * One row in the repo-grouped contexts timeline. Click selects the row
+ * (master/detail pattern — detail renders in the right column). Chips for
+ * linked tasks / session jump stay clickable independently via
+ * stopPropagation so a user can drill into the linked surface without
+ * losing the selected detail in the right pane.
+ */
+export function ContextItem({
+  ctx,
+  isLast,
+  selected,
+  onSelect,
+}: {
+  ctx: RelayContext;
+  isLast: boolean;
+  selected: boolean;
+  onSelect: (hash: string) => void;
+}) {
+  const sessionHref = ctx.sessionId
+    ? `/sessions?type=claude&id=${encodeURIComponent(ctx.sessionId)}`
+    : null;
+  const tasksHref = ctx.linkedTasksCount > 0
+    ? `/tasks?status=open&repo=${encodeURIComponent(ctx.repo)}`
+    : null;
+
   return (
-    <Link
-      href={`/context?hash=${encodeURIComponent(ctx.hash)}`}
-      className="group relative block pl-8 pr-4 py-4 hover:bg-[var(--color-bg-elev)]/40 transition-colors"
+    <button
+      type="button"
+      onClick={() => onSelect(ctx.hash)}
+      aria-pressed={selected}
+      className={cn(
+        "group relative block w-full text-left pl-8 pr-4 py-4 transition-colors",
+        selected
+          ? "bg-[var(--color-accent)]/[0.08]"
+          : "hover:bg-[var(--color-bg-elev)]/40",
+      )}
     >
-      <span className="absolute left-2 top-5 w-2 h-2 rounded-full bg-[var(--color-accent)] shadow-[0_0_0_3px_var(--color-bg)] z-10" />
+      <span
+        className={cn(
+          "absolute left-2 top-5 w-2 h-2 rounded-full shadow-[0_0_0_3px_var(--color-bg)] z-10",
+          selected ? "bg-[var(--color-accent)] ring-2 ring-[var(--color-accent)]/40" : "bg-[var(--color-accent)]",
+        )}
+      />
       {!isLast && (
         <span className="absolute left-[11px] top-7 bottom-0 w-px bg-[var(--color-border)]" />
       )}
 
       <div className="flex items-start justify-between gap-4">
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 text-[12px]">
+          <div className="flex items-center gap-2 text-[12px] flex-wrap">
             <span className="font-mono text-[10.5px] text-[var(--color-fg-dim)] tabular group-hover:text-[var(--color-fg-muted)]">
               {ctx.hash.slice(0, 10)}
             </span>
             <span className="text-[var(--color-fg-dim)]">·</span>
-            <Link
-              href={`/tasks?status=open&repo=${encodeURIComponent(ctx.repo)}`}
-              onClick={(e) => e.stopPropagation()}
-              title={c("contexts.scopeTasks", { repo: ctx.repo })}
-              className="font-mono text-[var(--color-cool)] hover:underline hover:text-[var(--color-fg)] transition-colors"
-            >
-              {ctx.repo}
-            </Link>
-            <span className="text-[var(--color-fg-dim)]">/</span>
             <span className="font-mono text-[var(--color-fg-muted)]">{ctx.branch}</span>
             <span className="font-mono text-[10.5px] text-[var(--color-fg-dim)] tabular">
               {ctx.headSha.slice(0, 7)}
@@ -42,18 +69,30 @@ export function ContextItem({ ctx, isLast }: { ctx: RelayContext; isLast: boolea
                 {c("contexts.dirty", { count: formatNumber(ctx.dirtyFiles.length) })}
               </span>
             )}
-            {ctx.sessionId && (
-              <span
-                className="text-[10.5px] font-mono text-[var(--color-accent)] inline-flex items-center gap-1"
-                title={c("contexts.resumableTitle")}
+            {ctx.linkedTasksCount > 0 && tasksHref && (
+              <Link
+                href={tasksHref}
+                onClick={(e) => e.stopPropagation()}
+                className="inline-flex items-center gap-1 px-1.5 py-[1px] rounded-full border border-[var(--color-border)] text-[10px] font-mono text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] hover:border-[var(--color-fg-muted)] transition-colors"
+                title={`${ctx.linkedTasksCount} linked task${ctx.linkedTasksCount === 1 ? "" : "s"} in this repo`}
               >
-                <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-accent)]" />
-                {c("contexts.resumable")}
-              </span>
+                <ListChecks className="w-3 h-3" aria-hidden />
+                <span className="tabular">{formatNumber(ctx.linkedTasksCount)}</span>
+              </Link>
             )}
-            <ArrowUpRight className="w-3 h-3 text-[var(--color-fg-dim)] opacity-0 group-hover:opacity-100 transition-opacity ml-auto" />
+            {ctx.sessionId && sessionHref && (
+              <Link
+                href={sessionHref}
+                onClick={(e) => e.stopPropagation()}
+                className="inline-flex items-center gap-1 px-1.5 py-[1px] rounded-full border border-[var(--color-accent)]/30 bg-[var(--color-accent)]/[0.06] text-[10px] font-mono text-[var(--color-accent)] hover:bg-[var(--color-accent)]/15 transition-colors"
+                title={`Jump to Claude session ${ctx.sessionId}`}
+              >
+                <MessageSquare className="w-3 h-3" aria-hidden />
+                <span className="tabular">claude:{ctx.sessionId.slice(0, 8)}</span>
+              </Link>
+            )}
           </div>
-          <pre className="mt-1.5 font-mono text-[11.5px] text-[var(--color-fg-muted)] whitespace-pre-wrap leading-relaxed">
+          <pre className="mt-1.5 font-mono text-[11.5px] text-[var(--color-fg-muted)] whitespace-pre-wrap leading-relaxed line-clamp-3">
             {ctx.summary}
           </pre>
         </div>
@@ -61,6 +100,6 @@ export function ContextItem({ ctx, isLast }: { ctx: RelayContext; isLast: boolea
           {timeAgo(ctx.createdAt)} ago
         </div>
       </div>
-    </Link>
+    </button>
   );
 }
