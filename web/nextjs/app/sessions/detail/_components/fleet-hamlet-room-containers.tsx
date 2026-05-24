@@ -36,6 +36,19 @@ function mapWallSlot(
   };
 }
 
+/** Bookshelves are wall-backed furniture, but visually they should stand on the floor seam. */
+function mapFloorStandingWallSlot(
+  slot: ContainerSlot,
+  sceneW: number,
+): { x: number; y: number; w: number; h: number } {
+  const mapped = mapWallSlot(slot, sceneW);
+  const floorY = 120;
+  return {
+    ...mapped,
+    y: Math.max(mapped.y, floorY - mapped.h),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Bookshelf
 // ---------------------------------------------------------------------------
@@ -53,7 +66,7 @@ export function Bookshelf({
   hues,
   sceneW,
 }: BookshelfProps) {
-  const { x, y, w, h } = mapWallSlot(slot, sceneW);
+  const { x, y, w, h } = mapFloorStandingWallSlot(slot, sceneW);
   const shelves = 3;
   const rowH = h / shelves;
   // Distribute books across shelves, top shelf first.
@@ -63,7 +76,14 @@ export function Bookshelf({
   });
   return (
     <g aria-hidden>
-      {/* D2 — cast shadow on the wall behind the unit. */}
+      {/* D2 — floor contact shadow + cast shadow on the wall behind the unit. */}
+      <ellipse
+        cx={x + w / 2}
+        cy={y + h + 1.1}
+        rx={w * 0.48}
+        ry={Math.max(1.4, h * 0.035)}
+        fill="rgba(0,0,0,0.24)"
+      />
       <rect x={x + 0.6} y={y + 0.8} width={w} height={h} fill="rgba(0,0,0,0.30)" />
       {/* Frame */}
       <rect

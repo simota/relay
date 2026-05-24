@@ -456,9 +456,9 @@ export function RoomScene({
             wall events go behind front furniture; the whiteboard
             mounts to the back wall in front of wall furniture; the
             tool prop sits next to the avatar. */}
-        {/* R6 G2 — wall-mounted containers. Bookshelf / Fridge sit on the
-            back wall behind the emoji wall furniture so existing decor
-            (clocks / certificates / book emoji) reads as foreground props. */}
+        {/* R6 G2 — wall-backed containers. Bookshelf stands on the floor seam;
+            fridge stays wall-slotted behind the emoji wall furniture so
+            existing decor reads as foreground props. */}
         {showBookshelf && dynamicSlots.bookshelfSlot && (
           <Clickable id={{ kind: "bookshelf" }} label="Bookshelf — XP + 年齢">
             <Bookshelf
