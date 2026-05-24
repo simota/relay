@@ -10,8 +10,13 @@
 // activity feels alive without redirecting attention.
 
 import { useEffect, useMemo, useRef } from "react";
-import type { SessionMessage } from "@/lib/api";
+import type { SessionMessage, SessionSkillUse, SessionToolCall } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import {
+  computeSkillTimelineEvents,
+  validSkillNamesFromDetail,
+  type SkillTimelineEvent,
+} from "../_lib/skill-events";
 
 // ---------------------------------------------------------------------------
 // Public
@@ -19,6 +24,8 @@ import { cn } from "@/lib/utils";
 
 export interface ChatBubbleStreamProps {
   messages: readonly SessionMessage[];
+  skills?: readonly SessionSkillUse[];
+  toolCalls?: readonly SessionToolCall[];
   /** Reference timestamp (ms) for relative-time chips. */
   now: number;
   /** Agent-kind color used to tint assistant bubbles. */
@@ -32,27 +39,37 @@ const TRUNCATE_AT = 120;
 // through past chatter. ChatBubbleStream's container owns the scroll;
 // only the latest bubble gets the slide-in animation.
 const DEFAULT_MAX = 200;
+type StreamItem =
+  | { kind: "message"; message: SessionMessage; ts: string }
+  | { kind: "skill"; skill: SkillTimelineEvent; ts: string };
 
 export function ChatBubbleStream({
   messages,
+  skills = [],
+  toolCalls = [],
   now,
   accentColor = "hsl(150, 55%, 55%)",
   maxBubbles = DEFAULT_MAX,
 }: ChatBubbleStreamProps) {
   const visible = useMemo(() => {
-    // Surface only chat-style rows (user/assistant); tool & system noise
-    // stays in the Messages tab.
-    const filtered = messages.filter(
-      (m) => m.role === "user" || m.role === "assistant",
-    );
-    return filtered.slice(-maxBubbles);
-  }, [messages, maxBubbles]);
+    const chatItems: StreamItem[] = messages
+      .filter((m) => m.role === "user" || m.role === "assistant")
+      .map((message) => ({ kind: "message", message, ts: message.timestamp }));
+    const skillItems: StreamItem[] =
+      skills.length > 0
+        ? computeSkillTimelineEvents(messages, toolCalls, validSkillNamesFromDetail(skills))
+            .map((skill) => ({ kind: "skill", skill, ts: skill.ts }))
+        : [];
+    return [...chatItems, ...skillItems]
+      .sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0))
+      .slice(-maxBubbles);
+  }, [messages, skills, toolCalls, maxBubbles]);
 
   // Auto-scroll to the bottom when a new message arrives, but ONLY if
   // the user was already near the bottom — that way scrolling back
   // through history isn't disturbed every time fresh chatter lands.
   const listRef = useRef<HTMLOListElement | null>(null);
-  const newestTs = visible[visible.length - 1]?.timestamp ?? "";
+  const newestTs = visible[visible.length - 1]?.ts ?? "";
   const didInitialScroll = useRef(false);
   useEffect(() => {
     const el = listRef.current;
@@ -87,19 +104,28 @@ export function ChatBubbleStream({
       className="flex flex-col gap-1.5 px-2 py-2 overflow-y-auto h-full"
       aria-label="recent conversation"
     >
-      {visible.map((m, i) => (
-        <ChatBubble
-          // The (index, ts, role) combo means a new bubble at the bottom
-          // gets a fresh key and animates in even when older keys reshift.
-          key={`${m.timestamp}-${i}-${m.role}`}
-          message={m}
-          now={now}
-          accentColor={accentColor}
-          // Only the last bubble gets the slide-in animation so older
-          // entries don't re-animate on every render.
-          fresh={i === visible.length - 1}
-        />
-      ))}
+      {visible.map((item, i) =>
+        item.kind === "message" ? (
+          <ChatBubble
+            // The (index, ts, role) combo means a new bubble at the bottom
+            // gets a fresh key and animates in even when older keys reshift.
+            key={`m-${item.message.timestamp}-${i}-${item.message.role}`}
+            message={item.message}
+            now={now}
+            accentColor={accentColor}
+            // Only the last bubble gets the slide-in animation so older
+            // entries don't re-animate on every render.
+            fresh={i === visible.length - 1}
+          />
+        ) : (
+          <SkillEventCard
+            key={`s-${item.skill.ts}-${i}-${item.skill.name}-${item.skill.source}`}
+            skill={item.skill}
+            now={now}
+            fresh={i === visible.length - 1}
+          />
+        ),
+      )}
     </ol>
   );
 }
@@ -195,6 +221,62 @@ function ChatBubble({ message, now, accentColor, fresh }: ChatBubbleProps) {
           🤖
         </span>
       )}
+    </li>
+  );
+}
+
+function SkillEventCard({
+  skill,
+  now,
+  fresh,
+}: {
+  skill: SkillTimelineEvent;
+  now: number;
+  fresh: boolean;
+}) {
+  const ts = Date.parse(skill.ts);
+  const rel = Number.isFinite(ts) ? formatRelative(now - ts) : "—";
+  const source = skill.source === "skill_tool"
+    ? "Skill tool"
+    : skill.source === "subagent"
+      ? "Sub-agent"
+      : skill.source === "session_meta"
+        ? "Session"
+        : "Command";
+  return (
+    <li
+      className="flex justify-center max-w-full"
+      style={{ animation: fresh ? "relayChatSlideIn 280ms ease-out both" : undefined }}
+    >
+      <article
+        className="w-[86%] rounded-[8px] border px-2.5 py-2 font-mono text-[10.5px]"
+        style={{
+          background:
+            "linear-gradient(135deg, hsla(280, 75%, 92%, 0.96), hsla(210, 80%, 91%, 0.92))",
+          borderColor: "hsla(276, 55%, 60%, 0.72)",
+          color: "#21172B",
+          boxShadow:
+            "0 6px 12px -6px rgba(70,30,120,0.36), inset 0 1px 0 rgba(255,255,255,0.65)",
+        }}
+        title={`${source}: ${skill.name}${skill.detail ? `\n${skill.detail}` : ""}`}
+        aria-label={`Skill used: ${skill.name}`}
+      >
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span aria-hidden className="text-[13px] leading-none">✦</span>
+          <span className="font-semibold text-[11px] truncate">Skill: {skill.name}</span>
+          <span className="ml-auto shrink-0 text-[8.5px] uppercase tracking-wider opacity-65">
+            {source}
+          </span>
+        </div>
+        {skill.detail && (
+          <div className="mt-1 truncate text-[9.5px] opacity-75">
+            {truncate(skill.detail, 80)}
+          </div>
+        )}
+        <div className="mt-1 text-[8.5px] opacity-65 tabular-nums">
+          {rel} ago
+        </div>
+      </article>
     </li>
   );
 }

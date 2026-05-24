@@ -341,6 +341,8 @@ function RoomGridCell({
         <div className="flex-1 min-h-0 overflow-hidden">
           <ChatBubbleStream
             messages={detail?.messages ?? []}
+            skills={detail?.skills ?? []}
+            toolCalls={detail?.tool_calls ?? []}
             now={now}
             accentColor={accentColor}
           />
