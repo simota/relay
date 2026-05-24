@@ -142,6 +142,12 @@ function TasksInner() {
     setSelectedIds(rangeIds(rows, anchorId, id));
   }, [rows, selected?.id, selectedIds]);
 
+  const toggleSelectedTask = useCallback((id: number) => {
+    setSelectedIds((current) =>
+      current.includes(id) ? current.filter((selectedId) => selectedId !== id) : [...current, id],
+    );
+  }, []);
+
   const moveSelection = useCallback(
     (delta: number) => {
       if (!rows.length) return;
@@ -315,6 +321,7 @@ function TasksInner() {
               selectedId={selected?.id ?? null}
               selectedIds={selectedIds}
               onSelect={selectTask}
+              onToggleSelect={toggleSelectedTask}
               onRangeSelect={setSelectedIds}
               onBulkSnooze={(ids) => { void bulkMutate("snooze", ids); }}
               onBulkClose={(ids) => { void bulkMutate("close", ids); }}

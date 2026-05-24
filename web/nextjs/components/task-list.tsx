@@ -15,6 +15,7 @@ interface TaskListProps {
   selectedId: number | null;
   selectedIds?: number[];
   onSelect: (id: number, extend?: boolean) => void;
+  onToggleSelect?: (id: number) => void;
   onRangeSelect?: (ids: number[]) => void;
   onBulkSnooze?: (ids: number[]) => void;
   onBulkClose?: (ids: number[]) => void;
@@ -26,6 +27,7 @@ export function TaskList({
   selectedId,
   selectedIds = [],
   onSelect,
+  onToggleSelect,
   onRangeSelect,
   onBulkSnooze,
   onBulkClose,
@@ -38,6 +40,12 @@ export function TaskList({
     () => (selectedIds.length > 0 ? selectedIds : selectedId === null ? [] : [selectedId]),
     [selectedId, selectedIds],
   );
+  const visibleIds = useMemo(() => rows.map((row) => row.task.id), [rows]);
+  const selectedVisibleCount = useMemo(
+    () => visibleIds.filter((id) => selectedSet.has(id)).length,
+    [selectedSet, visibleIds],
+  );
+  const allVisibleSelected = visibleIds.length > 0 && selectedVisibleCount === visibleIds.length;
 
   const setBulkMode = useCallback(
     (open: boolean) => {
@@ -79,6 +87,15 @@ export function TaskList({
     setBulkMode(false);
   }, [bulkIds, onBulkClose, setBulkMode]);
 
+  const toggleAllVisible = useCallback(() => {
+    if (!onRangeSelect) return;
+    if (allVisibleSelected) {
+      onRangeSelect(selectedIds.filter((id) => !visibleIds.includes(id)));
+      return;
+    }
+    onRangeSelect(Array.from(new Set([...selectedIds, ...visibleIds])));
+  }, [allVisibleSelected, onRangeSelect, selectedIds, visibleIds]);
+
   useHotkeys([
     { key: "Shift+j", handler: (event) => { event.preventDefault(); selectRange(1); }, enabled: Boolean(onRangeSelect) },
     { key: "Shift+k", handler: (event) => { event.preventDefault(); selectRange(-1); }, enabled: Boolean(onRangeSelect) },
@@ -106,39 +123,52 @@ export function TaskList({
 
   return (
     <div ref={ref} className="relative divide-y divide-[var(--color-border)]/60">
-      {(selectedIds.length > 1 || bulkOpen) && (
+      {Boolean(onRangeSelect) && (
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[var(--color-border)] bg-[var(--color-bg-elev)] px-4 py-2 text-[12px] text-[var(--color-fg-muted)]">
-          <span>{formatNumber(bulkIds.length)} selected</span>
+          <label className="flex min-w-0 items-center gap-2">
+            <input
+              type="checkbox"
+              checked={allVisibleSelected}
+              ref={(el) => {
+                if (el) el.indeterminate = selectedVisibleCount > 0 && !allVisibleSelected;
+              }}
+              onChange={toggleAllVisible}
+              className="h-3.5 w-3.5 rounded border-[var(--color-border)] accent-[var(--color-accent)]"
+              aria-label="toggle visible tasks"
+            />
+            <span>
+              {bulkIds.length > 0 ? `${formatNumber(bulkIds.length)} selected` : "Select visible"}
+            </span>
+          </label>
           <div className="flex items-center gap-2">
-            {bulkOpen ? (
-              <>
-                <button
-                  type="button"
-                  className="rounded-[var(--radius)] border border-[var(--color-border)] px-2 py-1 hover:bg-[var(--color-bg)]"
-                  onClick={runBulkSnooze}
-                >
-                  <Kbd>S</Kbd> snooze
-                </button>
-                <button
-                  type="button"
-                  className="rounded-[var(--radius)] border border-[var(--color-border)] px-2 py-1 hover:bg-[var(--color-bg)]"
-                  onClick={runBulkClose}
-                >
-                  <Kbd>C</Kbd> close
-                </button>
-                <button
-                  type="button"
-                  className="rounded-[var(--radius)] border border-[var(--color-border)] px-2 py-1 hover:bg-[var(--color-bg)]"
-                  onClick={() => setBulkMode(false)}
-                >
-                  Esc
-                </button>
-              </>
-            ) : (
-              <span>
-                <Kbd>B</Kbd> bulk
-              </span>
-            )}
+            {bulkOpen && <Kbd>B</Kbd>}
+            <button
+              type="button"
+              className="rounded-[var(--radius)] border border-[var(--color-border)] px-2 py-1 hover:bg-[var(--color-bg)]"
+              disabled={bulkIds.length === 0}
+              onClick={runBulkSnooze}
+            >
+              <Kbd>S</Kbd> snooze
+            </button>
+            <button
+              type="button"
+              className="rounded-[var(--radius)] border border-[var(--color-border)] px-2 py-1 text-[var(--color-critical)] hover:bg-[var(--color-critical)]/10"
+              disabled={bulkIds.length === 0}
+              onClick={runBulkClose}
+            >
+              <Kbd>C</Kbd> close
+            </button>
+            <button
+              type="button"
+              className="rounded-[var(--radius)] border border-[var(--color-border)] px-2 py-1 hover:bg-[var(--color-bg)]"
+              disabled={selectedIds.length === 0 && !bulkOpen}
+              onClick={() => {
+                onRangeSelect?.([]);
+                setBulkMode(false);
+              }}
+            >
+              Clear
+            </button>
           </div>
         </div>
       )}
@@ -148,7 +178,9 @@ export function TaskList({
           row={row}
           selected={row.task.id === selectedId}
           rangeSelected={selectedSet.has(row.task.id)}
+          selectionMode={selectedIds.length > 0 || bulkOpen}
           onSelect={onSelect}
+          onToggleSelect={onToggleSelect}
         />
       ))}
     </div>
@@ -159,12 +191,16 @@ function TaskRow({
   row,
   selected,
   rangeSelected,
+  selectionMode,
   onSelect,
+  onToggleSelect,
 }: {
   row: Filtered<Task>;
   selected: boolean;
   rangeSelected: boolean;
+  selectionMode: boolean;
   onSelect: (id: number, extend?: boolean) => void;
+  onToggleSelect?: (id: number) => void;
 }) {
   const t = row.task;
   const priorityTone = priorityToneFor(t.priority);
@@ -174,7 +210,10 @@ function TaskRow({
   return (
     <div
       data-id={t.id}
-      onClick={(event) => onSelect(t.id, event.shiftKey)}
+      onClick={(event) => {
+        if (selectionMode) return;
+        onSelect(t.id, event.shiftKey);
+      }}
       className={cn(
         "group w-full flex items-center gap-3 pl-5 pr-4 py-2.5 text-left text-[13px] transition-colors cursor-pointer select-none",
         "border-l-2",
@@ -194,6 +233,16 @@ function TaskRow({
         </span>
       ) : (
         <StatusDot status={t.status} className="shrink-0" />
+      )}
+      {onToggleSelect && (
+        <input
+          type="checkbox"
+          checked={rangeSelected}
+          onChange={() => onToggleSelect(t.id)}
+          onClick={(event) => event.stopPropagation()}
+          className="h-3.5 w-3.5 shrink-0 rounded border-[var(--color-border)] accent-[var(--color-accent)]"
+          aria-label={`select task ${t.id}`}
+        />
       )}
       <span className="tabular text-[12px] text-[var(--color-fg-dim)] w-12 shrink-0">
         #{t.id}
