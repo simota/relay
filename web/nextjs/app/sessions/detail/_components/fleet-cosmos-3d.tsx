@@ -23,6 +23,7 @@ import type { FleetViewData } from "./fleet-view";
 // hold at MIN_OPACITY so history is still visible as a misty backdrop.
 const WINDOW_MS = 6 * 60 * 60 * 1000;
 const NOW_TICK_MS = 30_000;
+const MAX_COSMOS_POINTS = 220;
 
 interface Props {
   data: FleetViewData;
@@ -58,7 +59,11 @@ export function FleetCosmos3D({
 
   const cosmos = useMemo<Cosmos | null>(() => {
     if (sessions.length === 0) return null;
-    return buildCosmos(sessions, details, { now, windowMs: WINDOW_MS });
+    return buildCosmos(sessions, details, {
+      now,
+      windowMs: WINDOW_MS,
+      maxPoints: MAX_COSMOS_POINTS,
+    });
   }, [sessions, details, now]);
 
   const [hover, setHover] = useState<MessagePoint | null>(null);
@@ -96,8 +101,12 @@ export function FleetCosmos3D({
       )}
     >
       <div className="flex-shrink-0 px-6 py-2 flex items-center gap-2 flex-wrap text-[11px] font-mono text-[var(--color-fg-dim)] border-b border-[var(--color-border)]">
-        <span>{cosmos?.points.length ?? 0} messages</span>
-        <span>last 6h</span>
+        <span>
+          {cosmos
+            ? `${cosmos.points.length}/${cosmos.totalMessages} visible`
+            : "0 messages"}
+        </span>
+        <span>6h depth</span>
         <StreamPill status={streamStatus} />
         <button
           type="button"

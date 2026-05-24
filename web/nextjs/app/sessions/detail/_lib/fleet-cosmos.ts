@@ -28,10 +28,14 @@ export interface CosmosWindow {
   now: number;
   /** How far back messages reach in time (ms). Older → deeper + fainter. */
   windowMs: number;
+  /** Maximum number of newest messages to render. Keeps the 3D scene responsive. */
+  maxPoints?: number;
 }
 
 export interface Cosmos {
   points: MessagePoint[];
+  /** Count before render capping. */
+  totalMessages: number;
   win: CosmosWindow;
   bounds: { x: number; y: number; depth: number };
 }
@@ -62,6 +66,7 @@ export function buildCosmos(
   details: ReadonlyMap<string, SessionDetail>,
   win: CosmosWindow,
 ): Cosmos {
+  const maxPoints = Math.max(1, win.maxPoints ?? Number.POSITIVE_INFINITY);
   const orderedSessions = [...sessions].sort((a, b) =>
     sessionKey(a).localeCompare(sessionKey(b)),
   );
@@ -79,7 +84,9 @@ export function buildCosmos(
     if (!detail) continue;
 
     const stream = collectStream(detail);
-    for (const item of stream) {
+    for (let i = 0; i < stream.length; i++) {
+      const item = stream[i];
+      if (!item) continue;
       const seed = hashSeed(`${sKey}:${item.ts}:${item.kind}`);
       // Fresh messages pull toward the center of the room so they can't
       // land off-screen at the edges where the user might miss them.
@@ -95,7 +102,7 @@ export function buildCosmos(
       const y = uniformAxis(seed * 31 + 7, SPACE_Y * spreadFactor);
       const z = remapTsToZ(item.ts, win);
       points.push({
-        key: `${sKey}::${item.kind}::${item.ts}::${item.summary.length}`,
+        key: `${sKey}::${item.kind}::${item.ts}::${i}`,
         sessionKey: sKey,
         sessionType: s.type,
         position: [x, y, z],
@@ -111,8 +118,12 @@ export function buildCosmos(
     }
   }
 
+  points.sort((a, b) => b.ts - a.ts);
+  const visiblePoints = points.slice(0, maxPoints);
+
   return {
-    points,
+    points: visiblePoints,
+    totalMessages: points.length,
     win,
     bounds: { x: SPACE_X, y: SPACE_Y, depth: Z_FRONT - Z_BACK },
   };
@@ -188,4 +199,3 @@ export function sessionKey(s: { type: string; id: string }): string {
 export function hslColor(hue: number, sat = 80, light = 65): string {
   return `hsl(${hue}, ${sat}%, ${light}%)`;
 }
-
