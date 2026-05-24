@@ -425,6 +425,24 @@ export function silenceMedian(entries: readonly SonarEntry[]): number {
   return ((active[mid - 1] ?? 0) + (active[mid] ?? 0)) / 2;
 }
 
+// Stall cause — derived from existing session state + silence. Returns
+// null when nothing notable applies. Kept tiny + pure so both the Sonar
+// bar tooltip and the waiting-row meta can share the same vocabulary.
+export type StallCause = "awaiting input" | "interrupted" | "stalled (silent)";
+
+export function stallCause(
+  status: SessionStatus | undefined,
+  silenceMs: number,
+  stalledThreshold: number,
+): StallCause | null {
+  if (status === "waiting_for_user") return "awaiting input";
+  if (status === "interrupted") return "interrupted";
+  if (status === "active" && silenceMs >= stalledThreshold) {
+    return "stalled (silent)";
+  }
+  return null;
+}
+
 export function formatSilence(ms: number): string {
   if (ms < 1000) return "0s";
   if (ms < 60_000) return `${Math.floor(ms / 1000)}s`;

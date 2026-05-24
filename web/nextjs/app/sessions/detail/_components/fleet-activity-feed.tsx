@@ -31,6 +31,7 @@ import {
   hueForSession,
   silenceMedian,
   type SonarEntry,
+  stallCause,
 } from "../_lib/fleet-activity";
 import { sessionKey, statusColor } from "../_lib/fleet-timeline";
 import type { TileSpec } from "../_types";
@@ -105,6 +106,13 @@ export function FleetActivityFeed({
     (m, e) => (e.silenceMs > m ? e.silenceMs : m),
     0,
   );
+  // Per-session silence lookup so feed rows can derive the same stall
+  // cause as the Sonar strip without re-scanning events.
+  const silenceByKey = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const e of sonarEntries) m.set(e.key, e.silenceMs);
+    return m;
+  }, [sonarEntries]);
 
   const repos = useMemo(() => {
     const set = new Set<string>();
@@ -140,11 +148,11 @@ export function FleetActivityFeed({
   // walk newest → oldest. Cheap because rows are already sorted.
   const renderItems = useMemo(() => {
     const out: Array<
-      | { type: "row"; row: FeedRow; idx: number }
+      | { type: "row"; row: FeedRow }
       | { type: "header"; key: string; label: string }
     > = [];
     let lastKey = "";
-    filteredRows.forEach((row, idx) => {
+    filteredRows.forEach((row) => {
       const key = dateBucketKey(row.ts);
       if (key !== lastKey) {
         out.push({
@@ -154,7 +162,7 @@ export function FleetActivityFeed({
         });
         lastKey = key;
       }
-      out.push({ type: "row", row, idx });
+      out.push({ type: "row", row });
     });
     return out;
   }, [filteredRows, now]);
@@ -296,10 +304,19 @@ export function FleetActivityFeed({
               sample.sessionId,
             );
             const isFresh = now - row.ts < FRESH_MS;
+            const rowSilenceMs = silenceByKey.get(sKey) ?? 0;
+            const rowCause = stallCause(
+              sample.status,
+              rowSilenceMs,
+              sonarThreshold,
+            );
+            // Stable across SSE head-insertions: bind to session+ts+kind only.
+            // tool-group anchors on its first tool's ts so the key survives
+            // even if the group grows or splits across re-derivation.
             const rowId =
               row.kind === "event"
-                ? `e:${sKey}:${row.ts}:${row.event.kind}:${item.idx}`
-                : `g:${sKey}:${row.ts}:${row.tools.length}`;
+                ? `e:${sKey}:${row.ts}:${row.event.kind}`
+                : `g:${sKey}:${row.tools[0]?.ts ?? row.ts}:tool-group`;
             const isExpanded = expanded.has(rowId);
 
             return (
@@ -386,6 +403,11 @@ export function FleetActivityFeed({
                             row.spanMs,
                           )}`
                         : row.event.kind}
+                      {row.kind === "event" && rowCause && (
+                        <span className="ml-1 text-[var(--color-warn,#d97706)]">
+                          · {rowCause}
+                        </span>
+                      )}
                     </span>
                   </div>
 
@@ -447,7 +469,7 @@ export function FleetActivityFeed({
                       });
                     }}
                     aria-label="open as tile"
-                    className="pt-[3px] text-[var(--color-fg-dim)] hover:text-[var(--color-accent)] opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
+                    className="pt-[3px] text-[var(--color-fg-dim)] hover:text-[var(--color-accent)] opacity-60 group-hover:opacity-100 focus:opacity-100 transition-opacity"
                   >
                     <ArrowUpRight className="w-3.5 h-3.5" aria-hidden />
                   </button>
@@ -599,6 +621,7 @@ function SonarStrip({
       {shown.map((e) => {
         const hue = hueForSession(hueMap, e.sessionType, e.sessionId);
         const stalled = !e.isEnded && e.silenceMs >= threshold;
+        const cause = stallCause(e.status, e.silenceMs, threshold);
         const selected = selectedKeys.has(e.key);
         const ratio = maxSilence > 0 ? e.silenceMs / maxSilence : 0;
         // Floor at 8% so even short silences render as a visible nub.
@@ -611,7 +634,7 @@ function SonarStrip({
             type="button"
             disabled={!clickable}
             onClick={() => onPickSession(tile)}
-            title={`${e.sessionType}/${e.repo ?? "—"}${e.agentId ? ` · ${e.agentId}` : ""}\nsilence: ${formatSilence(e.silenceMs)}${stalled ? "  (stalled · ≥ median × 3)" : ""}`}
+            title={`${e.sessionType}/${e.repo ?? "—"}${e.agentId ? ` · ${e.agentId}` : ""}\nsilence: ${formatSilence(e.silenceMs)}${cause ? ` · ${cause}` : ""}${stalled && !cause ? "  (stalled · ≥ median × 3)" : ""}`}
             className={cn(
               "flex flex-col items-center gap-0.5 px-0.5 py-0.5 rounded-[var(--radius-sm)]",
               clickable
