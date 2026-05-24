@@ -162,25 +162,35 @@ export const githubAdapter: Adapter = {
     const issueEnabled = ctx.adapters?.github_issue ?? true;
     const prEnabled = ctx.adapters?.github_pr ?? true;
 
-    // Use the same cursor as the open sweep so closed items are fetched
-    // incrementally too. First sync (undefined cursor) → full sweep.
-    const updatedSince = ctx.lastSyncCursor
-      ? subtractMs(ctx.lastSyncCursor, SAFETY_WINDOW_MS)
-      : undefined;
-
+    // CLOSED sweeps intentionally bypass the incremental cursor. Open
+    // sweeps use it to amortize the cost of re-listing thousands of open
+    // items, but closed sweeps have a fail-quiet hole: if the cursor
+    // advances past a close event (e.g. another adapter's sync run
+    // happens between this issue's close and our next visit, pushing the
+    // shared cursor forward), the `--updated >= cursor` filter drops it
+    // forever — the task stays `status=open` in relay even though the
+    // GitHub issue is closed. The 30-min SAFETY_WINDOW_MS used on open
+    // sweeps is far too narrow for this regression mode (closes that
+    // happen >30 min before the next sync are silently abandoned).
+    //
+    // Full sweep cost is bounded: SEARCH_LIMIT=200 (assignee/author × 4
+    // sweeps) ≈ 800 rows per sync, adding ~4-12 s of `gh search` time.
+    // Acceptable because correctness of the close transition matters
+    // more than the incremental savings here — a stale open task pollutes
+    // every downstream view (/tasks, /today, /repos, sidebar counts).
     const sweeps: Array<Promise<GhSweep>> = [];
 
     if (user) {
       if (issueEnabled) {
         sweeps.push(
-          ghSweep("issues", ["--assignee", user], "github_issue", "closed", SEARCH_LIMIT, updatedSince),
-          ghSweep("issues", ["--author", user], "github_issue", "closed", SEARCH_LIMIT, updatedSince),
+          ghSweep("issues", ["--assignee", user], "github_issue", "closed", SEARCH_LIMIT),
+          ghSweep("issues", ["--author", user], "github_issue", "closed", SEARCH_LIMIT),
         );
       }
       if (prEnabled) {
         sweeps.push(
-          ghSweep("prs", ["--assignee", user], "github_pr", "closed", SEARCH_LIMIT, updatedSince),
-          ghSweep("prs", ["--author", user], "github_pr", "closed", SEARCH_LIMIT, updatedSince),
+          ghSweep("prs", ["--assignee", user], "github_pr", "closed", SEARCH_LIMIT),
+          ghSweep("prs", ["--author", user], "github_pr", "closed", SEARCH_LIMIT),
         );
       }
     }
@@ -188,12 +198,12 @@ export const githubAdapter: Adapter = {
     for (const org of orgs) {
       if (issueEnabled) {
         sweeps.push(
-          ghSweep("issues", ["--owner", org], "github_issue", "closed", ORG_SEARCH_LIMIT, updatedSince),
+          ghSweep("issues", ["--owner", org], "github_issue", "closed", ORG_SEARCH_LIMIT),
         );
       }
       if (prEnabled) {
         sweeps.push(
-          ghSweep("prs", ["--owner", org], "github_pr", "closed", ORG_SEARCH_LIMIT, updatedSince),
+          ghSweep("prs", ["--owner", org], "github_pr", "closed", ORG_SEARCH_LIMIT),
         );
       }
     }
@@ -328,12 +338,24 @@ async function ghSweep(
 ): Promise<GhSweep> {
   const jsonFields = kind === "prs" ? PR_JSON_FIELDS : ISSUE_JSON_FIELDS;
   const updatedArgs = updatedSince ? ["--updated", `>=${updatedSince}`] : [];
+  // `gh search` defaults to `--sort best-match`, which surfaces items by
+  // relevance to the query string — for our empty-query sweeps that means
+  // an arbitrary 200-row slice rather than the 200 most recent. With
+  // closed sweeps especially this strands recently-merged PRs / closed
+  // issues that happen to fall outside the relevance top-200, even if
+  // they were merged minutes ago (verified: a 1-day-old merged PR sat at
+  // index >200 of the default sort but at index 32 with --sort updated).
+  // Explicit sort fixes both open and closed sweeps.
   const rows = await ghJson([
     "search",
     kind,
     ...extra,
     "--state",
     state,
+    "--sort",
+    "updated",
+    "--order",
+    "desc",
     "--limit",
     limit,
     ...updatedArgs,
