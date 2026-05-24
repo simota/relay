@@ -14,11 +14,15 @@ const nextConfig: NextConfig = {
   output: exportMode ? "export" : undefined,
   trailingSlash: true,
   images: { unoptimized: true },
-  async rewrites() {
-    return [
-      { source: "/api/:path*", destination: `${RELAY_API}/api/:path*` },
-    ];
-  },
+  ...(exportMode
+    ? {}
+    : {
+        async rewrites() {
+          return [
+            { source: "/api/:path*", destination: `${RELAY_API}/api/:path*` },
+          ];
+        },
+      }),
 };
 
 export default nextConfig;

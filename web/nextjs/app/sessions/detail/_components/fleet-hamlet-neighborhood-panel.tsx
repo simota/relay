@@ -16,27 +16,17 @@ import { DoorOpen, MousePointerClick, X } from "lucide-react";
 import { useMemo } from "react";
 import type { SessionDetail } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import {
-  avatarPartsFromSeed,
-  type AvatarParts,
-  type SimCardModel,
-} from "../_lib/fleet-hamlet";
+import { type SimCardModel } from "../_lib/fleet-hamlet";
 import { moodGradient } from "../_lib/fleet-hamlet-decor";
 import type { WeatherKind } from "../_lib/fleet-hamlet-layout";
-import { deriveAccessories } from "../_lib/fleet-hamlet-particles";
 import { statusColor } from "../_lib/fleet-timeline";
-import { AvatarBody, DECOR_CSS } from "./fleet-hamlet-decor";
-import {
-  clothingForAgent,
-  HAMLET_AVATAR_CSS,
-  HamletAvatar,
-} from "./fleet-hamlet-avatar";
-import { getExpressionForMood } from "../_lib/fleet-hamlet-avatar-expression";
+import { DECOR_CSS } from "./fleet-hamlet-decor";
+import { HAMLET_AVATAR_CSS } from "./fleet-hamlet-avatar";
 import {
   CHAT_BUBBLE_CSS,
   ChatBubbleStream,
 } from "./fleet-hamlet-chat-bubbles";
-import { CrownSvg, HatSvg, PARTICLE_CSS } from "./fleet-hamlet-particles";
+import { PARTICLE_CSS } from "./fleet-hamlet-particles";
 import { ROOM_SCENE_CSS, RoomScene } from "./fleet-hamlet-room-scene";
 
 interface Props {
@@ -110,15 +100,7 @@ function InteriorView({
   onEnterHouse,
   onClose,
 }: InteriorViewProps) {
-  const parts = useMemo(
-    () => avatarPartsFromSeed(sim.avatarSeed, sim.stage.key),
-    [sim.avatarSeed, sim.stage.key],
-  );
   const grad = useMemo(() => moodGradient(sim.mood.key), [sim.mood.key]);
-  const accessories = useMemo(
-    () => deriveAccessories(sim, detail),
-    [sim, detail],
-  );
   const accentColor = useMemo(
     () => `hsl(${sim.hue}, 60%, 55%)`,
     [sim.hue],
@@ -335,51 +317,6 @@ function EmptyState({
         </div>
       )}
     </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Header avatar — compact 48px version used in the panel header. Wraps
-// the shared HeadFace so the resident's expression / hair / cheeks / ears
-// match the Sim Card and Room Scene renderings.
-// ---------------------------------------------------------------------------
-
-function HeaderAvatar({
-  parts,
-  sim,
-}: {
-  parts: AvatarParts;
-  sim: SimCardModel;
-}) {
-  const expression = useMemo(
-    () => getExpressionForMood(sim.mood.key),
-    [sim.mood.key],
-  );
-  const clothes = useMemo(
-    () => clothingForAgent(sim.sessionType),
-    [sim.sessionType],
-  );
-  // Single SVG so head + body never visually separate. Height is roughly
-  // 60px (head ~22% of height + torso below) which fits the 48px header
-  // slot via overflow:visible.
-  const totalH = 60;
-  const halfW = 22;
-  return (
-    <svg
-      width={halfW * 2}
-      height={totalH}
-      viewBox={`${-halfW} 0 ${halfW * 2} ${totalH}`}
-      aria-hidden
-      className="shrink-0"
-      overflow="visible"
-    >
-      <HamletAvatar
-        parts={parts}
-        expression={expression}
-        clothing={clothes}
-        height={totalH}
-      />
-    </svg>
   );
 }
 

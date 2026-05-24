@@ -149,8 +149,6 @@ export function FleetHamletNeighborhood({
   detailByKey,
   now,
   selectedKeys,
-  onPickSession,
-  canAdd,
   onEnterHouse,
   selectedSessionId = null,
   onSelectSession,
@@ -453,20 +451,31 @@ export function FleetHamletNeighborhood({
   useEffect(() => {
     if (fit.useTiny || visibleActive.length === 0) return;
     let handle: ReturnType<typeof setTimeout>;
+    let clearHandle: ReturnType<typeof setTimeout> | null = null;
+    let cancelled = false;
     const schedule = () => {
       const interval = 5000 + Math.floor(Math.random() * 5000);
       handle = setTimeout(() => {
+        if (cancelled) return;
         const idx = Math.floor(Math.random() * visibleActive.length);
         const sim = visibleActive[idx];
         if (sim) {
           setThoughtKey(sim.key);
-          setTimeout(() => setThoughtKey(null), 1000);
+          if (clearHandle) clearTimeout(clearHandle);
+          clearHandle = setTimeout(() => {
+            setThoughtKey(null);
+            clearHandle = null;
+          }, 1000);
         }
         schedule();
       }, interval);
     };
     schedule();
-    return () => clearTimeout(handle);
+    return () => {
+      cancelled = true;
+      clearTimeout(handle);
+      if (clearHandle) clearTimeout(clearHandle);
+    };
   }, [fit.useTiny, visibleActive]);
 
   // --- Axis D: Konami code → Rainbow mode ------------------------------------
@@ -576,6 +585,13 @@ export function FleetHamletNeighborhood({
     }
     setHoverNickname(null);
   };
+
+  useEffect(() => {
+    return () => {
+      if (waveTimerRef.current) clearTimeout(waveTimerRef.current);
+      if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+    };
+  }, []);
 
   // --- v3 Axis B: Festival chime (10s interval, only during festival) --------
   // hue=359 → playbackRate ≈ 1.15 (highest pitch available) → festive sound.
@@ -764,7 +780,6 @@ export function FleetHamletNeighborhood({
         {/* Ground band — bottom strip with pastel grass + dots. */}
         <GroundBand
           palette={sky}
-          width={containerSize.w || activeW}
           height={Math.max(40, Math.floor(sceneH * 0.18))}
         />
         {/* Weather overlays — rain + occasional lightning, full scene. */}
@@ -913,7 +928,7 @@ export function FleetHamletNeighborhood({
               {/* Axis B — Letter birds: ✉ emoji flying from parent → child.
                   Suppressed in tiny mode and by reduced-motion preference. */}
               {!fit.useTiny && roads.map((r) => (
-                <LetterBird key={`bird-${r.id}`} road={r} activeW={activeW} activeH={activeH} />
+                <LetterBird key={`bird-${r.id}`} road={r} />
               ))}
             </svg>
           )}
@@ -1115,11 +1130,11 @@ export function FleetHamletNeighborhood({
                 )}
                 {/* Axis C — Thought bubble: random 「!」/「?」pop for 1s. */}
                 {!fit.useTiny && thoughtKey === sim.key && (
-                  <ThoughtBubble cellW={activeCellW} cellH={activeCellH} seed={sim.key} />
+                  <ThoughtBubble cellH={activeCellH} seed={sim.key} />
                 )}
                 {/* v3 Axis C — Wave emoji: 👋 pop-fade on house click. */}
                 {!fit.useTiny && wavingKey === sim.key && (
-                  <WaveEmoji cellW={activeCellW} cellH={activeCellH} />
+                  <WaveEmoji cellH={activeCellH} />
                 )}
                 {/* Hover-only Enter House overlay — full mode only. */}
                 {!fit.useTiny && (
@@ -1399,7 +1414,6 @@ function HouseSvg({ sim, size, chimneyActive, highlight, dim, event, windowsLit,
   const wallHueShift = agentHueShift(sim.sessionType);
   const wallHue = (roofHue + wallHueShift + 360) % 360;
 
-  const roofColor = `hsl(${roofHue}, 55%, 45%)`;
   const roofShadow = `hsl(${roofHue}, 60%, 35%)`;
   const wallFront = `hsl(${wallHue}, 30%, 65%)`;
   const wallSide = `hsl(${wallHue}, 30%, 50%)`;
@@ -1946,12 +1960,8 @@ function hashRoadId(id: string): number {
 
 function LetterBird({
   road,
-  activeW,
-  activeH,
 }: {
   road: { id: string; from: { x: number; y: number }; to: { x: number; y: number } };
-  activeW: number;
-  activeH: number;
 }) {
   const seed = hashRoadId(road.id);
   // Delay: 6–12s based on seed; duration: 4–5s.
@@ -2244,11 +2254,9 @@ function CharStamp({
 // ---------------------------------------------------------------------------
 
 function ThoughtBubble({
-  cellW,
   cellH,
   seed,
 }: {
-  cellW: number;
   cellH: number;
   seed: string;
 }) {
@@ -2287,7 +2295,7 @@ function ThoughtBubble({
 // v3 Axis C — Wave emoji: 👋 pop-fade on house click
 // ---------------------------------------------------------------------------
 
-function WaveEmoji({ cellH }: { cellW: number; cellH: number }) {
+function WaveEmoji({ cellH }: { cellH: number }) {
   return (
     <span
       aria-hidden

@@ -465,7 +465,6 @@ export function RoomScene({
               bookCount={containerContents.bookCount}
               hues={containerContents.bookHues}
               sceneW={SCENE_W}
-              sceneH={SCENE_H}
             />
           </Clickable>
         )}
@@ -476,7 +475,6 @@ export function RoomScene({
               level={containerContents.fridgeLevel}
               items={containerContents.fridgeItems}
               sceneW={SCENE_W}
-              sceneH={SCENE_H}
             />
           </Clickable>
         )}

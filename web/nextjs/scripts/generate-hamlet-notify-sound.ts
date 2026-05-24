@@ -106,7 +106,6 @@ function main(): void {
   const samples = synthesize();
   const wav = floatToWav(samples, SAMPLE_RATE);
   writeFileSync(outPath, wav);
-  // eslint-disable-next-line no-console
   console.log(
     `wrote ${outPath} — ${wav.length} bytes (${TOTAL_DURATION_S}s @ ${SAMPLE_RATE}Hz mono 16-bit)`,
   );

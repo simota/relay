@@ -270,11 +270,9 @@ function CloudPath({ sunDirX = 0 }: { sunDirX?: number }) {
 
 export function GroundBand({
   palette,
-  width,
   height,
 }: {
   palette: SkyPalette;
-  width: number;
   height: number;
 }) {
   const grad = `linear-gradient(to bottom, ${palette.grass} 0%, ${palette.grassDark} 100%)`;

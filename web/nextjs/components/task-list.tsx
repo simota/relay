@@ -34,7 +34,10 @@ export function TaskList({
   const ref = useRef<HTMLDivElement>(null);
   const [bulkOpen, setBulkOpen] = useState(false);
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
-  const bulkIds = selectedIds.length > 0 ? selectedIds : selectedId === null ? [] : [selectedId];
+  const bulkIds = useMemo(
+    () => (selectedIds.length > 0 ? selectedIds : selectedId === null ? [] : [selectedId]),
+    [selectedId, selectedIds],
+  );
 
   const setBulkMode = useCallback(
     (open: boolean) => {

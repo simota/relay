@@ -47,7 +47,6 @@ export function TinyHouseSvg({
   const wallHueShift = agentHueShift(sim.sessionType);
   const wallHue = (roofHue + wallHueShift + 360) % 360;
 
-  const roofColor = `hsl(${roofHue}, 55%, 45%)`;
   const wallFront = `hsl(${wallHue}, 30%, 65%)`;
   const winLit = chimneyActive && !dim;
   const nightGlow = !!windowsLit && !dim;

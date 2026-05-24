@@ -46,7 +46,7 @@ export function ReviewPager({ initialWeek }: { initialWeek: string }) {
     () => api.review(week),
   );
 
-  const activeRows = data?.[activePane] ?? [];
+  const activeRows = useMemo(() => data?.[activePane] ?? [], [activePane, data]);
   const allIds = useMemo(() => {
     const ids = new Set<number>();
     if (!data) return ids;

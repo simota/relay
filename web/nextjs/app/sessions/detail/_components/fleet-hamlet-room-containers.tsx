@@ -8,7 +8,6 @@
 // parent scene component maps them to viewport pixels exactly like the
 // existing whiteboard slot.
 
-import type { ContainerContents } from "../_lib/fleet-hamlet-room-containers";
 import { DIORAMA_DEFS } from "../_lib/fleet-hamlet-diorama-tokens";
 
 // ---------------------------------------------------------------------------
@@ -27,7 +26,6 @@ export interface ContainerSlot {
 function mapWallSlot(
   slot: ContainerSlot,
   sceneW: number,
-  sceneH: number,
 ): { x: number; y: number; w: number; h: number } {
   return {
     x: slot.x * sceneW,
@@ -47,7 +45,6 @@ export interface BookshelfProps {
   bookCount: number;
   hues: readonly number[];
   sceneW: number;
-  sceneH: number;
 }
 
 export function Bookshelf({
@@ -55,9 +52,8 @@ export function Bookshelf({
   bookCount,
   hues,
   sceneW,
-  sceneH,
 }: BookshelfProps) {
-  const { x, y, w, h } = mapWallSlot(slot, sceneW, sceneH);
+  const { x, y, w, h } = mapWallSlot(slot, sceneW);
   const shelves = 3;
   const rowH = h / shelves;
   // Distribute books across shelves, top shelf first.
@@ -186,7 +182,6 @@ export interface FridgeProps {
   level: number;
   items: readonly string[];
   sceneW: number;
-  sceneH: number;
 }
 
 export function Fridge({
@@ -194,9 +189,8 @@ export function Fridge({
   level,
   items,
   sceneW,
-  sceneH,
 }: FridgeProps) {
-  const { x, y, w, h } = mapWallSlot(slot, sceneW, sceneH);
+  const { x, y, w, h } = mapWallSlot(slot, sceneW);
   // Vertical split: top freezer (1/3), bottom main door (2/3).
   const topH = h * 0.32;
   const handleX = x + w - 1.4;
