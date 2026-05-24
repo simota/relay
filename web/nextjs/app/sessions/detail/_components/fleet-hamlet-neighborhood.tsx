@@ -239,6 +239,16 @@ export function FleetHamletNeighborhood({
     () => assignGridSlots(visibleActive, cols),
     [visibleActive, cols],
   );
+  const visibleActivePaintOrder = useMemo(
+    () =>
+      [...visibleActive].sort((a, b) => {
+        const aSlot = activeSlots.get(a.key);
+        const bSlot = activeSlots.get(b.key);
+        if (!aSlot || !bSlot) return 0;
+        return aSlot.row - bSlot.row || aSlot.col - bSlot.col;
+      }),
+    [activeSlots, visibleActive],
+  );
   const parkSlots = useMemo(
     () => assignGridSlots(visiblePark, parkCols),
     [visiblePark, parkCols],
@@ -968,22 +978,9 @@ export function FleetHamletNeighborhood({
             </div>
           )}
 
-          {/* House overhead chat bubbles — fresh messages float above active
-              houses. Suppressed in tiny mode. */}
-          {!fit.useTiny && houseBubbles.size > 0 && (
-            <HouseChatLayer
-              bubbles={houseBubbles}
-              cards={visibleActive}
-              slots={activeSlots}
-              cellW={activeCellW}
-              cellH={activeCellH}
-              width={activeW}
-              height={activeH}
-            />
-          )}
-
-          {/* Houses — only the *visible* slice from the fit solver. */}
-          {visibleActive.map((sim) => {
+          {/* Houses — painted back-to-front by grid row so lower rows sit
+              visually in front of upper rows, matching the isometric street. */}
+          {visibleActivePaintOrder.map((sim) => {
             const slot = activeSlots.get(sim.key);
             if (!slot) return null;
             const left = slot.col * activeCellW;
@@ -1161,6 +1158,21 @@ export function FleetHamletNeighborhood({
               </div>
             );
           })}
+
+          {/* House overhead chat bubbles — fresh messages float above houses
+              and street props. Rendered after the house layer so no resident,
+              roof badge, or roadside object can cover the message card. */}
+          {!fit.useTiny && houseBubbles.size > 0 && (
+            <HouseChatLayer
+              bubbles={houseBubbles}
+              cards={visibleActivePaintOrder}
+              slots={activeSlots}
+              cellW={activeCellW}
+              cellH={activeCellH}
+              width={activeW}
+              height={activeH}
+            />
+          )}
 
           {/* v3 Axis C — Nickname tooltip: appears after 2s hover. */}
           {!fit.useTiny && hoverNickname && (

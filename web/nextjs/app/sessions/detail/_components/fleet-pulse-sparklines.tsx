@@ -8,6 +8,7 @@ import { useSessionDetails } from "../_hooks/use-session-details";
 import {
   bucketizeLatencies,
   bucketizeMessages,
+  bucketTotal,
   LATENCY_BUCKETS,
   LATENCY_COLORS,
   latencyTotal,
@@ -88,7 +89,16 @@ export function FleetPulseSparklines({
       const latency = detail
         ? bucketizeLatencies(detail.messages, win)
         : new Array(LATENCY_BUCKETS.length).fill(0);
-      return { row: r, key, detail, buckets, latency };
+      return {
+        row: r,
+        key,
+        detail,
+        buckets,
+        latency,
+        messageTotal: bucketTotal(buckets),
+        responseTotal: latencyTotal(latency),
+        peakBucket: maxBucket([buckets]),
+      };
     });
     return rows;
   }, [visibleSessions, details, win]);
@@ -97,6 +107,12 @@ export function FleetPulseSparklines({
     () => maxBucket(bucketRows.map((r) => r.buckets)),
     [bucketRows],
   );
+  const visibleWindowMessages = useMemo(
+    () => bucketTotal(bucketRows.map((r) => r.messageTotal)),
+    [bucketRows],
+  );
+  const allDetailsLoaded =
+    bucketRows.length > 0 && bucketRows.every((r) => Boolean(r.detail));
 
   const hasMore = sessions.length > limit;
 
@@ -106,6 +122,7 @@ export function FleetPulseSparklines({
         <span>{visibleSessions.length}/{sessions.length} sessions</span>
         <StreamPill status={streamStatus} />
         <span>bucket: {bucketLabel(range)}</span>
+        <span>window: {allDetailsLoaded ? visibleWindowMessages : "…"} msgs</span>
         <div className="ml-auto flex items-center gap-1">
           {RANGES.map((r) => (
             <button
@@ -141,7 +158,7 @@ export function FleetPulseSparklines({
         )}
         {visibleSessions.length > 0 && (
           <>
-            <div className="grid grid-cols-[minmax(160px,200px)_1fr_18px] gap-x-3">
+            <div className="grid grid-cols-[minmax(160px,200px)_1fr_42px_18px] gap-x-3">
               <div />
               <div className="relative h-3 text-[10px] text-[var(--color-fg-dim)]">
                 {ticks.map((t, i) => (
@@ -154,13 +171,32 @@ export function FleetPulseSparklines({
                   </span>
                 ))}
               </div>
+              <div className="self-end text-right text-[10px] text-[var(--color-fg-dim)]">
+                msgs
+              </div>
               <div />
-              {bucketRows.map(({ row, key, detail, buckets, latency }) => {
+              {bucketRows.map(({
+                row,
+                key,
+                detail,
+                buckets,
+                latency,
+                messageTotal,
+                responseTotal,
+                peakBucket,
+              }) => {
                 const selected = selectedKeys.has(key);
                 const waiting = row.session.status === "waiting_for_user";
                 const normalized = normalizeBuckets(buckets, sharedMax);
                 const isLoading = !detail;
                 const disabled = !canAdd && !selected;
+                const title = rowTitle(row.session, detail, {
+                  range,
+                  messageTotal,
+                  responseTotal,
+                  peakBucket,
+                  latency,
+                });
                 return (
                   <div key={key} className="contents">
                     <button
@@ -172,7 +208,7 @@ export function FleetPulseSparklines({
                         })
                       }
                       disabled={disabled}
-                      title={rowTitle(row.session, detail)}
+                      title={title}
                       className={cn(
                         "text-left text-[11px] font-mono truncate py-1",
                         row.indent === 1 && "pl-3",
@@ -204,7 +240,13 @@ export function FleetPulseSparklines({
                         })
                       }
                       disabled={disabled}
-                      title={rowTitle(row.session, detail)}
+                      title={title}
+                      aria-label={rowPulseLabel(row.session, {
+                        range,
+                        messageTotal,
+                        responseTotal,
+                        loading: isLoading,
+                      })}
                       className={cn(
                         "relative h-8 rounded-[2px] border border-transparent flex flex-col items-stretch py-0.5 gap-0.5",
                         selected && "ring-1 ring-[var(--color-accent)]",
@@ -220,6 +262,21 @@ export function FleetPulseSparklines({
                       </span>
                       <TideStack latency={latency} loading={isLoading} />
                     </button>
+                    <span
+                      className={cn(
+                        "self-center text-right text-[11px] font-mono tabular-nums",
+                        messageTotal > 0
+                          ? "text-[var(--color-fg-muted)]"
+                          : "text-[var(--color-fg-dim)]",
+                      )}
+                      title={
+                        isLoading
+                          ? "loading detail"
+                          : `${messageTotal} messages in ${range}`
+                      }
+                    >
+                      {isLoading ? "…" : messageTotal}
+                    </span>
                     <span
                       className="self-center text-[var(--color-fg-dim)]"
                       style={{ color: waiting ? "var(--color-warn,#d97706)" : undefined }}
@@ -240,7 +297,7 @@ export function FleetPulseSparklines({
             <div className="mt-3 flex items-center gap-3 text-[10px] text-[var(--color-fg-dim)] flex-wrap">
               <span>shared max: {sharedMax || 0} msgs/bucket</span>
               <span className="inline-flex items-center gap-1.5">
-                <span>tide:</span>
+                <span>response latency:</span>
                 {LATENCY_BUCKETS.map((b, i) => (
                   <span key={b.key} className="inline-flex items-center gap-0.5">
                     <span
@@ -408,12 +465,46 @@ function bucketLabel(range: PulseRange): string {
   }
 }
 
-function rowTitle(s: SessionSummary, d: SessionDetail | undefined): string {
+interface RowPulseStats {
+  range: PulseRange;
+  messageTotal: number;
+  responseTotal: number;
+  peakBucket: number;
+  latency: readonly number[];
+}
+
+function rowTitle(
+  s: SessionSummary,
+  d: SessionDetail | undefined,
+  stats: RowPulseStats,
+): string {
   const parts: string[] = [
     `${s.type} · ${s.repo ?? "(no repo)"}`,
     s.title || "(no prompt)",
     `${s.message_count} msgs · ${s.status ?? "idle"}`,
   ];
-  if (d) parts.push(`detail messages: ${d.messages.length}`);
+  if (d) {
+    parts.push(`detail messages: ${d.messages.length}`);
+    parts.push(`${stats.range} window: ${stats.messageTotal} msgs`);
+    parts.push(`peak bucket: ${stats.peakBucket} msgs`);
+    parts.push(`responses: ${stats.responseTotal}`);
+    const latencySummary = LATENCY_BUCKETS.map(
+      (b, i) => `${b.key} ${stats.latency[i] ?? 0}`,
+    ).join(" / ");
+    parts.push(`response latency: ${latencySummary}`);
+  } else {
+    parts.push("detail loading");
+  }
   return parts.join("\n");
+}
+
+function rowPulseLabel(
+  s: SessionSummary,
+  stats: Pick<RowPulseStats, "range" | "messageTotal" | "responseTotal"> & {
+    loading: boolean;
+  },
+): string {
+  const repo = s.repo ?? "no repo";
+  if (stats.loading) return `${repo} pulse loading`;
+  return `${repo} pulse, ${stats.messageTotal} messages and ${stats.responseTotal} responses in ${stats.range}`;
 }

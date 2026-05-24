@@ -4,9 +4,9 @@
 //
 // Renders a small chat bubble above each active house whose session has a
 // new user/assistant message within the freshness window. The bubble fades
-// across the window and disappears once the message ages out. Sits above
-// the moodlet bubble (which lives on the house head) with a small lateral
-// offset so they don't clip.
+// across the window and disappears once the message ages out. Neighborhood
+// renders this layer after houses / street props so messages stay readable
+// instead of being tucked behind rooftops or roadside objects.
 
 import type { ReactNode } from "react";
 import type { SimCardModel } from "../_lib/fleet-hamlet";
@@ -111,7 +111,7 @@ export function HouseChatBubble({
         transition: "opacity 600ms ease-out",
         animation: fresh ? "relayHamletHouseChatPop 320ms ease-out both" : undefined,
         pointerEvents: "none",
-        zIndex: 6,
+        zIndex: 25,
         willChange: "transform, opacity",
       }}
       title={text}
@@ -219,7 +219,7 @@ export function HouseChatLayer({
         width,
         height,
         pointerEvents: "none",
-        zIndex: 5,
+        zIndex: 24,
       }}
     >
       {cards.map((sim) => {

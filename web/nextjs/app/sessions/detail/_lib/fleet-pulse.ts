@@ -64,6 +64,12 @@ export function maxBucket(allBuckets: readonly number[][]): number {
   return m;
 }
 
+export function bucketTotal(buckets: readonly number[]): number {
+  let total = 0;
+  for (const v of buckets) total += v;
+  return total;
+}
+
 export interface PulseTick {
   position: number;
   label: string;
