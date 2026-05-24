@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { deriveCwdFromMentions } from "../lib/antigravity-workspace.js";
 import { resolveRepoForCwd } from "../lib/repo-from-cwd.js";
 import {
   compileExcludePatterns,
@@ -53,6 +54,13 @@ interface AntigravityParsed {
   status: SessionStatus;
   /** Distinct skill names invoked via `/<name>` slash commands. */
   skillsUsed: string[];
+  /**
+   * Last-ditch cwd guess from `scan.roots`-anchored path mentions in the
+   * transcript body. Populated only when the caller passes `roots` —
+   * subagent conversations rely on this because `history.jsonl` does not
+   * track them.
+   */
+  cwdHint: string | null;
 }
 
 interface TranscriptEntry {
@@ -122,10 +130,19 @@ export const antigravitySessionAdapter: Adapter = {
 
     const tasks: TaskInput[] = [];
     for (const c of candidates) {
-      const parsed = await parseAntigravityTranscript(c.transcriptPath, c.conversationId);
+      const parsed = await parseAntigravityTranscript(
+        c.transcriptPath,
+        c.conversationId,
+        ctx.roots,
+      );
       if (!parsed.conversationId) continue;
 
-      const cwd = idToWorkspace.get(parsed.conversationId) ?? null;
+      // Three-step resolution: history.jsonl is authoritative; otherwise fall
+      // back to the transcript-body path mention. The mention path only
+      // matters for subagents (history.jsonl never records them) — for
+      // normal conversations the map hit short-circuits before we even look
+      // at `cwdHint`.
+      const cwd = idToWorkspace.get(parsed.conversationId) ?? parsed.cwdHint ?? null;
       const repo = cwd ? resolveRepoForCwd(cwd, ctx.roots) : null;
 
       if (cwd && repo) {
@@ -255,6 +272,7 @@ async function loadConversationWorkspaceMap(path: string): Promise<Map<string, s
 async function parseAntigravityTranscript(
   path: string,
   conversationId: string,
+  roots: readonly string[] = [],
 ): Promise<AntigravityParsed> {
   const empty: AntigravityParsed = {
     conversationId,
@@ -264,6 +282,7 @@ async function parseAntigravityTranscript(
     lastMessageText: null,
     status: "idle",
     skillsUsed: [],
+    cwdHint: null,
   };
   const text = await readFile(path, "utf8").catch(() => "");
   if (!text) return empty;
@@ -317,6 +336,7 @@ async function parseAntigravityTranscript(
   // one status pass. Symmetric with the Claude / Codex adapters.
   const status = detectAntigravitySessionStatus(text);
   const skillsUsed = distinctSkillNames(extractAntigravitySkills(text));
+  const cwdHint = deriveCwdFromMentions(text, roots);
 
   return {
     conversationId,
@@ -326,6 +346,7 @@ async function parseAntigravityTranscript(
     lastMessageText,
     status,
     skillsUsed,
+    cwdHint,
   };
 }
 

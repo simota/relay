@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { deriveCwdFromMentions } from "../lib/antigravity-workspace.js";
 import { extractPromiseLedger } from "../lib/promise-ledger.js";
 import { resolveRepoForCwd } from "../lib/repo-from-cwd.js";
 import { distinctSkillNames, extractAntigravitySkills } from "../lib/session-skills.js";
@@ -142,7 +143,15 @@ async function readAntigravityDetail(
   }
   if (entries.length === 0) return null;
 
-  const cwd = workspaceMap.get(id) ?? deriveCwdFromTranscript(entries);
+  // Three-step resolution: history.jsonl wins; explicit `workspace=`
+  // marker in transcript metadata is rare but authoritative; finally,
+  // a scan.roots-anchored path mention covers subagent conversations
+  // that lack the prior two signals. Keep this chain in sync with the
+  // adapter (`src/adapters/antigravity-session.ts`).
+  const cwd =
+    workspaceMap.get(id) ??
+    deriveCwdFromTranscript(entries) ??
+    deriveCwdFromMentions(text, roots);
   const repo = cwd ? resolveRepoForCwd(cwd, roots) : null;
 
   let firstUser: string | null = null;
