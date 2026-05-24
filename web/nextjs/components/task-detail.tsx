@@ -136,7 +136,11 @@ export function TaskDetail({ task, onChange }: { task: Task | null; onChange?: (
         </div>
 
         {/* Body */}
-        {task.body && (
+        {task.source_type === "manual" && (
+          <ManualTaskSpec task={task} />
+        )}
+
+        {task.source_type !== "manual" && task.body && (
           <div className="rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-bg)]/50 p-3.5">
             <pre className="text-[12px] leading-relaxed text-[var(--color-fg-muted)] whitespace-pre-wrap font-mono">
               {task.body}
@@ -192,6 +196,64 @@ export function TaskDetail({ task, onChange }: { task: Task | null; onChange?: (
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function ManualTaskSpec({ task }: { task: Task }) {
+  const hasDetails = Boolean(task.body.trim() || task.prompt?.trim() || task.files.length > 0);
+  return (
+    <div className="rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-bg)]/50 overflow-hidden">
+      <div className="px-3.5 py-2 border-b border-[var(--color-border)] flex items-center justify-between gap-3">
+        <span className="text-[11px] uppercase tracking-wider text-[var(--color-fg-dim)] font-medium">
+          manual task details
+        </span>
+        <code className="text-[11px] text-[var(--color-cool)]">relay run {task.id}</code>
+      </div>
+      {hasDetails ? (
+        <div className="p-3.5 space-y-3">
+          {task.body.trim() && (
+            <DetailBlock label="body" value={task.body.trim()} />
+          )}
+          {task.prompt?.trim() && (
+            <DetailBlock label="prompt passed to agent" value={task.prompt.trim()} strong />
+          )}
+          {task.files.length > 0 && (
+            <div className="space-y-1">
+              <div className="text-[10.5px] uppercase tracking-wider text-[var(--color-fg-dim)] font-medium">
+                files
+              </div>
+              <ul className="font-mono text-[12px] text-[var(--color-fg-muted)] space-y-0.5">
+                {task.files.map((file) => (
+                  <li key={file} className="truncate">+ {file}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="p-3.5 text-[12px] text-[var(--color-fg-dim)] font-mono">
+          No body, prompt, or files were provided.
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DetailBlock({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
+  return (
+    <div className="space-y-1">
+      <div className="text-[10.5px] uppercase tracking-wider text-[var(--color-fg-dim)] font-medium">
+        {label}
+      </div>
+      <pre
+        className={cn(
+          "text-[12px] leading-relaxed whitespace-pre-wrap font-mono",
+          strong ? "text-[var(--color-fg)]" : "text-[var(--color-fg-muted)]",
+        )}
+      >
+        {value}
+      </pre>
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import type {
   AgendaReport,
+  Assignee,
   Task,
   Counts,
   RepoStat,
@@ -53,6 +54,16 @@ export interface QueueItem {
   repo: string;
   prompt: string | null;
   added_at: string;
+}
+
+export interface CreateTaskInput {
+  repo: string;
+  title: string;
+  body?: string;
+  assignee: Assignee;
+  prompt?: string;
+  files?: string[];
+  priority?: number;
 }
 
 export interface SyncHistoryRow {
@@ -319,6 +330,11 @@ export const api = {
     return request<Task[]>(`/api/tasks${qs ? `?${qs}` : ""}`);
   },
   task: (id: number) => request<Task>(`/api/tasks/${id}`),
+  createTask: (input: CreateTaskInput) =>
+    request<Task>("/api/tasks", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
   review: (week: string) => request<ReviewData>(`/api/review?week=${encodeURIComponent(week)}`),
   heatmap: (params: { from?: string; to?: string; period?: string; source?: string } = {}) => {
     const q = new URLSearchParams();

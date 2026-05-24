@@ -56,6 +56,11 @@ function TasksInner() {
   const repo = params.get("repo") ?? undefined;
   const source = params.get("source") ?? undefined;
   const age = params.get("age") ?? undefined;
+  const selectedParam = params.get("selected");
+  const selectedFromUrl =
+    selectedParam && Number.isInteger(Number(selectedParam)) && Number(selectedParam) > 0
+      ? Number(selectedParam)
+      : null;
 
   const setSource = useCallback(
     (next: SourceType | "all") => {
@@ -117,6 +122,12 @@ function TasksInner() {
     setSelectedId(null);
     setSelectedIds([]);
   }, [taskFilter.status, taskFilter.repo, taskFilter.source, taskFilter.age]);
+
+  useEffect(() => {
+    if (selectedFromUrl === null) return;
+    setSelectedId(selectedFromUrl);
+    setSelectedIds([]);
+  }, [selectedFromUrl]);
 
   const { mutate: swrMutate } = useSWRConfig();
   const { pushUndo } = useUndoToast();

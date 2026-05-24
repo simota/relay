@@ -29,6 +29,7 @@ import { pruneMissingRepos } from "../commands/prune.js";
 import { runSync } from "../commands/sync.js";
 import { loadConfig, resolveScanRoots } from "../config.js";
 import { resolveRepoPath } from "../repo-resolver.js";
+import { Assignee } from "../types.js";
 import {
   deriveGithubUrlFromSourceId,
   findMissingRepos,
@@ -198,20 +199,30 @@ export function buildApp() {
     const repo = typeof body.repo === "string" ? body.repo.trim() : "";
     const title = typeof body.title === "string" ? body.title.trim() : "";
     if (!repo || !title) return c.json({ error: "repo and title required" }, 400);
+    const assignee = Assignee.safeParse(body.assignee ?? "self");
+    if (!assignee.success) {
+      return c.json({ error: "assignee must be one of: claude-code, codex, antigravity, self, human-review" }, 400);
+    }
+    const rawPriority = typeof body.priority === "number" ? body.priority : Number(body.priority ?? 50);
+    const priority = Number.isFinite(rawPriority)
+      ? Math.min(100, Math.max(0, Math.round(rawPriority)))
+      : 50;
 
     const task = {
       source_type: "manual" as const,
       source_id: `manual:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`,
       repo,
       title,
-      body: typeof body.body === "string" ? body.body : "",
+      body: typeof body.body === "string" ? body.body.trim() : "",
       status: "open" as const,
-      assignee: (typeof body.assignee === "string" ? body.assignee : "self") as
-        "claude-code" | "codex" | "antigravity" | "self" | "human-review",
-      priority: typeof body.priority === "number" ? body.priority : 50,
-      prompt: typeof body.prompt === "string" && body.prompt ? body.prompt : null,
+      assignee: assignee.data,
+      priority,
+      prompt: typeof body.prompt === "string" && body.prompt.trim() ? body.prompt.trim() : null,
       files: Array.isArray(body.files)
-        ? body.files.filter((f): f is string => typeof f === "string")
+        ? body.files
+            .filter((f): f is string => typeof f === "string")
+            .map((f) => f.trim())
+            .filter(Boolean)
         : [],
       context_hash: null,
       session_id: null,

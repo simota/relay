@@ -2,11 +2,15 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Plus, X } from "lucide-react";
+import { useRouter } from "next/navigation";
+import useSWR from "swr";
 import { useSWRConfig } from "swr";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Kbd } from "@/components/ui/kbd";
+import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import type { RepoStat } from "@/lib/types";
 
 interface NewTaskDialogProps {
   open: boolean;
@@ -16,8 +20,17 @@ interface NewTaskDialogProps {
 const ASSIGNEES = ["claude-code", "codex", "antigravity", "self", "human-review"] as const;
 
 export function NewTaskDialog({ open, onClose }: NewTaskDialogProps) {
+  const router = useRouter();
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const formRef = useRef<HTMLFormElement>(null);
   const { mutate } = useSWRConfig();
+  const { data: repos = [], isLoading: reposLoading } = useSWR<RepoStat[]>(
+    open ? "/api/repos" : null,
+    () => api.repos(),
+  );
+  const repoOptions = repos
+    .map((r) => r.name)
+    .sort((a, b) => a.localeCompare(b));
   const [repo, setRepo] = useState("");
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
@@ -59,25 +72,18 @@ export function NewTaskDialog({ open, onClose }: NewTaskDialogProps) {
     setSubmitting(true);
     setError(null);
     try {
-      const res = await fetch("/api/tasks", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          repo: repo.trim(),
-          title: title.trim(),
-          body: body.trim(),
-          assignee,
-          prompt: prompt.trim() || undefined,
-          files: files.split(",").map((f) => f.trim()).filter(Boolean),
-          priority: Number(priority) || 50,
-        }),
+      const created = await api.createTask({
+        repo: repo.trim(),
+        title: title.trim(),
+        body: body.trim(),
+        assignee,
+        prompt: prompt.trim() || undefined,
+        files: files.split(",").map((f) => f.trim()).filter(Boolean),
+        priority: Number(priority) || 50,
       });
-      if (!res.ok) {
-        const t = await res.text();
-        throw new Error(t || `${res.status}`);
-      }
       await mutate((key) => typeof key === "string" && key.startsWith("/api/"));
       onClose();
+      router.push(`/tasks?status=open&repo=${encodeURIComponent(created.repo)}&selected=${created.id}`);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -103,7 +109,13 @@ export function NewTaskDialog({ open, onClose }: NewTaskDialogProps) {
       )}
     >
       <form
+        ref={formRef}
         onSubmit={submit}
+        onKeyDown={(e) => {
+          if (e.key !== "Enter" || (!e.metaKey && !e.ctrlKey)) return;
+          e.preventDefault();
+          if (!submitting) formRef.current?.requestSubmit();
+        }}
         className="bg-[var(--color-bg-elev)] border border-[var(--color-border-strong)] rounded-[var(--radius-lg)] shadow-[var(--shadow-pop)] overflow-hidden text-[var(--color-fg)]"
       >
         <header className="flex items-center justify-between px-5 h-12 border-b border-[var(--color-border)]">
@@ -122,13 +134,27 @@ export function NewTaskDialog({ open, onClose }: NewTaskDialogProps) {
 
         <div className="p-5 space-y-3">
           <Field label="repo" required>
-            <Input
+            <select
               autoFocus
-              placeholder="luna-sns"
               value={repo}
               onChange={(e) => setRepo(e.target.value)}
-              className="font-mono"
-            />
+              disabled={reposLoading || repoOptions.length === 0}
+              className="h-8 px-2 rounded-[var(--radius)] bg-transparent border border-[var(--color-border)] outline-none text-[13px] ring-focus font-mono w-full disabled:opacity-50"
+            >
+              <option value="" className="bg-[var(--color-bg-elev)]">
+                {reposLoading ? "loading repos…" : "select repo"}
+              </option>
+              {repoOptions.map((name) => (
+                <option key={name} value={name} className="bg-[var(--color-bg-elev)]">
+                  {name}
+                </option>
+              ))}
+            </select>
+            {!reposLoading && repoOptions.length === 0 && (
+              <div className="text-[11px] text-[var(--color-fg-dim)] font-mono">
+                no repos available — track a repo or run sync first
+              </div>
+            )}
           </Field>
 
           <Field label="title" required>
