@@ -178,8 +178,16 @@ export function StandingMiniAvatar({
   const expression = getExpressionForMood(moodKey);
   const clothes = clothingForAgent(agentKind);
   return (
-    <svg width={16} height={22} viewBox="0 0 16 22" aria-hidden overflow="visible">
-      <ellipse cx={8} cy={20.5} rx={5} ry={1.2} fill="rgba(0,0,0,0.3)" />
+    <svg width={18} height={24} viewBox="0 0 18 24" aria-hidden overflow="visible">
+      <ellipse cx={9} cy={22} rx={6.2} ry={1.5} fill="rgba(0,0,0,0.28)" />
+      <ellipse
+        cx={9}
+        cy={21.4}
+        rx={4.6}
+        ry={0.9}
+        fill={clothes.accent}
+        opacity={0.45}
+      />
       <g
         style={{
           animation: `relayHamletIdleBreathe 4s ease-in-out ${parts.breatheDelay}s infinite`,
@@ -188,27 +196,29 @@ export function StandingMiniAvatar({
       >
         {/* Torso */}
         <path
-          d={`M 5.5 7 L 6 9.5 L 5.5 14.5 L 10.5 14.5 L 10 9.5 L 10.5 7 Z`}
+          d={`M 6.1 7.8 L 6.6 10.5 L 6.1 15.7 L 11.9 15.7 L 11.4 10.5 L 11.9 7.8 Z`}
           fill={clothes.shirt}
+          stroke="rgba(25,25,25,0.35)"
+          strokeWidth={0.25}
         />
         <path
-          d={`M 8 7 L 10.5 7 L 10 9.5 L 10.5 14.5 L 8 14.5 Z`}
+          d={`M 9 7.8 L 11.9 7.8 L 11.4 10.5 L 11.9 15.7 L 9 15.7 Z`}
           fill={clothes.shirtDark}
           opacity={0.4}
         />
         {/* Collar */}
-        <path d="M 6 7 L 8 8.4 L 10 7 L 8 9 Z" fill={clothes.accent} />
+        <path d="M 6.7 7.8 L 9 9.4 L 11.3 7.8 L 9 10.1 Z" fill={clothes.accent} />
         {/* Legs + shoes */}
-        <rect x={6} y={14.5} width={1.6} height={4.2} rx={0.5} fill="#4A382C" />
-        <rect x={8.4} y={14.5} width={1.6} height={4.2} rx={0.5} fill="#4A382C" />
-        <ellipse cx={6.8} cy={19} rx={1.2} ry={0.6} fill="#1F1410" />
-        <ellipse cx={9.2} cy={19} rx={1.2} ry={0.6} fill="#1F1410" />
+        <rect x={6.8} y={15.6} width={1.7} height={4.8} rx={0.5} fill="#4A382C" />
+        <rect x={9.5} y={15.6} width={1.7} height={4.8} rx={0.5} fill="#4A382C" />
+        <ellipse cx={7.7} cy={20.8} rx={1.35} ry={0.65} fill="#1F1410" />
+        <ellipse cx={10.4} cy={20.8} rx={1.35} ry={0.65} fill="#1F1410" />
         {/* Head */}
-        <g transform="translate(8, 4)">
+        <g transform="translate(9, 4.4)">
           <HeadFace
             parts={parts}
             expression={expression}
-            radius={3.4}
+            radius={3.65}
             enableBlink={false}
             enableCheeks={false}
           />

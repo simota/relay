@@ -1146,7 +1146,7 @@ export function FleetHamletNeighborhood({
                       "inline-flex items-center gap-1 px-1.5 h-5 rounded-[var(--radius-sm)]",
                       "border border-[var(--color-accent)] bg-[var(--color-bg)]",
                       "text-[9.5px] font-mono text-[var(--color-accent)]",
-                      "opacity-0 group-hover:opacity-100 focus:opacity-100",
+                      isOpen ? "opacity-100" : "opacity-0 group-hover:opacity-100 focus:opacity-100",
                       "transition-opacity duration-150",
                     )}
                     aria-label="enter house plan"

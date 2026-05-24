@@ -126,8 +126,17 @@ function MiniSimAvatar({
   // Compact 22×30 sprite: head r=5 centered at (11, 6), body 8×11 below.
   return (
     <svg width={22} height={30} viewBox="0 0 22 30" aria-hidden overflow="visible">
-      {/* dynamic ground shadow */}
-      <ellipse cx={11} cy={28.5} rx={6} ry={1.2} fill="rgba(0,0,0,0.32)" />
+      {/* Ground contact: dark shadow + agent-colour foot ring so walkers
+          read as planted on the path instead of floating over it. */}
+      <ellipse cx={11} cy={28.5} rx={6.8} ry={1.35} fill="rgba(0,0,0,0.3)" />
+      <ellipse
+        cx={11}
+        cy={27.9}
+        rx={5}
+        ry={0.85}
+        fill={clothes.accent}
+        opacity={0.42}
+      />
       <g
         style={{
           animation: `relayHamletIdleBreathe 4s ease-in-out ${parts.breatheDelay}s infinite`,
@@ -138,6 +147,8 @@ function MiniSimAvatar({
         <path
           d={`M 7 11 L 7.5 14 L 7 22 L 15 22 L 14.5 14 L 15 11 Z`}
           fill={clothes.shirt}
+          stroke="rgba(25,25,25,0.32)"
+          strokeWidth={0.3}
         />
         <path
           d={`M 11 11 L 15 11 L 14.5 14 L 15 22 L 11 22 Z`}
