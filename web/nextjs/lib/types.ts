@@ -59,6 +59,40 @@ export interface Task {
   closed_at: string | null;
 }
 
+export interface ResumeBriefReason {
+  label: string;
+  detail: string;
+  weight: number;
+}
+
+export interface ResumeBriefCandidate {
+  task: Task;
+  score: number;
+  confidence: "high" | "medium" | "low";
+  reasons: ResumeBriefReason[];
+  context: {
+    hash: string;
+    summary: string;
+    age: string;
+    dirtyFiles: string[];
+    sessionType: SessionType | null;
+    sessionId: string | null;
+  } | null;
+  next_action: string;
+  run_command: string;
+  reliability: {
+    context_fresh: boolean;
+    resume_ready: boolean;
+    dirty_state_known: boolean;
+  };
+}
+
+export interface ResumeBriefResponse {
+  flag_enabled: boolean;
+  generated_at: string;
+  candidate: ResumeBriefCandidate | null;
+}
+
 export interface Counts {
   today: number;
   open: number;

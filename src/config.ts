@@ -205,6 +205,11 @@ const ConfigSchema = z.object({
       // Agenda experience is preserved for users who only want the
       // date-bucketed task view.
       activity_calendar: z.boolean().default(false),
+      // Daily Resume Brief — ranks today's work by resume value and surfaces
+      // one explainable "start here" candidate. Default OFF because it is a
+      // recommendation surface and should earn trust before becoming the
+      // default morning flow.
+      daily_resume_brief: z.boolean().default(false),
     })
     .default({}),
 });

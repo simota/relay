@@ -9,6 +9,7 @@ import type {
   SyncReport,
   AppConfig,
   RepoAgentsResponse,
+  ResumeBriefResponse,
   TrackedRepoStatus,
   WfrResponse,
   WfrPeriod,
@@ -321,6 +322,7 @@ export const api = {
   config: () => request<AppConfig>("/api/config"),
   counts: () => request<Counts>("/api/counts"),
   today: (limit = 50) => request<Task[]>(`/api/today?limit=${limit}`),
+  resumeBrief: () => request<ResumeBriefResponse>("/api/resume-brief"),
   tasks: (params: Record<string, string | number | undefined> = {}) => {
     const q = new URLSearchParams();
     for (const [k, v] of Object.entries(params)) {

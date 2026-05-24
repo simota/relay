@@ -8,6 +8,7 @@ import { c } from "@/lib/copy";
 import { FilterBar } from "@/components/filter-bar";
 import { TaskList } from "@/components/task-list";
 import { TaskDetail } from "@/components/task-detail";
+import { ResumeBrief } from "@/components/resume-brief";
 import { useUndoToast } from "@/components/toast";
 import { fuzzyMatchMulti } from "@/lib/fuzzy";
 import type { SourceType, Status, Task } from "@/lib/types";
@@ -88,6 +89,17 @@ function TasksInner() {
   const { data: tasks = [], mutate: refresh } = useSWR<Task[]>(
     key,
     () => api.tasks({ ...taskFilter, limit: 500 }),
+  );
+  const showResumeBrief =
+    taskFilter.status === "open" &&
+    !taskFilter.repo &&
+    !taskFilter.source &&
+    !taskFilter.age &&
+    filter.trim() === "";
+  const { data: resumeBrief } = useSWR(
+    showResumeBrief ? "/api/resume-brief" : null,
+    () => api.resumeBrief(),
+    { refreshInterval: 60_000 },
   );
 
   const [savingView, setSavingView] = useState(false);
@@ -308,6 +320,16 @@ function TasksInner() {
         onSaveView={saveCurrentView}
         savingView={savingView}
       />
+
+      {showResumeBrief && (
+        <ResumeBrief
+          data={resumeBrief}
+          onSelectTask={(id) => {
+            setSelectedId(id);
+            setSelectedIds([]);
+          }}
+        />
+      )}
 
       <div className="flex-1 grid grid-cols-[minmax(0,1fr)_minmax(0,520px)] overflow-hidden border-t border-[var(--color-border)]/0">
         <div className="overflow-y-auto border-r border-[var(--color-border)]">

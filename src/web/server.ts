@@ -14,6 +14,7 @@ import { createContextsApi } from "../api/contexts.js";
 import { createDigestApi } from "../api/digest.js";
 import { createInsightsApi } from "../api/insights.js";
 import { createReviewApi } from "../api/review.js";
+import { createResumeBriefApi } from "../api/resume-brief.js";
 import { createSessionsApi } from "../api/sessions.js";
 import { createStandupApi } from "../api/standup.js";
 import { createSyncApi } from "../api/sync.js";
@@ -159,6 +160,8 @@ export function buildApp() {
   app.route("/api/client-errors", createClientErrorsApi());
 
   // --- Today / Tasks ---------------------------------------------------
+  app.route("/api/resume-brief", createResumeBriefApi());
+
   app.get("/api/today", (c) => {
     const limit = Number(c.req.query("limit") ?? 50);
     const db = new RelayDB();

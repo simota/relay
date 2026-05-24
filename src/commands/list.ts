@@ -7,6 +7,7 @@ import {
   priorityAsciiGraph,
   priorityHistory,
 } from "../lib/priority.js";
+import { buildResumeBrief, type ResumeBriefCandidate } from "../lib/resume-brief.js";
 import { findMissingRepos } from "../repo-metadata.js";
 import type { SourceType, Task } from "../types.js";
 import { clearFocus, getFocus } from "./focus.js";
@@ -61,6 +62,11 @@ export function runToday(opts: { limit?: number } = {}): void {
   const repoNames = db.repoStats().map((r) => r.name);
   const missing = findMissingRepos(repoNames, resolveScanRoots(cfg));
   const tasks = db.today(limit, missing, cfg.ui.priority_decay_days);
+  const brief = cfg.features.daily_resume_brief
+    ? buildResumeBrief(db, {
+        candidates: db.today(Math.max(limit, 30), missing, cfg.ui.priority_decay_days),
+      })
+    : null;
 
   if (tasks.length === 0) {
     const counts = db.viewCounts(missing);
@@ -82,6 +88,10 @@ export function runToday(opts: { limit?: number } = {}): void {
     });
   }
   db.close();
+  if (brief?.candidate) {
+    printResumeBrief(brief.candidate);
+    console.log("");
+  }
   printTable(tasks, cues);
 }
 
@@ -176,6 +186,25 @@ function printTable(
       );
     }
   }
+}
+
+function printResumeBrief(candidate: ResumeBriefCandidate): void {
+  const t = candidate.task;
+  console.log(chalk.bold("Daily Resume Brief"));
+  console.log(
+    `${chalk.cyan(`#${t.id} ${t.repo}`)} ${chalk.dim(t.assignee)}  ${truncate(t.title, 70)}`,
+  );
+  const topReasons = candidate.reasons
+    .slice(0, 3)
+    .map((r) => `${r.label}: ${r.detail}`)
+    .join(" · ");
+  console.log(chalk.dim(`why: ${truncate(topReasons, 120)}`));
+  console.log(chalk.dim(`next: ${truncate(candidate.next_action, 120)}`));
+  console.log(
+    chalk.dim(
+      `run:  ${candidate.run_command} · confidence ${candidate.confidence}`,
+    ),
+  );
 }
 
 function humanAge(iso: string): string {
