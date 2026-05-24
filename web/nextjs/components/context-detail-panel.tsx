@@ -10,7 +10,7 @@ import Link from "next/link";
 import useSWR from "swr";
 import { useState } from "react";
 import {
-  Check, Copy, FileCode, GitBranch, GitCommit, MessageSquare,
+  Check, Copy, ExternalLink, FileCode, GitBranch, GitCommit, MessageSquare,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { Badge, StatusDot } from "@/components/ui/badge";
@@ -78,6 +78,14 @@ function Panel({ ctx }: { ctx: RelayContext }) {
               <span className="text-[10px] opacity-70">claude:{ctx.sessionId!.slice(0, 8)}</span>
             </Link>
           )}
+          <Link
+            href={`/context?hash=${encodeURIComponent(ctx.hash)}`}
+            className="inline-flex items-center gap-1.5 px-2 py-1 rounded-[var(--radius)] border border-[var(--color-border)] bg-[var(--color-bg-elev)]/55 text-[11.5px] font-mono text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] hover:bg-[var(--color-bg-elev-2)] transition-colors"
+            title="Open the full context detail page with resume command"
+          >
+            <ExternalLink className="w-3.5 h-3.5" aria-hidden />
+            Open full context
+          </Link>
         </header>
 
         <Section title="Summary">
