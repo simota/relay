@@ -253,7 +253,13 @@ export function HouseChatLayer({
           cellLeft + maxWidth / 2 + 2,
           Math.min(cellRight - maxWidth / 2 - 2, cellCenter),
         );
-        const anchorY = bubbleAnchorYForCell(slot.row, cellH, maxHeight);
+        const anchorY = bubbleAnchorYForCell(
+          slot.row,
+          cellH,
+          maxHeight,
+          maxWidth,
+          msg.text,
+        );
         return (
           <HouseChatBubble
             key={`${sim.key}::${msg.timestamp}`}
@@ -287,16 +293,31 @@ function bubbleAnchorYForCell(
   row: number,
   cellH: number,
   bubbleMaxH: number,
+  bubbleMaxW: number,
+  text: string,
 ): number {
   const rowTop = row * cellH;
-  const safeTopY = Math.min(bubbleMaxH + 3, Math.floor(cellH * 0.22));
-  const roofLaneY = Math.floor(cellH * 0.18);
+  const safeTopY = Math.min(bubbleMaxH + 3, Math.floor(cellH * 0.62));
+  const roofLaneY = Math.floor(cellH * 0.58);
   const lowerBound = Math.max(10, safeTopY);
-  const laneY = Math.max(
+  const baseLaneY = Math.max(
     lowerBound,
-    Math.min(Math.floor(cellH * 0.3), roofLaneY),
+    Math.min(Math.floor(cellH * 0.72), roofLaneY),
   );
+  const lift = bubbleLiftForText(cellH, bubbleMaxW, text);
+  const laneY = Math.max(10, baseLaneY - lift);
   return rowTop + laneY;
+}
+
+function bubbleLiftForText(cellH: number, bubbleMaxW: number, text: string): number {
+  const charsPerLine = Math.max(8, Math.floor((bubbleMaxW - 18) / 7));
+  const explicitLines = text.split(/\r?\n/);
+  const estimatedLines = explicitLines.reduce(
+    (total, line) => total + Math.max(1, Math.ceil(line.length / charsPerLine)),
+    0,
+  );
+  const linePressure = Math.min(1, Math.max(0, estimatedLines - 2) / 4);
+  return Math.round(linePressure * cellH * 0.04);
 }
 
 // ---------------------------------------------------------------------------
