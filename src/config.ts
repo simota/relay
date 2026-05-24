@@ -73,7 +73,15 @@ const ConfigSchema = z.object({
       gh_project_card: z.boolean().default(false),
       git_interrupted: z.boolean().default(true),
       git_stash: z.boolean().default(true),
+      git_dirty_worktree: z.boolean().default(true),
       orphan_branch: z.boolean().default(true),
+      gh_review_request: z.boolean().default(true),
+      gh_unresolved_thread: z.boolean().default(true),
+      // Markdown task-list ingestion can be extremely noisy in repos that
+      // keep large implementation checklists under docs/. Keep it opt-in;
+      // users can still run it explicitly with `relay sync --source
+      // docs_checklist` before enabling it permanently.
+      docs_checklist: z.boolean().default(false),
       claude_session: z.boolean().default(true),
       codex_session: z.boolean().default(true),
       antigravity_session: z.boolean().default(true),

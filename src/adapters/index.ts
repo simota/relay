@@ -7,8 +7,12 @@ import { antigravitySessionAdapter } from "./antigravity-session.js";
 import { cursorSessionAdapter } from "./cursor-session.js";
 import { ghNotificationAdapter } from "./gh-notification.js";
 import { ghProjectCardAdapter } from "./gh-project-card.js";
+import { ghReviewRequestAdapter } from "./gh-review-request.js";
 import { ghRunFailureAdapter } from "./gh-run-failure.js";
+import { ghUnresolvedThreadAdapter } from "./gh-unresolved-thread.js";
 import { githubAdapter } from "./github.js";
+import { docsChecklistAdapter } from "./docs-checklist.js";
+import { gitDirtyWorktreeAdapter } from "./git-dirty-worktree.js";
 import { gitInterruptedAdapter } from "./git-interrupted.js";
 import { gitStashAdapter } from "./git-stash.js";
 import { manualAdapter } from "./manual.js";
@@ -23,10 +27,14 @@ export const allAdapters: Adapter[] = [
   githubAdapter,
   ghNotificationAdapter,
   ghProjectCardAdapter,
+  ghReviewRequestAdapter,
+  ghUnresolvedThreadAdapter,
   ghRunFailureAdapter,
   gitInterruptedAdapter,
   gitStashAdapter,
+  gitDirtyWorktreeAdapter,
   orphanBranchAdapter,
+  docsChecklistAdapter,
   agentsNoteAdapter,
   manualAdapter,
 ];

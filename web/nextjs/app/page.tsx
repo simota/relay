@@ -16,7 +16,7 @@ import { useUndoToast } from "@/components/toast";
 import { fuzzyFilter, type Filtered } from "@/lib/fuzzy";
 import type { Counts, Task } from "@/lib/types";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
-import { ArrowUpRight, ChevronRight } from "lucide-react";
+import { ArrowUpRight, Check, ChevronRight, Pause, X } from "lucide-react";
 import Link from "next/link";
 import { useHotkeys } from "@/hooks/use-hotkeys";
 import { c, formatNumber } from "@/lib/copy";
@@ -73,6 +73,19 @@ export default function TodayPage() {
     () => rows.filter((row) => (row.task.wait_on ?? "self") !== "self"),
     [rows],
   );
+  const visibleTodayIds = useMemo(
+    () => [
+      ...selfRows.slice(0, 20).map((row) => row.task.id),
+      ...waitingRows.slice(0, 20).map((row) => row.task.id),
+    ],
+    [selfRows, waitingRows],
+  );
+  const selectedTodayIds = useMemo(
+    () => selectedIds.filter((id) => visibleTodayIds.includes(id)),
+    [selectedIds, visibleTodayIds],
+  );
+  const allTodayVisibleSelected =
+    visibleTodayIds.length > 0 && selectedTodayIds.length === visibleTodayIds.length;
   const selected = useMemo(
     () => tasks.find((t) => t.id === selectedId) ?? tasks[0] ?? null,
     [tasks, selectedId],
@@ -96,6 +109,13 @@ export default function TodayPage() {
       current.includes(id) ? current.filter((selectedId) => selectedId !== id) : [...current, id],
     );
   }, []);
+
+  const toggleTodayVisible = useCallback(() => {
+    setSelectedIds((current) => {
+      if (allTodayVisibleSelected) return current.filter((id) => !visibleTodayIds.includes(id));
+      return Array.from(new Set([...current, ...visibleTodayIds]));
+    });
+  }, [allTodayVisibleSelected, visibleTodayIds]);
 
   const moveSelection = useCallback((delta: number) => {
     if (!rows.length) return;
@@ -288,11 +308,70 @@ export default function TodayPage() {
 
         {/* Today list + Detail */}
         <Card className="overflow-hidden">
-          <div className="flex items-center justify-between px-5 h-10 border-b border-[var(--color-border)]">
-            <CardTitle>{c("today.queue.title")}</CardTitle>
-            <Link href="/tasks?status=open" className="text-[11px] text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] flex items-center gap-1">
-              {c("today.queue.seeAllOpen")} <ArrowUpRight className="w-3 h-3" />
-            </Link>
+          <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-2 border-b border-[var(--color-border)]">
+            <div className="flex min-w-0 items-center gap-3">
+              <CardTitle>{c("today.queue.title")}</CardTitle>
+              {rows.length > 0 && (
+                <label className="flex items-center gap-2 text-[12px] text-[var(--color-fg-muted)]">
+                  <input
+                    type="checkbox"
+                    checked={allTodayVisibleSelected}
+                    ref={(el) => {
+                      if (el) {
+                        el.indeterminate = selectedTodayIds.length > 0 && !allTodayVisibleSelected;
+                      }
+                    }}
+                    onChange={toggleTodayVisible}
+                    className="h-3.5 w-3.5 rounded border-[var(--color-border)] accent-[var(--color-accent)]"
+                    aria-label={c("today.queue.selectVisible")}
+                  />
+                  <span>
+                    {selectedTodayIds.length > 0
+                      ? c("today.queue.selected", { count: formatNumber(selectedTodayIds.length) })
+                      : c("today.queue.selectVisible")}
+                  </span>
+                </label>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              {rows.length > 0 && (
+                <>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    disabled={selectedTodayIds.length === 0}
+                    onClick={() => { void bulkMutate("snooze", selectedTodayIds); }}
+                  >
+                    <Pause className="h-3 w-3" />
+                    {c("common.snooze")}
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="danger"
+                    disabled={selectedTodayIds.length === 0}
+                    onClick={() => { void bulkMutate("close", selectedTodayIds); }}
+                  >
+                    <Check className="h-3 w-3" />
+                    {c("common.close")}
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    disabled={selectedTodayIds.length === 0}
+                    onClick={() => setSelectedIds((current) => current.filter((id) => !visibleTodayIds.includes(id)))}
+                    aria-label={c("today.queue.clearSelection")}
+                  >
+                    <X className="h-3 w-3" />
+                  </Button>
+                </>
+              )}
+              <Link href="/tasks?status=open" className="text-[11px] text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] flex items-center gap-1">
+                {c("today.queue.seeAllOpen")} <ArrowUpRight className="w-3 h-3" />
+              </Link>
+            </div>
           </div>
           <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,420px)] min-h-[480px]">
             <div className="overflow-y-auto max-h-[60vh] border-r border-[var(--color-border)]">
@@ -328,6 +407,7 @@ export default function TodayPage() {
                         onBulkSnooze={(ids) => { void bulkMutate("snooze", ids); }}
                         onBulkClose={(ids) => { void bulkMutate("close", ids); }}
                         onBulkOpenChange={setBulkOpen}
+                        showBulkBar={false}
                       />
                     )}
                   </div>
@@ -361,6 +441,7 @@ export default function TodayPage() {
                         onBulkSnooze={(ids) => { void bulkMutate("snooze", ids); }}
                         onBulkClose={(ids) => { void bulkMutate("close", ids); }}
                         onBulkOpenChange={setBulkOpen}
+                        showBulkBar={false}
                       />
                     </details>
                   )}

@@ -336,6 +336,8 @@ function sourceDetail(task: Task): { text: string; href?: string } {
       const shortOid = sourceId.replace(/^[^:]+:stash:/, "");
       return { text: `stash ${shortOid}` };
     }
+    case "git_dirty_worktree":
+      return { text: "dirty worktree" };
     case "orphan_branch": {
       // source_id is `<repo>:orphan-branch:<branch>:<tip_short_sha>`;
       // surface the branch portion since the repo column already shows
@@ -346,6 +348,16 @@ function sourceDetail(task: Task): { text: string; href?: string } {
       const branch = tail.replace(/:[0-9a-f]+$/, "");
       return { text: `branch ${branch}` };
     }
+    case "gh_review_request": {
+      const num = sourceId.match(/\/pull\/(\d+)/)?.[1] ?? sourceId.replace(/^#/, "");
+      return { text: `review PR #${num}`, href };
+    }
+    case "gh_unresolved_thread": {
+      const num = sourceId.match(/\/pull\/(\d+)/)?.[1] ?? sourceId.replace(/^#/, "");
+      return { text: `thread PR #${num}`, href: sourceId.split("#")[0] };
+    }
+    case "docs_checklist":
+      return { text: `docs ${sourceId}` };
     case "code_todo":
       return { text: ["code", "TO" + "DO", sourceId].join(" ") };
     case "claude_session_todo":

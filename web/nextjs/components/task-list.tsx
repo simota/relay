@@ -20,6 +20,7 @@ interface TaskListProps {
   onBulkSnooze?: (ids: number[]) => void;
   onBulkClose?: (ids: number[]) => void;
   onBulkOpenChange?: (open: boolean) => void;
+  showBulkBar?: boolean;
 }
 
 export function TaskList({
@@ -32,6 +33,7 @@ export function TaskList({
   onBulkSnooze,
   onBulkClose,
   onBulkOpenChange,
+  showBulkBar = true,
 }: TaskListProps) {
   const ref = useRef<HTMLDivElement>(null);
   const [bulkOpen, setBulkOpen] = useState(false);
@@ -123,7 +125,7 @@ export function TaskList({
 
   return (
     <div ref={ref} className="relative divide-y divide-[var(--color-border)]/60">
-      {Boolean(onRangeSelect) && (
+      {showBulkBar && Boolean(onRangeSelect) && (
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[var(--color-border)] bg-[var(--color-bg-elev)] px-4 py-2 text-[12px] text-[var(--color-fg-muted)]">
           <label className="flex min-w-0 items-center gap-2">
             <input

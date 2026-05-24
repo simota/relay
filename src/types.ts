@@ -14,7 +14,11 @@ export const SOURCE_TYPES = [
   "gh_project_card",
   "git_interrupted",
   "git_stash",
+  "git_dirty_worktree",
   "orphan_branch",
+  "gh_review_request",
+  "gh_unresolved_thread",
+  "docs_checklist",
   "claude_session_todo",
   "codex_session_todo",
   "antigravity_session_todo",
@@ -244,7 +248,11 @@ export interface AdapterContext {
     gh_project_card: boolean;
     git_interrupted: boolean;
     git_stash: boolean;
+    git_dirty_worktree: boolean;
     orphan_branch: boolean;
+    gh_review_request: boolean;
+    gh_unresolved_thread: boolean;
+    docs_checklist: boolean;
     claude_session: boolean;
     codex_session: boolean;
     antigravity_session: boolean;

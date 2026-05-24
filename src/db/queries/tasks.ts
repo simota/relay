@@ -13,6 +13,8 @@ import { hydrate, parseAgeFilter } from "../internal.js";
 export const FS_BOUND_SOURCES: readonly string[] = [
   "code_todo",
   "agents_note",
+  "docs_checklist",
+  "git_dirty_worktree",
   "claude_session_todo",
   "codex_session_todo",
   "antigravity_session_todo",
@@ -607,4 +609,3 @@ export function countSubagentsByParent(db: Database, type: SessionType): Map<str
   for (const r of rows) out.set(r.parent, r.n);
   return out;
 }
-
