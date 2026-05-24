@@ -24,6 +24,11 @@ priority_decay_days = 14
 enabled = false
 interval_sec = 300
 
+[features]
+daily_resume_brief = false
+promise_ledger = false
+activity_calendar = false
+
 [adapters]
 code_todo = true
 github_issue = true
