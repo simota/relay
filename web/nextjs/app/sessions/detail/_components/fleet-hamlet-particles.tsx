@@ -20,7 +20,12 @@ import {
   seasonParticles,
 } from "../_lib/fleet-hamlet-particles";
 import { AvatarBody } from "./fleet-hamlet-decor";
-import { HAMLET_AVATAR_CSS, HeadFace, clothingForAgent } from "./fleet-hamlet-avatar";
+import {
+  HAMLET_AVATAR_CSS,
+  HeadFace,
+  avatarStyleFromSeed,
+  clothingForStyle,
+} from "./fleet-hamlet-avatar";
 import { getExpressionForMood } from "../_lib/fleet-hamlet-avatar-expression";
 import { DIORAMA_DEFS } from "../_lib/fleet-hamlet-diorama-tokens";
 
@@ -122,7 +127,8 @@ function MiniSimAvatar({
   const parts = useMemo(() => avatarPartsFromSeed(seed, stage), [seed, stage]);
   const moodKey = sim?.mood.key ?? "happy";
   const expression = useMemo(() => getExpressionForMood(moodKey), [moodKey]);
-  const clothes = clothingForAgent(agentKind);
+  const stylePreset = avatarStyleFromSeed(seed, agentKind);
+  const clothes = clothingForStyle(agentKind, stylePreset);
   // Compact 22×30 sprite: head r=5 centered at (11, 6), body 8×11 below.
   return (
     <svg width={22} height={30} viewBox="0 0 22 30" aria-hidden overflow="visible">
@@ -157,6 +163,19 @@ function MiniSimAvatar({
         />
         {/* Collar V */}
         <path d="M 8 11 L 11 13 L 14 11 L 11 14 Z" fill={clothes.accent} />
+        {stylePreset === "taisho-wagara" && (
+          <g opacity={0.92}>
+            <path d="M 6.5 11.2 L 8.8 12.2 L 8.4 21.4 L 6.4 21.2 Z" fill="hsl(176, 48%, 54%)" />
+            <path d="M 13.2 12.2 L 15.5 11.2 L 15.6 21.2 L 13.6 21.4 Z" fill="hsl(218, 40%, 28%)" />
+            <path d="M 7.1 15 L 8.1 16 L 7.1 17 M 14.9 15 L 13.9 16 L 14.9 17" fill="none" stroke="hsla(42, 86%, 82%, 0.78)" strokeWidth={0.35} strokeLinecap="round" />
+          </g>
+        )}
+        {stylePreset === "occult-academy" && (
+          <g>
+            <path d="M 8 11.2 L 14 11.2 L 14.6 21.8 L 7.4 21.8 Z" fill="hsla(250, 35%, 12%, 0.72)" />
+            <circle cx={11} cy={16.6} r={0.8} fill="none" stroke="hsl(45, 90%, 75%)" strokeWidth={0.32} />
+          </g>
+        )}
         {/* Legs + shoes */}
         <rect x={8} y={22} width={2} height={4.5} rx={0.6} fill="#4A382C" />
         <rect x={12} y={22} width={2} height={4.5} rx={0.6} fill="#4A382C" />

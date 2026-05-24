@@ -54,9 +54,32 @@ export interface ClothingColors {
   accent: string;
 }
 
+export type AvatarStylePreset = "default" | "taisho-wagara" | "occult-academy";
+
 export function clothingForAgent(
   kind: SimCardModel["sessionType"],
 ): ClothingColors {
+  return clothingForStyle(kind, "default");
+}
+
+export function clothingForStyle(
+  kind: SimCardModel["sessionType"],
+  preset: AvatarStylePreset = "default",
+): ClothingColors {
+  if (preset === "taisho-wagara") {
+    return {
+      shirt: "hsl(188, 48%, 42%)",
+      shirtDark: "hsl(205, 45%, 24%)",
+      accent: "hsl(38, 84%, 76%)",
+    };
+  }
+  if (preset === "occult-academy") {
+    return {
+      shirt: "hsl(248, 26%, 26%)",
+      shirtDark: "hsl(252, 32%, 15%)",
+      accent: "hsl(274, 68%, 72%)",
+    };
+  }
   if (kind === "claude")
     return {
       shirt: "hsl(215, 65%, 58%)",
@@ -80,6 +103,16 @@ export function clothingForAgent(
     shirtDark: "hsl(28, 50%, 38%)",
     accent: "hsl(38, 65%, 75%)",
   };
+}
+
+export function avatarStyleFromSeed(
+  seed: number,
+  kind: SimCardModel["sessionType"],
+): AvatarStylePreset {
+  const bucket = Math.abs(((seed >>> 4) ^ (seed >>> 11) ^ seed) % 5);
+  if (bucket === 1 || (kind === "codex" && bucket === 3)) return "taisho-wagara";
+  if (bucket === 2 || (kind === "antigravity" && bucket === 4)) return "occult-academy";
+  return "default";
 }
 
 // ---------------------------------------------------------------------------
@@ -657,6 +690,8 @@ function Brows({ brow, radius }: { brow: BrowShape; radius: number }) {
 export interface BodyTorsoProps {
   clothing: ClothingColors;
   pose: AvatarPose;
+  /** Optional original outfit preset. */
+  stylePreset?: AvatarStylePreset;
   /** Overall height in SVG units. Width is derived (~ 0.7x). */
   height?: number;
   /** Skip the rim-light stripe at very small sizes. */
@@ -670,6 +705,7 @@ export interface BodyTorsoProps {
 export function BodyTorso({
   clothing,
   pose,
+  stylePreset = "default",
   height = 32,
   enableRim = true,
   enableLegs = true,
@@ -802,6 +838,57 @@ export function BodyTorso({
       {/* Two front buttons */}
       <circle cx={0} cy={h * 0.32} r={Math.max(0.5, w * 0.04)} fill={clothing.shirtDark} />
       <circle cx={0} cy={h * 0.48} r={Math.max(0.5, w * 0.04)} fill={clothing.shirtDark} />
+      {stylePreset === "taisho-wagara" && !isSleeping && (
+        <g opacity={0.92}>
+          <path
+            d={`M ${-topW / 2 - w * 0.12} ${torsoTop + h * 0.01}
+                L ${-w * 0.04} ${torsoTop + h * 0.07}
+                L ${-w * 0.08} ${torsoBottom + h * 0.02}
+                L ${-botW / 2 - w * 0.08} ${torsoBottom - h * 0.01}
+                Z`}
+            fill="hsl(176, 48%, 54%)"
+          />
+          <path
+            d={`M ${w * 0.04} ${torsoTop + h * 0.07}
+                L ${topW / 2 + w * 0.12} ${torsoTop + h * 0.01}
+                L ${botW / 2 + w * 0.08} ${torsoBottom - h * 0.01}
+                L ${w * 0.08} ${torsoBottom + h * 0.02}
+                Z`}
+            fill="hsl(218, 40%, 28%)"
+          />
+          <g stroke="hsla(42, 86%, 82%, 0.72)" strokeWidth={Math.max(0.35, w * 0.018)} fill="none">
+            <path d={`M ${-w * 0.34} ${h * 0.2} L ${-w * 0.12} ${h * 0.38} L ${-w * 0.34} ${h * 0.56}`} />
+            <path d={`M ${w * 0.34} ${h * 0.2} L ${w * 0.12} ${h * 0.38} L ${w * 0.34} ${h * 0.56}`} />
+            <line x1={-w * 0.28} y1={h * 0.23} x2={-w * 0.16} y2={h * 0.33} />
+            <line x1={w * 0.28} y1={h * 0.23} x2={w * 0.16} y2={h * 0.33} />
+          </g>
+        </g>
+      )}
+      {stylePreset === "occult-academy" && !isSleeping && (
+        <g>
+          <path
+            d={`M ${-topW / 2 + w * 0.02} ${torsoTop}
+                L ${topW / 2 - w * 0.02} ${torsoTop}
+                L ${botW / 2 - w * 0.06} ${torsoBottom + h * 0.03}
+                L ${-botW / 2 + w * 0.06} ${torsoBottom + h * 0.03}
+                Z`}
+            fill="hsla(250, 35%, 12%, 0.78)"
+          />
+          <path
+            d={`M ${-w * 0.18} ${torsoTop}
+                L 0 ${h * 0.2}
+                L ${w * 0.18} ${torsoTop}
+                L ${w * 0.11} ${h * 0.04}
+                L 0 ${h * 0.14}
+                L ${-w * 0.11} ${h * 0.04}
+                Z`}
+            fill="hsl(272, 68%, 74%)"
+            opacity={0.88}
+          />
+          <circle cx={0} cy={h * 0.39} r={Math.max(0.8, w * 0.07)} fill="none" stroke="hsl(45, 90%, 75%)" strokeWidth={Math.max(0.35, w * 0.018)} />
+          <path d={`M ${-w * 0.04} ${h * 0.39} L ${w * 0.04} ${h * 0.39} M 0 ${h * 0.35} L 0 ${h * 0.43}`} stroke="hsl(45, 90%, 75%)" strokeWidth={Math.max(0.35, w * 0.016)} strokeLinecap="round" />
+        </g>
+      )}
       {/* Stitching seams + a single vertical shirt wrinkle. Drawn with
           stroke-dasharray to add fabric texture without bumping the SVG
           node budget (3 paths total). currentColor + low opacity keeps
@@ -912,6 +999,8 @@ export interface HamletAvatarProps {
   parts: AvatarParts;
   expression: AvatarExpression;
   clothing: ClothingColors;
+  /** Optional original outfit preset. */
+  stylePreset?: AvatarStylePreset;
   /** Total height in SVG units. Width derives from it. */
   height: number;
   /** Toggle the breathing keyframe. */
@@ -940,6 +1029,7 @@ export function HamletAvatar({
   parts,
   expression,
   clothing,
+  stylePreset = "default",
   height,
   enableBreathe = true,
   enableBlink = true,
@@ -1004,6 +1094,7 @@ export function HamletAvatar({
           <BodyTorso
             clothing={clothing}
             pose={expression.pose}
+            stylePreset={stylePreset}
             height={bodyH}
             scarf={scarf}
           />

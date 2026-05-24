@@ -24,7 +24,8 @@ import { getExpressionForMood } from "../_lib/fleet-hamlet-avatar-expression";
 import {
   HAMLET_AVATAR_CSS,
   HamletAvatar,
-  clothingForAgent,
+  avatarStyleFromSeed,
+  clothingForStyle,
 } from "./fleet-hamlet-avatar";
 import {
   skyPalette,
@@ -1109,7 +1110,8 @@ function RoomAvatar({
     [card.avatarSeed, card.stage.key],
   );
   const expression = useMemo(() => getExpressionForMood(card.mood.key), [card.mood.key]);
-  const clothes = clothingForAgent(card.sessionType);
+  const stylePreset = avatarStyleFromSeed(card.avatarSeed, card.sessionType);
+  const clothes = clothingForStyle(card.sessionType, stylePreset);
   const accessories = useMemo(() => deriveAccessories(card, detail), [card, detail]);
   // Stand the avatar at the center-front, slightly off-center to leave
   // room for the sofa / desk / bed on the mid layer.
@@ -1162,6 +1164,7 @@ function RoomAvatar({
           parts={parts}
           expression={expression}
           clothing={clothes}
+          stylePreset={stylePreset}
           height={totalH}
           haloColor={card.mood.color}
           glasses={accessories.glasses}
@@ -1312,7 +1315,14 @@ function RoomGuests({ guests }: { guests: readonly RoomGuest[] }) {
 function RoomGuestAvatar({ guest }: { guest: RoomGuest }) {
   const parts = useMemo(() => avatarPartsFromSeed(guest.seed), [guest.seed]);
   const expression = useMemo(() => getExpressionForMood("happy"), []);
-  const clothes = useMemo(() => clothingForAgent(guest.sessionType), [guest.sessionType]);
+  const stylePreset = useMemo(
+    () => avatarStyleFromSeed(guest.seed, guest.sessionType),
+    [guest.seed, guest.sessionType],
+  );
+  const clothes = useMemo(
+    () => clothingForStyle(guest.sessionType, stylePreset),
+    [guest.sessionType, stylePreset],
+  );
   const haloColor = `hsl(${guest.hue}, 70%, 60%)`;
   // Per-guest stagger so multiple guests don't bob in lockstep.
   const animStyle = {
@@ -1333,6 +1343,7 @@ function RoomGuestAvatar({ guest }: { guest: RoomGuest }) {
           parts={parts}
           expression={expression}
           clothing={clothes}
+          stylePreset={stylePreset}
           height={guest.height}
           haloColor={haloColor}
         />

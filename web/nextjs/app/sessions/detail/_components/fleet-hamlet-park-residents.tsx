@@ -17,7 +17,11 @@
 
 import type { SimCardModel } from "../_lib/fleet-hamlet";
 import { avatarPartsFromSeed, hashStringToInt } from "../_lib/fleet-hamlet";
-import { HeadFace, clothingForAgent } from "./fleet-hamlet-avatar";
+import {
+  HeadFace,
+  avatarStyleFromSeed,
+  clothingForStyle,
+} from "./fleet-hamlet-avatar";
 import { getExpressionForMood } from "../_lib/fleet-hamlet-avatar-expression";
 import { DIORAMA_DEFS } from "../_lib/fleet-hamlet-diorama-tokens";
 
@@ -176,7 +180,8 @@ export function StandingMiniAvatar({
   const parts = avatarPartsFromSeed(seed);
   const moodKey = sim?.mood.key ?? "happy";
   const expression = getExpressionForMood(moodKey);
-  const clothes = clothingForAgent(agentKind);
+  const stylePreset = avatarStyleFromSeed(seed, agentKind);
+  const clothes = clothingForStyle(agentKind, stylePreset);
   return (
     <svg width={18} height={24} viewBox="0 0 18 24" aria-hidden overflow="visible">
       <ellipse cx={9} cy={22} rx={6.2} ry={1.5} fill="rgba(0,0,0,0.28)" />
@@ -208,6 +213,19 @@ export function StandingMiniAvatar({
         />
         {/* Collar */}
         <path d="M 6.7 7.8 L 9 9.4 L 11.3 7.8 L 9 10.1 Z" fill={clothes.accent} />
+        {stylePreset === "taisho-wagara" && (
+          <g opacity={0.92}>
+            <path d="M 5.7 8 L 7.4 8.8 L 7 15.3 L 5.6 15.1 Z" fill="hsl(176, 48%, 54%)" />
+            <path d="M 10.6 8.8 L 12.3 8 L 12.4 15.1 L 11 15.3 Z" fill="hsl(218, 40%, 28%)" />
+            <path d="M 6.1 11 L 6.9 11.8 L 6.1 12.6 M 11.9 11 L 11.1 11.8 L 11.9 12.6" fill="none" stroke="hsla(42, 86%, 82%, 0.78)" strokeWidth={0.28} strokeLinecap="round" />
+          </g>
+        )}
+        {stylePreset === "occult-academy" && (
+          <g>
+            <path d="M 6.6 8 L 11.4 8 L 11.8 15.5 L 6.2 15.5 Z" fill="hsla(250, 35%, 12%, 0.7)" />
+            <circle cx={9} cy={11.8} r={0.62} fill="none" stroke="hsl(45, 90%, 75%)" strokeWidth={0.26} />
+          </g>
+        )}
         {/* Legs + shoes */}
         <rect x={6.8} y={15.6} width={1.7} height={4.8} rx={0.5} fill="#4A382C" />
         <rect x={9.5} y={15.6} width={1.7} height={4.8} rx={0.5} fill="#4A382C" />
@@ -246,7 +264,8 @@ function SittingMiniAvatar({
   const parts = avatarPartsFromSeed(seed);
   const moodKey = sim?.mood.key ?? "happy";
   const expression = getExpressionForMood(moodKey);
-  const clothes = clothingForAgent(agentKind);
+  const stylePreset = avatarStyleFromSeed(seed, agentKind);
+  const clothes = clothingForStyle(agentKind, stylePreset);
   return (
     <svg width={18} height={20} viewBox="0 0 18 20" aria-hidden overflow="visible">
       {/* Torso */}
@@ -255,6 +274,18 @@ function SittingMiniAvatar({
         fill={clothes.shirt}
       />
       <path d="M 4 7 L 6 8.4 L 8 7 L 6 9 Z" fill={clothes.accent} />
+      {stylePreset === "taisho-wagara" && (
+        <g opacity={0.92}>
+          <path d="M 2.9 7.2 L 4.5 8 L 4.2 13.8 L 2.8 13.8 Z" fill="hsl(176, 48%, 54%)" />
+          <path d="M 7.5 8 L 9.1 7.2 L 9 13.8 L 7.8 13.8 Z" fill="hsl(218, 40%, 28%)" />
+        </g>
+      )}
+      {stylePreset === "occult-academy" && (
+        <g>
+          <path d="M 3.6 7.2 L 8.2 7.2 L 8.4 14 L 3.4 14 Z" fill="hsla(250, 35%, 12%, 0.7)" />
+          <circle cx={6} cy={10.6} r={0.55} fill="none" stroke="hsl(45, 90%, 75%)" strokeWidth={0.24} />
+        </g>
+      )}
       {/* Upper leg extended forward (horizontal) */}
       <rect x={5} y={13.5} width={8.5} height={2.2} rx={0.7} fill="#4A382C" />
       {/* Lower leg (vertical) */}
