@@ -205,6 +205,16 @@ export interface Adapter {
  */
 export interface AdapterDB {
   upsertSession(row: SessionRow): void;
+  insertContext(input: {
+    hash: string;
+    repo: string;
+    branch: string;
+    headSha: string;
+    dirtyFiles: string[];
+    summary: string;
+    sessionId?: string | null;
+    sessionType?: SessionType | null;
+  }): void;
 }
 
 export interface AdapterContext {

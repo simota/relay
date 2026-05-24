@@ -478,6 +478,7 @@ export class RelayDB {
     dirtyFiles: string[];
     summary: string;
     sessionId?: string | null;
+    sessionType?: SessionType | null;
   }): void {
     _insertContext(this.db, input);
   }

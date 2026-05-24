@@ -6,9 +6,11 @@ import { deterministicSummary, llmSummary } from "../context/summarize.js";
 import { formatSummary, summarizeTranscript } from "../context/transcript.js";
 import { loadConfig, resolveScanRoots } from "../config.js";
 import { resolveRepoForCwd } from "../lib/repo-from-cwd.js";
+import { SessionType, type SessionType as SessionTypeName } from "../types.js";
 
 interface AutoHookPayload {
   session_id?: string;
+  session_type?: SessionTypeName;
   transcript_path?: string;
   cwd?: string;
   hook_event_name?: string;
@@ -18,6 +20,7 @@ export async function runContextSave(opts: {
   auto?: boolean;
   repo?: string;
   summary?: string;
+  sessionType?: string;
 }): Promise<void> {
   if (opts.auto) {
     const payload = await readStdinJson<AutoHookPayload>();
@@ -57,6 +60,7 @@ async function autoSave(payload: AutoHookPayload | null): Promise<void> {
     dirtyFiles: snap.dirtyFiles,
     summary,
     sessionId: payload.session_id ?? null,
+    sessionType: parseAutoSessionType(payload.session_type),
   });
   const linked = db.linkContextToActiveTasks(repo, hash, payload.session_id);
   db.close();
@@ -67,7 +71,7 @@ async function autoSave(payload: AutoHookPayload | null): Promise<void> {
   }
 }
 
-function manualSave(opts: { repo?: string; summary?: string }): void {
+function manualSave(opts: { repo?: string; summary?: string; sessionType?: string }): void {
   const cwd = process.cwd();
   const repo = opts.repo ?? inferRepoFromCwd(cwd);
   if (!repo) {
@@ -91,6 +95,7 @@ function manualSave(opts: { repo?: string; summary?: string }): void {
     dirtyFiles: snap.dirtyFiles,
     summary,
     sessionId: null,
+    sessionType: parseSessionType(opts.sessionType),
   });
   db.close();
 
@@ -103,6 +108,22 @@ function manualSave(opts: { repo?: string; summary?: string }): void {
   }
 }
 
+function parseSessionType(value: string | undefined): SessionTypeName | null {
+  if (!value) return null;
+  const parsed = SessionType.safeParse(value);
+  if (!parsed.success) {
+    console.log(chalk.red(`invalid session type: ${value}`));
+    console.log(chalk.gray(`expected one of: claude, codex, antigravity, cursor`));
+    process.exit(1);
+  }
+  return parsed.data;
+}
+
+function parseAutoSessionType(value: unknown): SessionTypeName {
+  const parsed = SessionType.safeParse(value);
+  return parsed.success ? parsed.data : "claude";
+}
+
 export function runContextList(opts: { repo?: string }): void {
   const db = new RelayDB();
   const contexts = db.listContexts(opts.repo, 50);
@@ -113,9 +134,10 @@ export function runContextList(opts: { repo?: string }): void {
   }
   for (const c of contexts) {
     const dirty = c.dirtyFiles.length ? chalk.yellow(` (+${c.dirtyFiles.length} dirty)`) : "";
+    const session = c.sessionType ? chalk.gray(` [${c.sessionType}]`) : "";
     const first = c.summary.split("\n")[0] ?? "";
     console.log(
-      `${chalk.gray(c.hash.slice(0, 10))}  ${chalk.cyan(c.repo.padEnd(20))}  ${chalk.dim(c.branch.padEnd(20))}  ${chalk.gray(c.createdAt)}${dirty}`,
+      `${chalk.gray(c.hash.slice(0, 10))}  ${chalk.cyan(c.repo.padEnd(20))}  ${chalk.dim(c.branch.padEnd(20))}  ${chalk.gray(c.createdAt)}${session}${dirty}`,
     );
     if (first) console.log(`    ${chalk.dim(first.slice(0, 100))}`);
   }

@@ -49,6 +49,7 @@ function ContextsInner() {
         ctx.summary.toLowerCase().includes(q) ||
         ctx.hash.toLowerCase().includes(q) ||
         ctx.headSha.toLowerCase().includes(q) ||
+        (ctx.sessionType ?? "").toLowerCase().includes(q) ||
         (ctx.sessionId ?? "").toLowerCase().includes(q) ||
         ctx.dirtyFiles.some((file) => file.toLowerCase().includes(q))
       );
@@ -474,8 +475,8 @@ function OnboardingCta() {
           <h2 className="text-[14px] font-semibold tracking-tight">No snapshots yet</h2>
           <p className="text-[12px] text-[var(--color-fg-muted)] mt-1 leading-relaxed">
             Contexts are repo-state snapshots — branch, HEAD SHA, dirty files, and a
-            one-line summary — saved automatically at the end of each Claude Code
-            session. Once set up, every Stop hook fire produces an entry here.
+            one-line summary — saved automatically by the Claude Code Stop hook
+            and by relay-run Codex / Antigravity completions.
           </p>
           <div className="mt-3 space-y-2">
             <div>
@@ -495,6 +496,12 @@ function OnboardingCta() {
                 Try one save manually
               </div>
               <CmdLine cmd='relay context save --summary "first manual snapshot"' />
+            </div>
+            <div>
+              <div className="text-[10.5px] uppercase tracking-wider text-[var(--color-fg-dim)] mb-1">
+                Save with a session family
+              </div>
+              <CmdLine cmd='relay context save --session-type codex --summary "codex checkpoint"' />
             </div>
           </div>
           <p className="text-[10.5px] text-[var(--color-fg-dim)] mt-3 leading-relaxed">

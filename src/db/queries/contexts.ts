@@ -2,11 +2,13 @@
 
 import type { Database } from "bun:sqlite";
 import { addGraphEdge, hydrateContext } from "../internal.js";
+import type { SessionType } from "../../types.js";
 import type { ContextGraphData, RelayContext } from "../types.js";
 
 /**
- * One-off data fixup: copy session_id from each linked task into the
- * matching context row, for contexts whose own session_id is still NULL.
+ * One-off data fixup: copy session_id / session_type from each linked task
+ * into the matching context row, for contexts whose own session metadata is
+ * still NULL.
  * Idempotent: re-running after a successful pass reports updated=0.
  */
 export function runContextSessionBackfill(
@@ -14,7 +16,7 @@ export function runContextSessionBackfill(
   opts: { dryRun?: boolean } = {},
 ): { total: number; eligible: number; updated: number } {
   const totalRow = db
-    .prepare(`SELECT COUNT(*) AS n FROM contexts WHERE session_id IS NULL`)
+    .prepare(`SELECT COUNT(*) AS n FROM contexts WHERE session_id IS NULL OR session_type IS NULL`)
     .get() as { n: number };
 
   const eligibleRow = db
@@ -23,7 +25,7 @@ export function runContextSessionBackfill(
          FROM contexts c
          JOIN tasks t
            ON t.context_hash = c.hash AND t.session_id IS NOT NULL
-        WHERE c.session_id IS NULL`,
+        WHERE c.session_id IS NULL OR c.session_type IS NULL`,
     )
     .get() as { n: number };
 
@@ -33,15 +35,29 @@ export function runContextSessionBackfill(
   const info = db
     .prepare(
       `UPDATE contexts
-          SET session_id = (
+          SET session_id = COALESCE(session_id, (
             SELECT t.session_id
               FROM tasks t
              WHERE t.context_hash = contexts.hash
                AND t.session_id IS NOT NULL
              ORDER BY t.updated_at DESC
              LIMIT 1
-          )
-        WHERE session_id IS NULL
+          )),
+              session_type = COALESCE(session_type, (
+            SELECT CASE t.source_type
+              WHEN 'claude_session_todo' THEN 'claude'
+              WHEN 'codex_session_todo' THEN 'codex'
+              WHEN 'antigravity_session_todo' THEN 'antigravity'
+              WHEN 'cursor_session_todo' THEN 'cursor'
+              ELSE NULL
+            END
+              FROM tasks t
+             WHERE t.context_hash = contexts.hash
+               AND t.session_id IS NOT NULL
+             ORDER BY t.updated_at DESC
+             LIMIT 1
+          ))
+        WHERE (session_id IS NULL OR session_type IS NULL)
           AND EXISTS (
             SELECT 1 FROM tasks t
              WHERE t.context_hash = contexts.hash
@@ -70,13 +86,14 @@ export function insertContext(
     dirtyFiles: string[];
     summary: string;
     sessionId?: string | null;
+    sessionType?: SessionType | null;
   },
 ): void {
   const now = new Date().toISOString();
   db
     .prepare(
-      `INSERT OR REPLACE INTO contexts (hash, repo, branch, head_sha, dirty_files, summary, session_id, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT OR REPLACE INTO contexts (hash, repo, branch, head_sha, dirty_files, summary, session_id, session_type, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       input.hash,
@@ -86,6 +103,7 @@ export function insertContext(
       JSON.stringify(input.dirtyFiles),
       input.summary,
       input.sessionId ?? null,
+      input.sessionType ?? null,
       now,
     );
 }

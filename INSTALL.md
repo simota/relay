@@ -128,6 +128,8 @@ manual          = true
 relay hook install
 relay hook status
 
+# Codex / Antigravity は relay run 完了時と relay sync 取り込み時に context snapshot を保存
+
 # Web UI を起動して http://127.0.0.1:7340 を開く
 relay web
 ```

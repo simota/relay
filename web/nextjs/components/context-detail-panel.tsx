@@ -13,6 +13,7 @@ import {
   Check, Copy, ExternalLink, FileCode, GitBranch, GitCommit, MessageSquare,
 } from "lucide-react";
 import { api } from "@/lib/api";
+import { contextSessionHref, contextSessionLabel, contextSessionType } from "@/lib/context-session";
 import { Badge, StatusDot } from "@/components/ui/badge";
 import { cn, timeAgo } from "@/lib/utils";
 import { formatNumber } from "@/lib/copy";
@@ -38,9 +39,9 @@ function Panel({ ctx }: { ctx: RelayContext }) {
     () => api.tasks({ context: ctx.hash, limit: 100 }),
   );
 
-  const sessionHref = ctx.sessionId
-    ? `/sessions?type=claude&id=${encodeURIComponent(ctx.sessionId)}`
-    : null;
+  const sessionType = contextSessionType(ctx);
+  const sessionLabel = contextSessionLabel(sessionType);
+  const sessionHref = contextSessionHref(ctx);
 
   return (
     <div className="h-full overflow-y-auto">
@@ -71,11 +72,11 @@ function Panel({ ctx }: { ctx: RelayContext }) {
             <Link
               href={sessionHref}
               className="inline-flex items-center gap-1.5 px-2 py-1 rounded-[var(--radius)] border border-[var(--color-accent)]/30 bg-[var(--color-accent)]/[0.06] text-[11.5px] font-mono text-[var(--color-accent)] hover:bg-[var(--color-accent)]/15 transition-colors"
-              title={`Open the Claude session that produced this snapshot`}
+              title={`Open the ${sessionLabel} session that produced this snapshot`}
             >
               <MessageSquare className="w-3.5 h-3.5" aria-hidden />
-              Open Claude session
-              <span className="text-[10px] opacity-70">claude:{ctx.sessionId!.slice(0, 8)}</span>
+              Open {sessionLabel} session
+              <span className="text-[10px] opacity-70">{sessionType}:{ctx.sessionId!.slice(0, 8)}</span>
             </Link>
           )}
           <Link

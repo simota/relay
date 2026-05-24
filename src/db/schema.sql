@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS contexts (
   dirty_files   TEXT    NOT NULL DEFAULT '[]',   -- JSON array
   summary       TEXT    NOT NULL DEFAULT '',
   session_id    TEXT,
+  session_type  TEXT,
   created_at    TEXT    NOT NULL,
   generated_at  TEXT,                            -- when summary was LLM-generated
   model_name    TEXT                             -- model that produced the summary

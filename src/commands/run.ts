@@ -1,11 +1,13 @@
 import { existsSync, readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import chalk from "chalk";
 import { loadConfig } from "../config.js";
+import { gitSnapshot } from "../context/git.js";
 import { RelayDB, type RelayContext } from "../db/client.js";
 import { buildPrompt, runTask } from "../executor/index.js";
 import { resolveRepoPath } from "../repo-resolver.js";
-import type { Task } from "../types.js";
+import type { SessionType, Task } from "../types.js";
 import { clearFocus, getFocus } from "./focus.js";
 
 export interface RunRunOptions {
@@ -57,7 +59,7 @@ export async function runRun(id: number, options: RunRunOptions = {}): Promise<v
     (task.assignee === "claude-code" || task.assignee === "codex");
   let preamble: string | undefined;
   let context: RelayContext | null = null;
-  if (task.assignee === "claude-code" && !willResume) {
+  if (agentSupportsContextPreamble(task.assignee) && !willResume) {
     context = task.context_hash
       ? db.getContext(task.context_hash)
       : db.getLatestContextForRepo(task.repo);
@@ -139,6 +141,7 @@ export async function runRun(id: number, options: RunRunOptions = {}): Promise<v
     });
     const db2 = new RelayDB();
     db2.finishRun(runId, result.status);
+    saveRunContextSnapshot(db2, task, repoRoot, result.status);
     // Status stays 'in_progress' — next `relay sync` reconciles from source state.
     db2.close();
     maybeClearFocusAfterRun(task.id, keepFocus);
@@ -146,11 +149,51 @@ export async function runRun(id: number, options: RunRunOptions = {}): Promise<v
   } catch (e) {
     const db2 = new RelayDB();
     db2.finishRun(runId, "failed", e instanceof Error ? e.message : String(e));
+    saveRunContextSnapshot(db2, task, repoRoot, "failed");
     db2.close();
     maybeClearFocusAfterRun(task.id, keepFocus);
     console.log(chalk.red(`✗ ${e instanceof Error ? e.message : String(e)}`));
     process.exit(1);
   }
+}
+
+function agentSupportsContextPreamble(assignee: Task["assignee"]): boolean {
+  return assignee === "claude-code" || assignee === "codex" || assignee === "antigravity";
+}
+
+function sessionTypeForAssignee(assignee: Task["assignee"]): SessionType | null {
+  if (assignee === "claude-code") return "claude";
+  if (assignee === "codex") return "codex";
+  if (assignee === "antigravity") return "antigravity";
+  return null;
+}
+
+function saveRunContextSnapshot(
+  db: RelayDB,
+  task: Task,
+  repoRoot: string,
+  status: "success" | "failed" | "interrupted",
+): void {
+  const sessionType = sessionTypeForAssignee(task.assignee);
+  // Claude Code already saves richer transcript summaries through its Stop hook.
+  if (sessionType !== "codex" && sessionType !== "antigravity") return;
+  const snap = gitSnapshot(repoRoot);
+  if (!snap) return;
+  const summary = `relay run #${task.id}: ${task.title}\nagent: ${task.assignee}\nstatus: ${status}`;
+  const hash = createHash("sha256")
+    .update(`${task.repo}:${snap.headSha}:${summary}:${Date.now()}`)
+    .digest("hex");
+  db.insertContext({
+    hash,
+    repo: task.repo,
+    branch: snap.branch,
+    headSha: snap.headSha,
+    dirtyFiles: snap.dirtyFiles,
+    summary,
+    sessionId: task.session_id,
+    sessionType,
+  });
+  db.linkContextToActiveTasks(task.repo, hash, task.session_id ?? undefined);
 }
 
 function formatPreamble(summary: string, branch: string, headSha: string): string {

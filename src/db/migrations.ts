@@ -16,12 +16,38 @@ export function runColumnMigrations(db: Database): void {
   if (!ctxCols.some((c) => c.name === "session_id")) {
     db.exec(`ALTER TABLE contexts ADD COLUMN session_id TEXT`);
   }
+  if (!ctxCols.some((c) => c.name === "session_type")) {
+    db.exec(`ALTER TABLE contexts ADD COLUMN session_type TEXT`);
+  }
   if (!ctxCols.some((c) => c.name === "generated_at")) {
     db.exec(`ALTER TABLE contexts ADD COLUMN generated_at TEXT`);
   }
   if (!ctxCols.some((c) => c.name === "model_name")) {
     db.exec(`ALTER TABLE contexts ADD COLUMN model_name TEXT`);
   }
+  db.exec(
+    `UPDATE contexts
+        SET session_type = (
+          SELECT CASE
+                   WHEN t.source_type = 'claude_session_todo' THEN 'claude'
+                   WHEN t.source_type = 'codex_session_todo' THEN 'codex'
+                   WHEN t.source_type = 'antigravity_session_todo' THEN 'antigravity'
+                   WHEN t.source_type = 'cursor_session_todo' THEN 'cursor'
+                   ELSE NULL
+                 END
+            FROM tasks t
+           WHERE t.context_hash = contexts.hash
+             AND t.session_id IS NOT NULL
+           ORDER BY t.updated_at DESC
+           LIMIT 1
+        )
+      WHERE session_type IS NULL
+        AND EXISTS (
+          SELECT 1 FROM tasks t
+           WHERE t.context_hash = contexts.hash
+             AND t.session_id IS NOT NULL
+        )`,
+  );
   db.exec(`CREATE INDEX IF NOT EXISTS idx_contexts_session ON contexts (session_id)`);
 
   // schema_version 2: tasks.wait_on. ALTER TABLE on existing DBs; the

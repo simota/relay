@@ -323,9 +323,15 @@ context
   .option("--auto", "read hook payload from stdin (called from Claude Code Stop hook)")
   .option("--repo <name>", "override repo (default: infer from cwd)")
   .option("--summary <text>", "manual summary")
+  .option("--session-type <type>", "session family: claude | codex | antigravity | cursor")
   .description("Save a context snapshot from the current repo.")
   .action(async (opts) => {
-    await runContextSave({ auto: Boolean(opts.auto), repo: opts.repo, summary: opts.summary });
+    await runContextSave({
+      auto: Boolean(opts.auto),
+      repo: opts.repo,
+      summary: opts.summary,
+      sessionType: opts.sessionType,
+    });
   });
 context
   .command("list")

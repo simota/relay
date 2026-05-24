@@ -13,7 +13,7 @@ export function classifyTasks(
   const result = { inserted: 0, updated: 0, unchanged: 0, sampleSourceIds: [] as string[] };
   if (tasks.length === 0) return result;
   const findStmt = db.prepare(
-    `SELECT title, body, priority, session_id, files, wait_on
+    `SELECT title, body, priority, context_hash, session_id, files, wait_on
        FROM tasks WHERE source_type = ? AND source_id = ?`,
   );
   const now = new Date().toISOString();
@@ -23,6 +23,7 @@ export function classifyTasks(
           title: string;
           body: string;
           priority: number;
+          context_hash: string | null;
           session_id: string | null;
           files: string | null;
           wait_on: string;
@@ -36,6 +37,7 @@ export function classifyTasks(
         existing.title !== row.title ||
         existing.body !== row.body ||
         existing.priority !== row.priority ||
+        (row.context_hash !== null && (existing.context_hash ?? null) !== row.context_hash) ||
         (existing.session_id ?? null) !== (row.session_id ?? null) ||
         (existing.files ?? null) !== (row.files ?? null) ||
         existing.wait_on !== row.wait_on;
@@ -54,7 +56,7 @@ export function upsertTasks(db: Database, tasks: TaskInput[]): UpsertResult {
   const result: UpsertResult = { inserted: 0, updated: 0, unchanged: 0 };
 
   const findStmt = db.prepare(
-    `SELECT id, title, body, priority, session_id, files, wait_on
+    `SELECT id, title, body, priority, context_hash, session_id, files, wait_on
        FROM tasks WHERE source_type = ? AND source_id = ?`,
   );
   const insertStmt = db.prepare(`
@@ -67,7 +69,7 @@ export function upsertTasks(db: Database, tasks: TaskInput[]): UpsertResult {
   const updateStmt = db.prepare(`
     UPDATE tasks SET
       repo = ?, title = ?, body = ?, priority = ?,
-      prompt = ?, files = ?, session_id = ?, due_at = ?,
+      prompt = ?, files = ?, context_hash = COALESCE(?, context_hash), session_id = ?, due_at = ?,
       wait_on = ?, updated_at = ?
     WHERE id = ?
   `);
@@ -81,6 +83,7 @@ export function upsertTasks(db: Database, tasks: TaskInput[]): UpsertResult {
             title: string;
             body: string;
             priority: number;
+            context_hash: string | null;
             session_id: string | null;
             files: string | null;
             wait_on: string;
@@ -114,6 +117,7 @@ export function upsertTasks(db: Database, tasks: TaskInput[]): UpsertResult {
         existing.title !== row.title ||
         existing.body !== row.body ||
         existing.priority !== row.priority ||
+        (row.context_hash !== null && (existing.context_hash ?? "") !== row.context_hash) ||
         (existing.session_id ?? "") !== (row.session_id ?? "") ||
         (existing.files ?? "") !== (row.files ?? "") ||
         existing.wait_on !== row.wait_on;
@@ -126,6 +130,7 @@ export function upsertTasks(db: Database, tasks: TaskInput[]): UpsertResult {
           row.priority,
           row.prompt,
           row.files,
+          row.context_hash,
           row.session_id,
           row.due_at,
           row.wait_on,

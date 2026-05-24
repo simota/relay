@@ -3,6 +3,7 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { resolveRepoForCwd } from "../lib/repo-from-cwd.js";
+import { saveSessionContext } from "./session-context.js";
 import {
   compileExcludePatterns,
   firstNonEmptyLine,
@@ -107,6 +108,17 @@ export const codexSessionAdapter: Adapter = {
       // can show "Codex was used here even though we don't track that repo".
       if (parsed.cwd && repo) {
         const title = truncate(parsed.firstUserMessage ?? "(no prompt)", 120);
+        const contextHash = ctx.dryRun
+          ? null
+          : saveSessionContext(ctx.db, {
+              sessionType: "codex",
+              sessionId: parsed.sessionId,
+              repo,
+              cwd: parsed.cwd,
+              title,
+              lastMessageText: parsed.lastMessageText,
+              status: parsed.status,
+            });
         tasks.push({
           source_type: "codex_session_todo",
           source_id: parsed.sessionId,
@@ -120,7 +132,7 @@ export const codexSessionAdapter: Adapter = {
           priority: 55,
           prompt: null,
           files: [],
-          context_hash: null,
+          context_hash: contextHash,
           session_id: parsed.sessionId,
           due_at: null,
           wait_on: "self",

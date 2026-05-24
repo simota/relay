@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { ListChecks, MessageSquare } from "lucide-react";
+import { contextSessionHref, contextSessionLabel, contextSessionType } from "@/lib/context-session";
 import { c, formatNumber } from "@/lib/copy";
 import { cn, timeAgo } from "@/lib/utils";
 import type { RelayContext } from "@/lib/types";
@@ -24,9 +25,9 @@ export function ContextItem({
   selected: boolean;
   onSelect: (hash: string) => void;
 }) {
-  const sessionHref = ctx.sessionId
-    ? `/sessions?type=claude&id=${encodeURIComponent(ctx.sessionId)}`
-    : null;
+  const sessionType = contextSessionType(ctx);
+  const sessionHref = contextSessionHref(ctx);
+  const sessionLabel = contextSessionLabel(sessionType);
   const tasksHref = ctx.linkedTasksCount > 0
     ? `/tasks?status=open&repo=${encodeURIComponent(ctx.repo)}`
     : null;
@@ -85,10 +86,10 @@ export function ContextItem({
                 href={sessionHref}
                 onClick={(e) => e.stopPropagation()}
                 className="inline-flex items-center gap-1 px-1.5 py-[1px] rounded-full border border-[var(--color-accent)]/30 bg-[var(--color-accent)]/[0.06] text-[10px] font-mono text-[var(--color-accent)] hover:bg-[var(--color-accent)]/15 transition-colors"
-                title={`Jump to Claude session ${ctx.sessionId}`}
+                title={`Jump to ${sessionLabel} session ${ctx.sessionId}`}
               >
                 <MessageSquare className="w-3 h-3" aria-hidden />
-                <span className="tabular">claude:{ctx.sessionId.slice(0, 8)}</span>
+                <span className="tabular">{sessionType}:{ctx.sessionId.slice(0, 8)}</span>
               </Link>
             )}
           </div>

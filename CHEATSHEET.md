@@ -66,7 +66,7 @@ CLI と Web UI の早見表。インストールは `INSTALL.md`、Web UI 詳細
 
 | Command | 用途 |
 |---|---|
-| `relay context save [--auto] [--repo X] [--summary "..."]` | 現 repo の作業 snapshot。`--auto` は Claude Stop hook 経由。 |
+| `relay context save [--auto] [--repo X] [--summary "..."] [--session-type claude\|codex\|antigravity\|cursor]` | 現 repo の作業 snapshot。`--auto` は Claude Stop hook 経由。Codex / Antigravity は `relay run` 完了時と `relay sync` 取り込み時にも保存。 |
 | `relay context list [--repo X]` | 保存済み context 一覧。 |
 | `relay context show <hash>` | 1 件の本文。 |
 | `relay context summarize <hash> [--llm]` | 一行サマリ生成。`--llm` で Claude 経由。 |

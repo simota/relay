@@ -8,11 +8,12 @@ import {
   ArrowLeft, Copy, ExternalLink, GitBranch, GitCommit,
 } from "lucide-react";
 import { api } from "@/lib/api";
+import { contextSessionLabel, contextSessionType } from "@/lib/context-session";
 import { cn, timeAgo } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
 import { StatusDot, Badge } from "@/components/ui/badge";
-import type { RelayContext, Task } from "@/lib/types";
+import type { RelayContext, SessionType, Task } from "@/lib/types";
 
 export default function ContextPage() {
   return (
@@ -61,9 +62,9 @@ function Detail({ ctx }: { ctx: RelayContext }) {
     () => api.tasks({ context: ctx.hash, limit: 20 }),
   );
 
-  const resumeCmd = ctx.sessionId
-    ? `cd ${repoPath} && claude --resume ${ctx.sessionId}`
-    : null;
+  const sessionType = contextSessionType(ctx);
+  const sessionLabel = contextSessionLabel(sessionType);
+  const resumeCmd = buildResumeCommand(ctx, repoPath, sessionType);
 
   const copy = useCallback(async (label: string, text: string) => {
     try {
@@ -98,9 +99,9 @@ function Detail({ ctx }: { ctx: RelayContext }) {
             <span className="inline-flex items-center gap-1.5 font-mono text-[12px] text-[var(--color-fg-dim)]">
               <GitCommit className="w-3.5 h-3.5" /> {ctx.headSha.slice(0, 10)}
             </span>
-            {ctx.sessionId && (
+            {sessionType && (
               <span className="inline-flex items-center gap-1.5 text-[10.5px] text-[var(--color-accent)] uppercase tracking-wider font-medium">
-                <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-accent)]" /> resumable
+                <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-accent)]" /> {sessionLabel}
               </span>
             )}
           </div>
@@ -121,7 +122,7 @@ function Detail({ ctx }: { ctx: RelayContext }) {
             </Button>
           ) : (
             <span className="text-[12px] text-[var(--color-fg-dim)] font-mono">
-              no session linked · <code className="text-[var(--color-fg-muted)]">relay backfill</code> may fix
+              no resumable command · <code className="text-[var(--color-fg-muted)]">relay backfill</code> may fix older rows
             </span>
           )}
           <Link
@@ -189,6 +190,7 @@ function Detail({ ctx }: { ctx: RelayContext }) {
         {/* Meta grid */}
         <Section title="metadata">
           <Meta label="hash" mono>{ctx.hash}</Meta>
+          {sessionType && <Meta label="type" mono><span className="text-[var(--color-accent)]">{sessionType}</span></Meta>}
           {ctx.sessionId && <Meta label="session" mono><span className="text-[var(--color-accent)]">{ctx.sessionId}</span></Meta>}
           <Meta label="HEAD" mono>{ctx.headSha}</Meta>
           <Meta label="branch" mono>{ctx.branch}</Meta>
@@ -263,4 +265,37 @@ function Meta({ label, mono, children }: { label: string; mono?: boolean; childr
       <span className={cn("text-[var(--color-fg)] break-all", mono && "font-mono")}>{children}</span>
     </div>
   );
+}
+
+function buildResumeCommand(
+  ctx: RelayContext,
+  repoPath: string,
+  sessionType: SessionType | null,
+): string | null {
+  const cd = `cd ${quoteShellArg(repoPath)}`;
+  if (sessionType === "claude" && ctx.sessionId) {
+    return `${cd} && claude --resume ${quoteShellArg(ctx.sessionId)}`;
+  }
+  if (sessionType === "codex" && ctx.sessionId) {
+    return `${cd} && codex resume ${quoteShellArg(ctx.sessionId)}`;
+  }
+  if (sessionType === "antigravity") {
+    return `${cd} && agy ${quoteShellArg(contextPreamble(ctx))}`;
+  }
+  return null;
+}
+
+function contextPreamble(ctx: RelayContext): string {
+  const lines = [
+    `Continue from relay context ${ctx.hash.slice(0, 10)}.`,
+    `Repo: ${ctx.repo}`,
+    `Branch: ${ctx.branch}`,
+    `HEAD: ${ctx.headSha}`,
+  ];
+  if (ctx.summary.trim()) lines.push("", ctx.summary.trim());
+  return lines.join("\n");
+}
+
+function quoteShellArg(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
 }

@@ -29,6 +29,8 @@ export type Assignee =
   | "self"
   | "human-review";
 
+export type SessionType = "claude" | "codex" | "antigravity" | "cursor";
+
 // Mirrors src/types.ts WaitOn. Old DB rows backfill to 'self' on read.
 export type WaitOn = "self" | "reviewer" | "external" | "scheduled";
 
@@ -90,6 +92,7 @@ export interface RelayContext {
   dirtyFiles: string[];
   summary: string;
   sessionId: string | null;
+  sessionType: SessionType | null;
   createdAt: string;
   /** Count of tasks pointing at this context via tasks.context_hash. */
   linkedTasksCount: number;

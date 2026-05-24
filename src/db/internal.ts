@@ -13,6 +13,7 @@ export function hydrateContext(row: Record<string, unknown>): RelayContext {
     dirtyFiles: row.dirty_files ? JSON.parse(row.dirty_files as string) : [],
     summary: (row.summary as string) ?? "",
     sessionId: (row.session_id as string | null) ?? null,
+    sessionType: (row.session_type as RelayContext["sessionType"]) ?? null,
     createdAt: row.created_at as string,
     generatedAt: (row.generated_at as string | null) ?? null,
     modelName: (row.model_name as string | null) ?? null,

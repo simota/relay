@@ -3,7 +3,7 @@
 // facade. `client.ts` re-exports every name from this file for backward
 // compatibility — external code keeps importing from `../db/client.js`.
 
-import type { Task } from "../types.js";
+import type { SessionType, Task } from "../types.js";
 
 export interface SnapshotRow {
   source_type: string;
@@ -112,6 +112,7 @@ export interface RelayContext {
   dirtyFiles: string[];
   summary: string;
   sessionId: string | null;
+  sessionType: SessionType | null;
   createdAt: string;
   generatedAt: string | null;
   modelName: string | null;

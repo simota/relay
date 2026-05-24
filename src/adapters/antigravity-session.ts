@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { deriveCwdFromMentions } from "../lib/antigravity-workspace.js";
 import { resolveRepoForCwd } from "../lib/repo-from-cwd.js";
+import { saveSessionContext } from "./session-context.js";
 import {
   compileExcludePatterns,
   firstNonEmptyLine,
@@ -147,6 +148,17 @@ export const antigravitySessionAdapter: Adapter = {
 
       if (cwd && repo) {
         const title = truncate(parsed.firstUserMessage ?? "(no prompt)", 120);
+        const contextHash = ctx.dryRun
+          ? null
+          : saveSessionContext(ctx.db, {
+              sessionType: "antigravity",
+              sessionId: parsed.conversationId,
+              repo,
+              cwd,
+              title,
+              lastMessageText: parsed.lastMessageText,
+              status: parsed.status,
+            });
         tasks.push({
           source_type: "antigravity_session_todo",
           source_id: parsed.conversationId,
@@ -160,7 +172,7 @@ export const antigravitySessionAdapter: Adapter = {
           priority: 55,
           prompt: null,
           files: [],
-          context_hash: null,
+          context_hash: contextHash,
           session_id: parsed.conversationId,
           due_at: null,
           wait_on: "self",
