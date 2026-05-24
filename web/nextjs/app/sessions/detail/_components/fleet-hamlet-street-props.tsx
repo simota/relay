@@ -42,7 +42,7 @@ export function StreetPropsLayer({
     >
       {props.map((p) => {
         const left = p.col * cellW + p.offsetX * cellW;
-        const top = p.row * cellH + p.offsetY * cellH;
+        const top = p.row * cellH + groundedOffsetY(p) * cellH;
         return (
           <span
             key={p.id}
@@ -63,6 +63,20 @@ export function StreetPropsLayer({
       })}
     </div>
   );
+}
+
+function groundedOffsetY(prop: StreetProp): number {
+  switch (prop.kind) {
+    case "billboard":
+      return Math.max(prop.offsetY, 0.66);
+    case "bench":
+    case "vending":
+    case "bus-stop":
+    case "trash":
+      return Math.max(prop.offsetY, 0.72);
+    default:
+      return prop.offsetY;
+  }
 }
 
 // ---------------------------------------------------------------------------

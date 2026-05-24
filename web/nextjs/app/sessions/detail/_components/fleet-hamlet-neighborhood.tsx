@@ -2122,16 +2122,18 @@ function FestivalOverlay({
     });
   }, []);
 
-  // 3-5 lanterns evenly spaced along the sky-band top.
+  // 3-5 lanterns evenly spaced along a visible hanging cord. Without the
+  // cord they read as unexplained floating objects in the sky.
   const lanternCount = 3 + ((sceneW > 500 ? 2 : 0));
+  const lanternCordY = Math.max(18, Math.min(48, skyCeilingY * 0.16));
   const lanterns = useMemo(() => {
     return Array.from({ length: lanternCount }).map((_, i) => ({
       id: i,
       x: (sceneW / (lanternCount + 1)) * (i + 1),
-      y: skyCeilingY * 0.18 + (i % 2) * 6,
+      y: lanternCordY + 10 + (i % 2) * 6,
       delay: i * 0.3,
     }));
-  }, [lanternCount, sceneW, skyCeilingY]);
+  }, [lanternCordY, lanternCount, sceneW]);
 
   return (
     <div
@@ -2157,18 +2159,47 @@ function FestivalOverlay({
         />
       ))}
       {/* Lantern row */}
+      {lanterns.length > 0 && (
+        <svg
+          aria-hidden
+          className="absolute inset-x-0 pointer-events-none"
+          width={sceneW}
+          height={Math.max(1, lanternCordY + 2)}
+          viewBox={`0 0 ${sceneW} ${Math.max(1, lanternCordY + 2)}`}
+          style={{ top: 0, left: 0 }}
+        >
+          <path
+            d={`M 0 ${lanternCordY} C ${sceneW * 0.25} ${lanternCordY + 8}, ${sceneW * 0.75} ${lanternCordY + 8}, ${sceneW} ${lanternCordY}`}
+            fill="none"
+            stroke="rgba(60, 50, 38, 0.35)"
+            strokeWidth={1}
+          />
+        </svg>
+      )}
       {lanterns.map((l) => (
         <span
           key={l.id}
           aria-hidden
           style={{
             position: "absolute",
-            left: l.x - 6,
+            left: l.x - 7,
             top: l.y,
             fontSize: 14,
             animation: `relayFestivalLantern 3.5s ease-in-out ${l.delay.toFixed(1)}s infinite`,
           }}
         >
+          <span
+            aria-hidden
+            style={{
+              position: "absolute",
+              left: 7,
+              bottom: 13,
+              width: 1,
+              height: Math.max(6, l.y - lanternCordY),
+              background: "rgba(60, 50, 38, 0.35)",
+              transform: "translateX(-50%)",
+            }}
+          />
           🏮
         </span>
       ))}
@@ -2191,29 +2222,101 @@ function WildlifeLayer({
 }) {
   return (
     <div aria-hidden className="absolute inset-0 pointer-events-none overflow-hidden">
-      {specs.map((s, i) => (
-        <span
-          key={`${s.kind}-${i}`}
-          title={s.label}
-          style={{
-            position: "absolute",
-            left: s.xFrac * sceneW,
-            top: s.yFrac * sceneH,
-            fontSize: s.kind === "owl" || s.kind === "cat" ? 16 : 13,
-            animation:
-              s.kind === "butterfly"
-                ? `relayHamletHover 4s ease-in-out ${s.delayS.toFixed(1)}s infinite`
-                : s.kind === "frog"
-                ? `relayHamletBounce 2.8s ease-in-out ${s.delayS.toFixed(1)}s infinite`
-                : s.kind === "owl"
-                ? `relayHamletTwinkle 3.5s ease-in-out ${s.delayS.toFixed(1)}s infinite`
-                : undefined,
-          }}
-        >
-          {s.glyph}
-        </span>
-      ))}
+      {specs.map((s, i) => {
+        const flying = s.kind === "butterfly";
+        const fontSize = s.kind === "owl" || s.kind === "cat" ? 16 : 13;
+        return (
+          <span
+            key={`${s.kind}-${i}`}
+            title={s.label}
+            style={{
+              position: "absolute",
+              left: s.xFrac * sceneW,
+              top: s.yFrac * sceneH,
+              transform: flying ? "translate(-50%, -50%)" : "translate(-50%, -100%)",
+              width: 28,
+              height: flying ? 24 : 30,
+            }}
+          >
+            {s.kind === "owl" && <WildlifePerch />}
+            {(s.kind === "frog" || s.kind === "cat") && (
+              <WildlifeGroundShadow kind={s.kind} />
+            )}
+            <span
+              style={{
+                position: "absolute",
+                left: "50%",
+                bottom: flying ? 4 : s.kind === "owl" ? 7 : 5,
+                transform: "translateX(-50%)",
+                fontSize,
+                lineHeight: 1,
+                animation:
+                  s.kind === "butterfly"
+                    ? `relayHamletHover 4s ease-in-out ${s.delayS.toFixed(1)}s infinite`
+                    : s.kind === "frog"
+                      ? `relayHamletBounce 2.8s ease-in-out ${s.delayS.toFixed(1)}s infinite`
+                      : s.kind === "owl"
+                        ? `relayHamletTwinkle 3.5s ease-in-out ${s.delayS.toFixed(1)}s infinite`
+                        : undefined,
+              }}
+            >
+              {s.glyph}
+            </span>
+          </span>
+        );
+      })}
     </div>
+  );
+}
+
+function WildlifeGroundShadow({ kind }: { kind: "frog" | "cat" }) {
+  return (
+    <span
+      aria-hidden
+      style={{
+        position: "absolute",
+        left: "50%",
+        bottom: 0,
+        transform: "translateX(-50%)",
+        width: kind === "cat" ? 24 : 18,
+        height: 5,
+        borderRadius: "50%",
+        background: "rgba(45, 55, 35, 0.22)",
+        boxShadow: "0 0 4px rgba(45,55,35,0.16)",
+      }}
+    />
+  );
+}
+
+function WildlifePerch() {
+  return (
+    <span
+      aria-hidden
+      style={{
+        position: "absolute",
+        left: "50%",
+        bottom: 3,
+        transform: "translateX(-50%)",
+        width: 24,
+        height: 10,
+        borderBottom: "2px solid rgba(79, 57, 35, 0.65)",
+        borderRadius: "0 0 50% 50%",
+      }}
+    >
+      <span
+        aria-hidden
+        style={{
+          position: "absolute",
+          left: 4,
+          bottom: 1,
+          width: 6,
+          height: 1,
+          background: "rgba(79, 57, 35, 0.55)",
+          transform: "rotate(-28deg)",
+          transformOrigin: "right center",
+        }}
+      />
+    </span>
   );
 }
 
