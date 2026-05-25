@@ -99,8 +99,10 @@ const SIGN_LABELS = ["STOP", "→", "←", "↑", "SLOW", "YIELD"];
  * The placement strategy:
  *  - Iterate (col, row) gaps between house cells.
  *  - Use the seed to deterministically choose a prop kind per gap.
- *  - Skew utility poles to the top edge of cells (front of cell), benches /
- *    vending machines to the bottom edge so they sit on the street.
+ *  - Anchor all props — including tall ones (utility poles, signs,
+ *    billboards) — to the ground line so their bases sit on the street.
+ *    The "back" lane only differs in column offset and prop bias, not in
+ *    vertical anchor.
  *  - Seasonal/weather addons (puddle / fallen-leaves / snow-pile) are
  *    appended on top of the core list, anchored near the front edge.
  */
@@ -122,18 +124,18 @@ export function pickStreetProps(
   };
 
   const count = tier.base + Math.floor(rand() * (tier.variance + 1));
-  // Gap inventory — interstitial slots between cells (col .5, row .8) plus
-  // a few "back of cell" spots (col, row .15) for tall props like poles.
-  // We cap at `count` distinct slots, picking deterministically per seed.
+  // Gap inventory — interstitial slots between cells along the street.
+  // Front lane sits between adjacent cells (col .5), back lane sits at the
+  // cell edge (col 0). Both lanes share the same ground-line anchor
+  // (`oy = 0.78`) so tall props (poles, signs) stand on the street and
+  // rise into the sky instead of floating in mid-air. Back lane is only
+  // populated for every other column to avoid crowding.
   const gaps: { col: number; row: number; ox: number; oy: number; backRow: boolean }[] = [];
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
-      // Front-of-cell street furniture lane (between cell + next cell).
       gaps.push({ col: c, row: r, ox: 0.5, oy: 0.78, backRow: false });
-      // Back-of-cell utility lane — only every other column so we don't
-      // crowd the sky with poles.
       if (c % 2 === 0) {
-        gaps.push({ col: c, row: r, ox: 0.0, oy: 0.18, backRow: true });
+        gaps.push({ col: c, row: r, ox: 0.0, oy: 0.78, backRow: true });
       }
     }
   }

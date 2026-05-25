@@ -67,6 +67,9 @@ export function StreetPropsLayer({
 
 function groundedOffsetY(prop: StreetProp): number {
   switch (prop.kind) {
+    case "utility-pole":
+    case "traffic-sign":
+      return Math.max(prop.offsetY, 0.78);
     case "billboard":
       return Math.max(prop.offsetY, 0.66);
     case "bench":
