@@ -1,4 +1,5 @@
 import chalk from "chalk";
+import { displayWidth, padEndDisplay } from "../lib/text-width.js";
 import {
   bucketByDate,
   collectActivityInWindow,
@@ -275,10 +276,10 @@ function printTaskList(
   { showDue }: { showDue: boolean },
 ): void {
   const idW = Math.max(2, ...tasks.map((t) => String(t.id).length));
-  const repoW = Math.max(4, ...tasks.map((t) => t.repo.length));
+  const repoW = Math.max(4, ...tasks.map((t) => displayWidth(t.repo)));
   for (const t of tasks) {
     const id = String(t.id).padStart(idW);
-    const repo = t.repo.padEnd(repoW);
+    const repo = padEndDisplay(t.repo, repoW);
     const title = truncate(t.title, 60);
     const due = showDue && t.due_at ? chalk.dim(` (${shortDate(t.due_at)})`) : "";
     console.log(

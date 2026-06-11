@@ -8,6 +8,7 @@ import {
   priorityHistory,
 } from "../lib/priority.js";
 import { buildResumeBrief, type ResumeBriefCandidate } from "../lib/resume-brief.js";
+import { displayWidth, padEndDisplay } from "../lib/text-width.js";
 import { findMissingRepos } from "../repo-metadata.js";
 import type { SourceType, Task } from "../types.js";
 import { clearFocus, getFocus } from "./focus.js";
@@ -167,12 +168,12 @@ function printTable(
   cues?: Map<number, { age: string; summary: string }>,
 ): void {
   const idW = Math.max(2, ...tasks.map((t) => String(t.id).length));
-  const repoW = Math.max(4, ...tasks.map((t) => t.repo.length));
+  const repoW = Math.max(4, ...tasks.map((t) => displayWidth(t.repo)));
   const agentW = Math.max(5, ...tasks.map((t) => t.assignee.length));
 
   for (const t of tasks) {
     const id = String(t.id).padStart(idW);
-    const repo = t.repo.padEnd(repoW);
+    const repo = padEndDisplay(t.repo, repoW);
     const agent = t.assignee.padEnd(agentW);
     const title = truncate(t.title, 60);
     const marker = statusMarker(t.status);

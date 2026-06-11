@@ -1,4 +1,5 @@
 import chalk from "chalk";
+import { displayWidth, padEndDisplay } from "../lib/text-width.js";
 import { loadConfig, resolveScanRoots } from "../config.js";
 import { RelayDB } from "../db/client.js";
 import { findMissingRepos } from "../repo-metadata.js";
@@ -161,12 +162,12 @@ function printSection(
   }
 
   const idW = Math.max(2, ...tasks.map((t) => String(t.id).length));
-  const repoW = Math.max(4, ...tasks.map((t) => t.repo.length));
+  const repoW = Math.max(4, ...tasks.map((t) => displayWidth(t.repo)));
   const agentW = Math.max(5, ...tasks.map((t) => t.assignee.length));
 
   for (const t of tasks) {
     const id = String(t.id).padStart(idW);
-    const repo = t.repo.padEnd(repoW);
+    const repo = padEndDisplay(t.repo, repoW);
     const agent = t.assignee.padEnd(agentW);
     const title = truncate(t.title, 60);
     const marker = sectionMarker(kind, t);
