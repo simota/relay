@@ -272,12 +272,12 @@ function mapGeneric(r: Record<string, unknown>): NormalizedRow | null {
 }
 
 function mapCsv(raw: string, kind: ImportKind): NormalizedRow[] {
-  const lines = raw.split(/\r?\n/).filter((l) => l.length > 0);
-  if (lines.length < 2) return [];
-  const header = parseCsvLine(lines[0]!);
+  const rows = parseCsv(raw).filter((cells) => cells.some((cell) => cell.length > 0));
+  if (rows.length < 2) return [];
+  const header = rows[0]!;
   const records: Array<Record<string, unknown>> = [];
-  for (let i = 1; i < lines.length; i++) {
-    const values = parseCsvLine(lines[i]!);
+  for (let i = 1; i < rows.length; i++) {
+    const values = rows[i]!;
     const row: Record<string, unknown> = {};
     for (let j = 0; j < header.length; j++) {
       row[header[j]!] = values[j] ?? "";
@@ -296,16 +296,19 @@ function mapCsv(raw: string, kind: ImportKind): NormalizedRow[] {
   });
 }
 
-// Minimal CSV parser — handles double-quote quoting + escaped quotes ("").
-// Not a full RFC 4180; sufficient for Notion / Linear / spreadsheet exports.
-function parseCsvLine(line: string): string[] {
-  const out: string[] = [];
+// Minimal CSV parser — handles double-quote quoting, escaped quotes ("")
+// and newlines inside quoted fields (Notion/Things notes regularly contain
+// them). Parses the whole document so a quoted multi-line cell never splits
+// a record. Not a full RFC 4180; sufficient for spreadsheet exports.
+function parseCsv(raw: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
   let cur = "";
   let inQuote = false;
-  for (let i = 0; i < line.length; i++) {
-    const c = line[i];
+  for (let i = 0; i < raw.length; i++) {
+    const c = raw[i];
     if (inQuote) {
-      if (c === '"' && line[i + 1] === '"') {
+      if (c === '"' && raw[i + 1] === '"') {
         cur += '"';
         i++;
       } else if (c === '"') {
@@ -316,14 +319,25 @@ function parseCsvLine(line: string): string[] {
     } else if (c === '"') {
       inQuote = true;
     } else if (c === ",") {
-      out.push(cur);
+      row.push(cur);
       cur = "";
+    } else if (c === "\n" || c === "\r") {
+      if (c === "\r" && raw[i + 1] === "\n") i++;
+      row.push(cur);
+      cur = "";
+      rows.push(row);
+      row = [];
     } else {
       cur += c;
     }
   }
-  out.push(cur);
-  return out;
+  // An unterminated quote means the export was truncated mid-field; keep
+  // whatever was collected rather than dropping the trailing record.
+  if (cur.length > 0 || row.length > 0) {
+    row.push(cur);
+    rows.push(row);
+  }
+  return rows;
 }
 
 function pick(r: Record<string, unknown>, keys: string[]): string | null {
