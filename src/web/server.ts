@@ -163,7 +163,10 @@ export function buildApp() {
   app.route("/api/resume-brief", createResumeBriefApi());
 
   app.get("/api/today", (c) => {
-    const limit = Number(c.req.query("limit") ?? 50);
+    // Clamped to [1, 500]; falls back to 50 on NaN / empty / non-positive
+    // input so a malformed query can't reach the SQL LIMIT binding.
+    const limitQ = Number(c.req.query("limit") ?? "");
+    const limit = Number.isFinite(limitQ) && limitQ > 0 ? Math.min(500, Math.round(limitQ)) : 50;
     const db = new RelayDB();
     // Filter out tasks from repos whose directory no longer exists. The
     // rows stay in the DB (so re-clone can restore them), they just don't
@@ -185,7 +188,8 @@ export function buildApp() {
     const assignee = c.req.query("assignee");
     const context = c.req.query("context");
     const session = c.req.query("session_id");
-    const limit = Number(c.req.query("limit") ?? 500);
+    const limitQ = Number(c.req.query("limit") ?? "");
+    const limit = Number.isFinite(limitQ) && limitQ > 0 ? Math.min(2000, Math.round(limitQ)) : 500;
 
     const db = new RelayDB();
     const hasFilter = Boolean(status || repo || source || assignee || context || session || age);

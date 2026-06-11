@@ -30,7 +30,8 @@ export function createUndoApi() {
   const app = new Hono();
 
   app.get("/", (c) => {
-    const limit = Number(c.req.query("limit") ?? 20);
+    const limitQ = Number(c.req.query("limit") ?? "");
+    const limit = Number.isFinite(limitQ) && limitQ > 0 ? Math.min(200, Math.round(limitQ)) : 20;
     const db = new RelayDB();
     const rows: UndoListItem[] = db.listUndo(limit).map((row) => ({
       id: row.id,

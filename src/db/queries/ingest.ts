@@ -37,9 +37,11 @@ export function classifyTasks(
         existing.title !== row.title ||
         existing.body !== row.body ||
         existing.priority !== row.priority ||
-        (row.context_hash !== null && (existing.context_hash ?? null) !== row.context_hash) ||
-        (existing.session_id ?? null) !== (row.session_id ?? null) ||
-        (existing.files ?? null) !== (row.files ?? null) ||
+        // Mirror upsertTasks' comparison exactly so the dry-run counts
+        // (classify) always match what the real ingest will report.
+        (row.context_hash !== null && (existing.context_hash ?? "") !== row.context_hash) ||
+        (existing.session_id ?? "") !== (row.session_id ?? "") ||
+        (existing.files ?? "") !== (row.files ?? "") ||
         existing.wait_on !== row.wait_on;
       if (changed) result.updated++;
       else result.unchanged++;

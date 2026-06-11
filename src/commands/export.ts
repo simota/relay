@@ -32,7 +32,7 @@ export function runExport(opts: ExportOptions): void {
   };
 
   try {
-    writeFileSync(opts.file, JSON.stringify(payload, null, 2));
+    writeFileSync(opts.file, JSON.stringify(payload, null, 2) + "\n");
   } catch (e) {
     console.log(chalk.red(`could not write ${opts.file}: ${(e as Error).message}`));
     process.exit(1);
