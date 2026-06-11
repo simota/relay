@@ -11,12 +11,12 @@ import { Button } from "@/components/ui/button";
 import { Badge, StatusDot } from "@/components/ui/badge";
 import { Kbd } from "@/components/ui/kbd";
 import { useUndoToast } from "@/components/toast";
+import { sourceTypeToSessionType, stripSessionIdPrefix } from "@/lib/session-link";
 import type { Task, SourceType } from "@/lib/types";
-import type { SessionType } from "@/lib/api";
 
 export function TaskDetail({ task, onChange }: { task: Task | null; onChange?: () => void }) {
   const [busy, setBusy] = useState<string | null>(null);
-  const { pushUndo } = useUndoToast();
+  const { pushUndo, pushError } = useUndoToast();
   const { data: contextRow } = useSWR(
     task?.context_hash ? `/api/contexts/${task.context_hash}` : null,
     () => task?.context_hash ? api.context(task.context_hash) : null,
@@ -43,6 +43,8 @@ export function TaskDetail({ task, onChange }: { task: Task | null; onChange?: (
       }
       if (action === "reopen") await api.reopen(task.id);
       onChange?.();
+    } catch {
+      pushError(c("toast.actionFailed", { action }));
     } finally {
       setBusy(null);
     }
@@ -106,14 +108,18 @@ export function TaskDetail({ task, onChange }: { task: Task | null; onChange?: (
               current={task.assignee}
               onChange={async (next) => {
                 if (next === task.assignee) return;
-                await api.reassign(task.id, next);
-                onChange?.();
+                try {
+                  await api.reassign(task.id, next);
+                  onChange?.();
+                } catch {
+                  pushError(c("toast.actionFailed", { action: "reassign" }));
+                }
               }}
             />
           </MetaRow>
           <MetaRow label={c("task.priority")} mono>{formatNumber(task.priority)}</MetaRow>
-          <MetaRow label={c("task.updated")} mono>{timeAgo(task.updated_at)} ago</MetaRow>
-          {task.due_at && <MetaRow label={c("task.due")} mono>{timeAgo(task.due_at)}</MetaRow>}
+          <MetaRow label={c("task.updated")} mono>{timeAgo(task.updated_at)}</MetaRow>
+          {task.due_at && <MetaRow label={c("task.due")} mono>{formatDue(task.due_at)}</MetaRow>}
           {task.session_id && (
             <MetaRow label={c("task.session")} mono>
               <SessionLink sessionId={task.session_id} sourceType={task.source_type} />
@@ -478,38 +484,14 @@ function AssigneePicker({
   );
 }
 
-/**
- * Map a session-style source_type to its corresponding live-session viewer
- * type. Returns null for non-session sources (github_pr, code_todo, etc.) so
- * the caller can choose to render plain text instead of a navigable link.
- */
-function sourceTypeToSessionType(source: SourceType): SessionType | null {
-  switch (source) {
-    case "claude_session_todo":
-      return "claude";
-    case "codex_session_todo":
-      return "codex";
-    case "antigravity_session_todo":
-      return "antigravity";
-    case "cursor_session_todo":
-      // Cursor sessions don't have a live SSE viewer (no JSONL on disk in the
-      // same way), so the detail page would 400. Skip the link to avoid a
-      // dead end.
-      return null;
-    default:
-      return null;
-  }
-}
-
-/**
- * Strip the namespacing prefix (`tc-` / `tw-`) the claude-session adapter
- * occasionally adds to id values to avoid UNIQUE collisions. Mirror of the
- * server-side `stripSessionIdPrefix` helper — duplicated here because the
- * frontend has no shared import path with `src/lib/session-helpers.ts`.
- */
-function stripSessionIdPrefix(id: string): string {
-  if (id.startsWith("tc-") || id.startsWith("tw-")) return id.slice(3);
-  return id;
+// Due dates sit in the future, so the relative `timeAgo` formatter would
+// render them all as "now" — count forward instead.
+function formatDue(dueAt: string): string {
+  const ms = new Date(dueAt).getTime() - Date.now();
+  if (!Number.isFinite(ms)) return dueAt;
+  if (ms <= 0) return timeAgo(dueAt);
+  const days = Math.ceil(ms / 86_400_000);
+  return `in ${formatNumber(days)}d`;
 }
 
 function SessionLink({ sessionId, sourceType }: { sessionId: string; sourceType: SourceType }) {

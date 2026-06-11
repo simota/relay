@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import useSWR, { useSWRConfig } from "swr";
 import { api } from "@/lib/api";
 import { StatCard } from "@/components/stat-card";
@@ -14,6 +15,7 @@ import { NewTaskDialog } from "@/components/new-task-dialog";
 import { Button } from "@/components/ui/button";
 import { useUndoToast } from "@/components/toast";
 import { fuzzyFilter, type Filtered } from "@/lib/fuzzy";
+import { sessionHrefForTask } from "@/lib/session-link";
 import type { Counts, Task } from "@/lib/types";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
 import { ArrowUpRight, Check, ChevronRight, Pause, X } from "lucide-react";
@@ -60,6 +62,7 @@ export default function TodayPage() {
     setTodayLabel(new Date().toISOString().slice(0, 10));
   }, []);
 
+  const router = useRouter();
   const rows = useMemo(() => fuzzyFilter(tasks, ""), [tasks]);
   // Split Today into two stacks: things I drive ("self") on top, things
   // waiting on someone else (reviewer/external/scheduled) collapsed below.
@@ -86,13 +89,20 @@ export default function TodayPage() {
   );
   const allTodayVisibleSelected =
     visibleTodayIds.length > 0 && selectedTodayIds.length === visibleTodayIds.length;
+  // Keyboard navigation order must mirror the rendered order: the "self"
+  // stack (sliced) followed by the "waiting" stack (sliced) — `rows` keeps
+  // the API order, which interleaves the two stacks.
+  const navRows = useMemo(
+    () => [...selfRows.slice(0, 20), ...waitingRows.slice(0, 20)],
+    [selfRows, waitingRows],
+  );
   const selected = useMemo(
-    () => tasks.find((t) => t.id === selectedId) ?? tasks[0] ?? null,
-    [tasks, selectedId],
+    () => tasks.find((t) => t.id === selectedId) ?? navRows[0]?.task ?? null,
+    [tasks, selectedId, navRows],
   );
 
   const { mutate: swrMutate } = useSWRConfig();
-  const { pushUndo } = useUndoToast();
+  const { pushUndo, pushError } = useUndoToast();
 
   const selectTask = useCallback((id: number, extend = false) => {
     setSelectedId(id);
@@ -101,8 +111,8 @@ export default function TodayPage() {
       return;
     }
     const anchorId = selectedIds[0] ?? selected?.id ?? id;
-    setSelectedIds(rangeIds(rows, anchorId, id));
-  }, [rows, selected?.id, selectedIds]);
+    setSelectedIds(rangeIds(navRows, anchorId, id));
+  }, [navRows, selected?.id, selectedIds]);
 
   const toggleSelectedTask = useCallback((id: number) => {
     setSelectedIds((current) =>
@@ -118,11 +128,11 @@ export default function TodayPage() {
   }, [allTodayVisibleSelected, visibleTodayIds]);
 
   const moveSelection = useCallback((delta: number) => {
-    if (!rows.length) return;
-    const idx = rows.findIndex((r) => r.task.id === (selected?.id ?? -1));
-    const next = Math.max(0, Math.min(rows.length - 1, idx + delta));
-    selectTask(rows[next]!.task.id);
-  }, [rows, selected, selectTask]);
+    if (!navRows.length) return;
+    const idx = navRows.findIndex((r) => r.task.id === (selected?.id ?? -1));
+    const next = Math.max(0, Math.min(navRows.length - 1, idx + delta));
+    selectTask(navRows[next]!.task.id);
+  }, [navRows, selected, selectTask]);
 
   const mutateTask = useCallback(
     async (action: "snooze" | "close" | "reopen") => {
@@ -143,9 +153,10 @@ export default function TodayPage() {
         ]);
       } catch (e) {
         console.warn(`${action} failed`, e);
+        pushError(c("toast.actionFailed", { action }));
       }
     },
-    [pushUndo, selected, refresh, swrMutate],
+    [pushError, pushUndo, selected, refresh, swrMutate],
   );
 
   const bulkMutate = useCallback(
@@ -164,9 +175,10 @@ export default function TodayPage() {
         ]);
       } catch (e) {
         console.warn(`bulk ${action} failed`, e);
+        pushError(c("toast.actionFailed", { action: `bulk ${action}` }));
       }
     },
-    [refresh, swrMutate],
+    [pushError, refresh, swrMutate],
   );
 
   const copyRunCli = useCallback(async () => {
@@ -183,8 +195,9 @@ export default function TodayPage() {
       await swrMutate("/api/queue");
     } catch (e) {
       console.warn("add to queue failed", e);
+      pushError(c("toast.actionFailed", { action: "add to queue" }));
     }
-  }, [selected, swrMutate]);
+  }, [pushError, selected, swrMutate]);
 
   useHotkeys([
     { key: "j", handler: () => moveSelection(1), enabled: !bulkOpen },
@@ -194,6 +207,14 @@ export default function TodayPage() {
     { key: "o", handler: () => { void mutateTask("reopen"); }, enabled: !bulkOpen },
     { key: "r", handler: () => { void copyRunCli(); }, enabled: !bulkOpen },
     { key: "a", handler: () => { void addSelectedToQueue(); }, enabled: !bulkOpen },
+    {
+      key: "g v",
+      handler: () => {
+        const href = sessionHrefForTask(selected);
+        if (href) router.push(href);
+      },
+      enabled: !bulkOpen,
+    },
   ]);
 
   const todayMedianAge = useMemo(() => formatMedianAge(tasks), [tasks]);
@@ -468,10 +489,13 @@ export default function TodayPage() {
   );
 }
 
+// Keep hrefs to query params the target pages actually read — tasks supports
+// status/repo/source/age, contexts only ?hash=, repos none. Dead params here
+// silently no-op and mislead users into thinking the link is filtered.
 const TODAY_EMPTY_LINKS = [
-  { href: "/tasks?status=open&sort=age_desc&limit=5", label: c("today.empty.reviewOldest") },
-  { href: "/contexts?from=yesterday", label: c("today.empty.checkYesterday") },
-  { href: "/repos?filter=stale", label: c("today.empty.staleRepos") },
+  { href: "/tasks?status=open&age=older-7", label: c("today.empty.reviewOldest") },
+  { href: "/contexts", label: c("today.empty.checkYesterday") },
+  { href: "/repos", label: c("today.empty.staleRepos") },
 ] as const;
 
 function TodayEmptyState() {

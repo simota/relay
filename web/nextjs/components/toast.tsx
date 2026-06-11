@@ -21,8 +21,15 @@ interface UndoToast {
   exiting: boolean;
 }
 
+interface ErrorNotice {
+  id: number;
+  message: string;
+  exiting: boolean;
+}
+
 interface ToastContextValue {
   pushUndo: (action: UndoAction, task: Task) => void;
+  pushError: (message: string) => void;
 }
 
 const ToastContext = createContext<ToastContextValue | null>(null);
@@ -32,7 +39,9 @@ const TOAST_EXIT_MS = 120;
 
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = useState<UndoToast[]>([]);
+  const [errors, setErrors] = useState<ErrorNotice[]>([]);
   const timersRef = useRef(new Map<number, ReturnType<typeof setTimeout>>());
+  const errorTimersRef = useRef(new Map<number, ReturnType<typeof setTimeout>>());
   const nextIdRef = useRef(1);
   const { mutate } = useSWRConfig();
 
@@ -140,11 +149,33 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     [dismiss, removeToast],
   );
 
+  const dismissError = useCallback((id: number) => {
+    const timer = errorTimersRef.current.get(id);
+    if (timer) clearTimeout(timer);
+    errorTimersRef.current.delete(id);
+    setErrors((current) =>
+      current.map((notice) => (notice.id === id ? { ...notice, exiting: true } : notice)),
+    );
+    setTimeout(() => {
+      setErrors((current) => current.filter((notice) => notice.id !== id));
+    }, TOAST_EXIT_MS);
+  }, []);
+
+  const pushError = useCallback(
+    (message: string) => {
+      const id = nextIdRef.current;
+      nextIdRef.current += 1;
+      errorTimersRef.current.set(id, setTimeout(() => dismissError(id), TOAST_TTL_MS));
+      setErrors((current) => [...current.slice(-(MAX_TOASTS - 1)), { id, message, exiting: false }]);
+    },
+    [dismissError],
+  );
+
   useHotkeys([
     { key: "u", handler: (event) => { event.preventDefault(); void undoLatest(); }, enabled: toasts.length > 0 },
   ]);
 
-  const value = useMemo(() => ({ pushUndo }), [pushUndo]);
+  const value = useMemo(() => ({ pushUndo, pushError }), [pushUndo, pushError]);
 
   return (
     <ToastContext.Provider value={value}>
@@ -155,6 +186,33 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
         aria-label={c("toast.notifications")}
         className="fixed right-4 bottom-4 z-50 flex w-[min(420px,calc(100vw-32px))] flex-col gap-2"
       >
+        {errors.map((notice) => (
+          <div
+            key={`err-${notice.id}`}
+            role="alert"
+            className={[
+              "rounded-[var(--radius-md)] border border-[var(--color-critical)]/50 bg-[var(--color-bg-elev)] px-3 py-2.5 shadow-[var(--shadow-pop)]",
+              notice.exiting
+                ? "animate-[relay-toast-fade_var(--duration-fast)_var(--ease-out)_reverse_forwards]"
+                : "motion-safe:animate-[relay-toast-enter_var(--duration-base)_var(--ease-out)] motion-reduce:animate-[relay-toast-fade_var(--duration-fast)_var(--ease-out)]",
+            ].join(" ")}
+          >
+            <div className="flex items-center gap-2 text-[12px]">
+              <span className="min-w-0 flex-1 font-medium text-[var(--color-critical)]">
+                {notice.message}
+              </span>
+              <button
+                type="button"
+                className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--radius)] text-[var(--color-fg-muted)] hover:bg-[var(--color-bg)] hover:text-[var(--color-fg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
+                onClick={() => dismissError(notice.id)}
+                aria-label={c("toast.dismiss")}
+                title={c("common.dismiss")}
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
+        ))}
         {toasts.map((toast) => (
           <div
             key={toast.id}

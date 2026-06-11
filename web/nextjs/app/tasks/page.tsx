@@ -15,6 +15,7 @@ import type { SourceType, Status, Task } from "@/lib/types";
 import type { ViewFilter } from "@/lib/api";
 import type { Filtered } from "@/lib/fuzzy";
 import { parseFilterDsl, type FilterDslAst } from "@/lib/filter-dsl";
+import { sessionHrefForTask } from "@/lib/session-link";
 import { useHotkeys } from "@/hooks/use-hotkeys";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -146,7 +147,7 @@ function TasksInner() {
   }, [selectedFromUrl]);
 
   const { mutate: swrMutate } = useSWRConfig();
-  const { pushUndo } = useUndoToast();
+  const { pushUndo, pushError } = useUndoToast();
 
   const selectTask = useCallback((id: number, extend = false) => {
     setSelectedId(id);
@@ -193,9 +194,10 @@ function TasksInner() {
         ]);
       } catch (e) {
         console.warn(`${action} failed`, e);
+        pushError(c("toast.actionFailed", { action }));
       }
     },
-    [pushUndo, selected, refresh, swrMutate],
+    [pushError, pushUndo, selected, refresh, swrMutate],
   );
 
   const copyRunCli = useCallback(async () => {
@@ -224,9 +226,10 @@ function TasksInner() {
         ]);
       } catch (e) {
         console.warn(`bulk ${action} failed`, e);
+        pushError(c("toast.actionFailed", { action: `bulk ${action}` }));
       }
     },
-    [refresh, swrMutate],
+    [pushError, refresh, swrMutate],
   );
 
   const addSelectedToQueue = useCallback(async () => {
@@ -236,8 +239,9 @@ function TasksInner() {
       await swrMutate("/api/queue");
     } catch (e) {
       console.warn("add to queue failed", e);
+      pushError(c("toast.actionFailed", { action: "add to queue" }));
     }
-  }, [selected, swrMutate]);
+  }, [pushError, selected, swrMutate]);
 
   const saveCurrentView = useCallback(async () => {
     const defaultName = viewDefaultName(taskFilter);
@@ -272,6 +276,14 @@ function TasksInner() {
     { key: "o", handler: () => { void mutateTask("reopen"); }, enabled: !bulkOpen },
     { key: "r", handler: () => { void copyRunCli(); }, enabled: !bulkOpen },
     { key: "a", handler: () => { void addSelectedToQueue(); }, enabled: !bulkOpen },
+    {
+      key: "g v",
+      handler: () => {
+        const href = sessionHrefForTask(selected);
+        if (href) router.push(href);
+      },
+      enabled: !bulkOpen,
+    },
   ]);
 
   const title = TITLE_MAP[(taskFilter.status as Status | undefined) ?? status] ?? c("tasks.title.default");

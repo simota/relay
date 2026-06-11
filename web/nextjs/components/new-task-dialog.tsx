@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Kbd } from "@/components/ui/kbd";
 import { api } from "@/lib/api";
+import { c } from "@/lib/copy";
 import { cn } from "@/lib/utils";
 import type { RepoStat } from "@/lib/types";
 
@@ -56,12 +57,22 @@ export function NewTaskDialog({ open, onClose }: NewTaskDialogProps) {
       setRepo("");
       setTitle("");
       setBody("");
+      setAssignee("claude-code");
       setPrompt("");
       setFiles("");
       setPriority("50");
       setError(null);
     }
   }, [open]);
+
+  // autoFocus lands on a disabled control while repos are still loading —
+  // refocus the repo select once options arrive so keyboard flow works.
+  const repoSelectRef = useRef<HTMLSelectElement>(null);
+  useEffect(() => {
+    if (open && !reposLoading && repoOptions.length > 0) {
+      repoSelectRef.current?.focus();
+    }
+  }, [open, reposLoading, repoOptions.length]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -79,7 +90,7 @@ export function NewTaskDialog({ open, onClose }: NewTaskDialogProps) {
         assignee,
         prompt: prompt.trim() || undefined,
         files: files.split(",").map((f) => f.trim()).filter(Boolean),
-        priority: Number(priority) || 50,
+        priority: parsePriority(priority),
       });
       await mutate((key) => typeof key === "string" && key.startsWith("/api/"));
       onClose();
@@ -126,6 +137,8 @@ export function NewTaskDialog({ open, onClose }: NewTaskDialogProps) {
           <button
             type="button"
             onClick={onClose}
+            aria-label={c("common.dismiss")}
+            title={c("common.dismiss")}
             className="text-[var(--color-fg-dim)] hover:text-[var(--color-fg)] transition-colors"
           >
             <X className="w-4 h-4" />
@@ -135,6 +148,7 @@ export function NewTaskDialog({ open, onClose }: NewTaskDialogProps) {
         <div className="p-5 space-y-3">
           <Field label="repo" required>
             <select
+              ref={repoSelectRef}
               autoFocus
               value={repo}
               onChange={(e) => setRepo(e.target.value)}
@@ -239,6 +253,13 @@ export function NewTaskDialog({ open, onClose }: NewTaskDialogProps) {
       </form>
     </dialog>
   );
+}
+
+// `Number(x) || 50` would turn an explicit 0 into 50 — clamp instead.
+function parsePriority(value: string): number {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 50;
+  return Math.min(100, Math.max(0, Math.round(n)));
 }
 
 function Field({ label, required, children }: { label: string; required?: boolean; children: React.ReactNode }) {

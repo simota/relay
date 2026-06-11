@@ -47,6 +47,8 @@ export function FilterBar({ value, onChange, matched, total, inputRef, onSaveVie
         <button
           type="button"
           onClick={() => onChange("")}
+          aria-label={c("common.clear")}
+          title={c("common.clear")}
           className="text-[var(--color-fg-dim)] hover:text-[var(--color-fg)] transition-colors"
         >
           <X className="w-3.5 h-3.5" />
