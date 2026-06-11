@@ -19,7 +19,7 @@ Press `g`, then within 1.5 s press the second key.
 | `g r` | Repos |
 | `g c` | Contexts |
 | `g n` | New task dialog |
-| `g v` | View original session for the selected task (clickable link in task detail) |
+| `g v` | View original session for the selected task (Today / Tasks; also a clickable link in task detail) |
 
 Single-key aliases:
 
@@ -34,6 +34,7 @@ Single-key aliases:
 |---|---|
 | `j` / `↓` | next task |
 | `k` / `↑` | previous task |
+| `Shift+J` / `Shift+K` | extend range selection down / up |
 
 ## Filter
 
@@ -54,8 +55,11 @@ names; on Contexts it matches across repo, branch, hash, and summary.
 | `s` | snooze |
 | `c` | close (mark done) |
 | `o` | reopen |
-| `a` | click the assignee row to change |
+| `a` | add selected task to the run queue |
+| `b` | open the bulk-action bar for the selection (`s` snooze / `c` close / `Esc` cancel) |
 | `n` | new task form (repo / title / assignee). Tab to switch field, Enter to create, Esc to cancel |
+
+Assignee is changed by clicking the assignee row in the task detail panel.
 
 ## Drill-down (Repos / Contexts → Open)
 
@@ -73,6 +77,9 @@ one click.
 | Key | Action |
 |---|---|
 | `R` | sync (re-fetch sources) — also `↻ sync` in header |
+| `u` | undo the most recent snooze/close toast |
+| `⌘Z` / `Ctrl+Z` | undo last operation |
+| `⌘⇧Z` / `Ctrl+Shift+Z` | redo |
 | `⌘K` | command palette |
 
 ## Tips
