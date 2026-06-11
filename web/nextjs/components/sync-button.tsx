@@ -6,6 +6,7 @@ import { useSWRConfig } from "swr";
 import { Button } from "@/components/ui/button";
 import { SSE_BASE } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { useHotkeys } from "@/hooks/use-hotkeys";
 import type { SyncEvent } from "@/lib/types";
 
 type AdapterStatus = "running" | "done" | "error";
@@ -24,7 +25,10 @@ interface PruneInfo {
   missingRepoCount: number;
 }
 
-export function SyncButton() {
+// `hotkey` binds Shift+R (HOTKEYS.md "System"). Only the app-shell header
+// instance should pass it — pages like onboarding render a second SyncButton,
+// and two bound instances would start two concurrent sync streams.
+export function SyncButton({ hotkey = false }: { hotkey?: boolean } = {}) {
   const { mutate } = useSWRConfig();
   const [syncing, setSyncing] = useState(false);
   const [progress, setProgress] = useState<AdapterProgress[]>([]);
@@ -110,6 +114,17 @@ export function SyncButton() {
       setSyncing(false);
     };
   };
+
+  useHotkeys([
+    {
+      key: "Shift+r",
+      handler: (event) => {
+        event.preventDefault();
+        startSync();
+      },
+      enabled: hotkey && !syncing,
+    },
+  ]);
 
   return (
     <>

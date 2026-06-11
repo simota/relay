@@ -141,7 +141,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <Kbd className="ml-1">N</Kbd>
               </Button>
               <SyncPreviewButton />
-              <SyncButton />
+              <SyncButton hotkey />
             </div>
           </header>
           <div className="flex-1 overflow-hidden">{children}</div>
