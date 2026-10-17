@@ -1,32 +1,20 @@
 "use client";
 
-// Fleet Hamlet — shared avatar face / body primitives.
+// Fleet Hamlet — shared 3D avatar face / body primitives (Three.js).
 //
 // All "person" sprites in Hamlet (Sim Card, Neighborhood, Park, Room,
-// Window-through children) compose the same face & body building blocks
-// defined here so the village reads as a single character family rather
-// than a patchwork of unrelated little people.
+// Window-through children) compose the Three.js 3D character engine defined
+// in `fleet-hamlet-three-character.tsx`.
 //
-// The renderers are pure SVG groups (no HTML wrapper) — callers position
-// them via the parent SVG transform / outer DOM and pick the size that
-// fits their layout. The face/body do NOT include ground shadow — that's
-// the caller's responsibility because the shadow geometry depends on the
-// scene (ellipse on grass, dropped on bench, sitting on chair, etc.).
-//
-// Naming: `HeadFace` = circle/oval face + hair + eyes + mouth + cheeks
-//                      + ears + brows.
-//          `BodyTorso` = barrel torso + collar + arms + legs + shoes,
-//                        with a `pose` prop that translates to limb angle.
+// `HeadFace`, `BodyTorso`, and `HamletAvatar` mount the Three.js `<canvas>`
+// inside an SVG `<foreignObject>` when used inside an `<svg>` group, while
+// HTML-level callers can also mount `ThreeCharacterView` directly.
 
-import { useRef, type ReactNode } from "react";
-import type { SimCardModel } from "../_lib/fleet-hamlet";
-import type { AvatarParts } from "../_lib/fleet-hamlet";
-import {
-  type AvatarExpression,
-  type BrowShape,
-  type EyeShape,
-  type MouthShape,
-  type AvatarPose,
+import type { ReactNode } from "react";
+import type { AvatarParts, SimCardModel } from "../_lib/fleet-hamlet";
+import type {
+  AvatarExpression,
+  AvatarPose,
 } from "../_lib/fleet-hamlet-avatar-expression";
 import type {
   BeardKind,
@@ -36,25 +24,19 @@ import type {
   ScarfKind,
 } from "../_lib/fleet-hamlet-particles";
 import {
-  BeardSvg,
-  EarringSvg,
-  GlassesSvg,
-  MustacheSvg,
-  ScarfSvg,
-} from "./fleet-hamlet-avatar-accessories";
-import { useEyeTrack } from "./fleet-hamlet-avatar-eye-track";
+  ThreeCharacterView,
+  type CharacterClothingColors,
+  type CharacterStylePreset,
+} from "./fleet-hamlet-three-character";
+
+export { ThreeCharacterView } from "./fleet-hamlet-three-character";
 
 // ---------------------------------------------------------------------------
 // Shared palette helpers
 // ---------------------------------------------------------------------------
 
-export interface ClothingColors {
-  shirt: string;
-  shirtDark: string;
-  accent: string;
-}
-
-export type AvatarStylePreset = "default" | "taisho-wagara" | "occult-academy";
+export type ClothingColors = CharacterClothingColors;
+export type AvatarStylePreset = CharacterStylePreset;
 
 export function clothingForAgent(
   kind: SimCardModel["sessionType"],
@@ -116,11 +98,8 @@ export function avatarStyleFromSeed(
 }
 
 // ---------------------------------------------------------------------------
-// HeadFace — egg-shaped face with hair / ears / cheeks / eyes / mouth / brows.
-//
-// All coordinates are inside a [-headR, +headR] x [-headR, +headR] frame
-// centered on the head's geometric middle. Callers translate this group
-// into the right scene position.
+// HeadFace — 3D sculpted head with hair / ears / cheeks / 3D eyes / brows.
+// Centered on (0, 0) inside a [-radius*1.6, +radius*1.6] box.
 // ---------------------------------------------------------------------------
 
 export interface HeadFaceProps {
@@ -128,29 +107,14 @@ export interface HeadFaceProps {
   expression: AvatarExpression;
   /** Half-width radius of the head in SVG units. Default 12. */
   radius?: number;
-  /** Optional mood halo stroke. Pass undefined to suppress. */
   haloColor?: string;
-  /** Per-instance animation delays — default to parts.* but overridable for
-   *  tiny micro-avatars where the blink overlay would be illegible. */
   enableBlink?: boolean;
-  /** Skip the cheek blush (used at very small sizes where 2 px blobs blur into the face). */
   enableCheeks?: boolean;
-  /** Toggle the atan2 cursor-tracking pupil offset. Default true. Forced
-   *  off when the eye expression is closed/narrow/half/swirl (no visible
-   *  pupil to move) or when the host is in prefers-reduced-motion. */
   enableEyeTrack?: boolean;
-  /** Open-Peeps-inspired accessories — all optional, default "none". */
   glasses?: GlassesKind;
   mustache?: MustacheKind;
   beard?: BeardKind;
   earring?: EarringKind;
-}
-
-/** Eye shapes that render a visible pupil — eye-tracking only applies to
- *  these. Closed/narrow/half/swirl are stylised glyphs that would look
- *  wrong sliding around. */
-function eyeShapeCanTrack(eye: EyeShape): boolean {
-  return eye === "normal" || eye === "wide" || eye === "hearts";
 }
 
 export function HeadFace({
@@ -166,539 +130,50 @@ export function HeadFace({
   beard = "none",
   earring = "none",
 }: HeadFaceProps) {
-  const headRef = useRef<SVGGElement>(null);
-  // Pupil offset is capped at ~10% of the eye radius so it never escapes
-  // the eye-white. Larger values look googly.
-  const maxPupilOffset = radius * 0.1;
-  const trackingActive = enableEyeTrack && eyeShapeCanTrack(expression.eye);
-  const pupilOffset = useEyeTrack(headRef, maxPupilOffset, trackingActive);
-  const skin = `hsl(${parts.skinHue}, 45%, 72%)`;
-  const skinShadow = `hsl(${parts.skinHue}, 50%, 58%)`;
-  const hair = `hsl(${parts.hairHue}, 50%, 30%)`;
-  const hairHi = `hsl(${parts.hairHue}, 55%, 42%)`;
-  const cheek = `hsl(${parts.cheekHue}, 75%, 75%)`;
-  // Slight egg shape — taller than wide so the face reads as a face not a coin.
-  const rx = radius;
-  const ry = radius * 1.08;
-  // Note: haloColor is accepted for back-compat but no longer renders a halo
-  // ring — mood is conveyed via expression (eyes/mouth/brow) instead.
   void haloColor;
+  const boxSize = Math.max(16, Math.round(radius * 3.1));
+  const defaultClothes = clothingForAgent("claude");
   return (
-    <g aria-hidden ref={headRef}>
-      {/* Ears — render behind the face oval so the hair / face front
-          covers them when hair style hides them. */}
-      {parts.hasEars && (
-        <>
-          <ellipse cx={-rx * 0.95} cy={ry * 0.05} rx={rx * 0.18} ry={ry * 0.22} fill={skin} />
-          <ellipse cx={-rx * 0.95} cy={ry * 0.08} rx={rx * 0.1} ry={ry * 0.13} fill={skinShadow} opacity={0.65} />
-          <ellipse cx={rx * 0.95} cy={ry * 0.05} rx={rx * 0.18} ry={ry * 0.22} fill={skin} />
-          <ellipse cx={rx * 0.95} cy={ry * 0.08} rx={rx * 0.1} ry={ry * 0.13} fill={skinShadow} opacity={0.65} />
-        </>
-      )}
-      {/* Earring — sits below the ear, drawn in front so it isn't masked
-          by the face oval. */}
-      {parts.hasEars && earring !== "none" && <EarringSvg side={earring} radius={radius} />}
-      {/* Face oval (egg shape) */}
-      <ellipse cx={0} cy={0} rx={rx} ry={ry} fill={skin} />
-      {/* Jaw shadow — subtle, lower-right */}
-      <ellipse
-        cx={rx * 0.15}
-        cy={ry * 0.55}
-        rx={rx * 0.7}
-        ry={ry * 0.32}
-        fill={skinShadow}
-        opacity={0.28}
-      />
-      {/* Forehead highlight (upper-left) */}
-      <ellipse
-        cx={-rx * 0.35}
-        cy={-ry * 0.45}
-        rx={rx * 0.45}
-        ry={ry * 0.28}
-        fill="rgba(255, 250, 240, 0.40)"
-      />
-      {/* Cheek blush */}
-      {enableCheeks && (
-        <>
-          <ellipse cx={-rx * 0.5} cy={ry * 0.22} rx={rx * 0.22} ry={ry * 0.13} fill={cheek} opacity={0.45} />
-          <ellipse cx={rx * 0.5} cy={ry * 0.22} rx={rx * 0.22} ry={ry * 0.13} fill={cheek} opacity={0.45} />
-        </>
-      )}
-      {/* Beard — wraps the jaw; drawn before hair so the hair fringe still
-          covers any beard escaping toward the temple. */}
-      {beard !== "none" && <BeardSvg kind={beard} radius={radius} />}
-      {/* Hair — drawn after face so it sits in front of the forehead */}
-      <HairShape parts={parts} radius={radius} hair={hair} hairHi={hairHi} />
-      {/* Brows */}
-      <Brows brow={expression.brow} radius={radius} />
-      {/* Eyes — wrapped in a blink group so the keyframe can collapse them */}
-      <g
-        style={
-          enableBlink && expression.eye !== "closed"
-            ? {
-                animation: `relayHamletBlink 8s ease-in-out ${parts.blinkDelay}s infinite`,
-                transformOrigin: "center",
-              }
-            : undefined
-        }
+    <g aria-hidden>
+      <foreignObject
+        x={-boxSize / 2}
+        y={-boxSize * 0.54}
+        width={boxSize}
+        height={boxSize}
+        style={{ overflow: "visible" }}
       >
-        <Eyes
-          eye={expression.eye}
-          radius={radius}
-          pupilOffset={trackingActive ? pupilOffset : undefined}
+        <ThreeCharacterView
+          width={boxSize}
+          height={boxSize}
+          parts={parts}
+          expression={expression}
+          clothing={defaultClothes}
+          mode="head"
+          enableBlink={enableBlink}
+          enableCheeks={enableCheeks}
+          enableEyeTrack={enableEyeTrack}
+          glasses={glasses}
+          mustache={mustache}
+          beard={beard}
+          earring={earring}
+          showGroundShadow={false}
         />
-      </g>
-      {/* Mouth */}
-      <Mouth mouth={expression.mouth} radius={radius} />
-      {/* Mustache — under nose, above mouth */}
-      {mustache !== "none" && <MustacheSvg kind={mustache} radius={radius} />}
-      {/* Glasses — on top of eyes & brows */}
-      {glasses !== "none" && <GlassesSvg kind={glasses} radius={radius} />}
-      {/* Sweat drop overlay (Stressed) */}
-      {expression.showSweat && (
-        <g
-          style={{
-            animation: "relayHamletSweat 1.6s ease-in-out infinite",
-            transformOrigin: `${rx * 0.6}px ${-ry * 0.5}px`,
-          }}
-        >
-          <ellipse
-            cx={rx * 0.65}
-            cy={-ry * 0.35}
-            rx={radius * 0.12}
-            ry={radius * 0.2}
-            fill="#7DD5F0"
-            opacity={0.95}
-          />
-          <ellipse
-            cx={rx * 0.6}
-            cy={-ry * 0.45}
-            rx={radius * 0.05}
-            ry={radius * 0.08}
-            fill="rgba(255,255,255,0.85)"
-          />
-        </g>
-      )}
-      {/* Zzz overlay (Asleep) */}
-      {expression.showZzz && (
-        <g
-          style={{
-            animation: "relayHamletSleepZ 3s ease-in-out infinite",
-            transformOrigin: `${rx * 0.7}px ${-ry * 0.8}px`,
-          }}
-        >
-          <text
-            x={rx * 0.85}
-            y={-ry * 0.7}
-            fontSize={radius * 0.9}
-            textAnchor="start"
-            fill="#5C7CA8"
-            fontFamily="ui-monospace, monospace"
-            fontWeight="600"
-          >
-            z
-          </text>
-          <text
-            x={rx * 1.15}
-            y={-ry * 1.05}
-            fontSize={radius * 0.6}
-            textAnchor="start"
-            fill="#7C9CC8"
-            fontFamily="ui-monospace, monospace"
-            fontWeight="600"
-            opacity={0.85}
-          >
-            z
-          </text>
-        </g>
-      )}
+      </foreignObject>
     </g>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Hair / Eye / Mouth / Brow primitives
-// ---------------------------------------------------------------------------
-
-function HairShape({
-  parts,
-  radius,
-  hair,
-  hairHi,
-}: {
-  parts: AvatarParts;
-  radius: number;
-  hair: string;
-  hairHi: string;
-}) {
-  const r = radius;
-  switch (parts.hair) {
-    case "bald":
-      return null;
-    case "short":
-      return (
-        <g>
-          <path
-            d={`M ${-r * 0.95} ${-r * 0.1} Q ${-r * 0.9} ${-r * 1.05} 0 ${-r * 1.05} Q ${r * 0.9} ${-r * 1.05} ${r * 0.95} ${-r * 0.1} L ${r * 0.85} ${-r * 0.55} L ${r * 0.4} ${-r * 0.75} L 0 ${-r * 0.6} L ${-r * 0.4} ${-r * 0.75} L ${-r * 0.85} ${-r * 0.55} Z`}
-            fill={hair}
-          />
-          <path
-            d={`M ${-r * 0.7} ${-r * 0.9} Q ${-r * 0.3} ${-r * 1.05} ${r * 0.1} ${-r * 0.95}`}
-            stroke={hairHi}
-            strokeWidth={r * 0.08}
-            fill="none"
-            opacity={0.7}
-            strokeLinecap="round"
-          />
-        </g>
-      );
-    case "wavy":
-      return (
-        <g>
-          <path
-            d={`M ${-r * 1.0} ${-r * 0.15} Q ${-r * 1.1} ${-r * 1.1} 0 ${-r * 1.15} Q ${r * 1.1} ${-r * 1.1} ${r * 1.0} ${-r * 0.15} L ${r * 0.95} ${r * 0.05} Q ${r * 0.85} ${-r * 0.1} ${r * 0.7} ${0} Q ${r * 0.55} ${-r * 0.15} ${r * 0.35} ${0} Q ${r * 0.15} ${-r * 0.15} 0 ${0} Q ${-r * 0.15} ${-r * 0.15} ${-r * 0.35} ${0} Q ${-r * 0.55} ${-r * 0.1} ${-r * 0.7} ${0} Q ${-r * 0.85} ${-r * 0.1} ${-r * 0.95} ${r * 0.05} Z`}
-            fill={hair}
-          />
-          <path
-            d={`M ${-r * 0.7} ${-r * 0.95} Q 0 ${-r * 1.1} ${r * 0.6} ${-r * 0.95}`}
-            stroke={hairHi}
-            strokeWidth={r * 0.1}
-            fill="none"
-            opacity={0.65}
-            strokeLinecap="round"
-          />
-        </g>
-      );
-    case "bob":
-      // Bob covers the ears and frames the jaw.
-      return (
-        <g>
-          <path
-            d={`M ${-r * 1.1} ${-r * 0.1} Q ${-r * 1.1} ${-r * 1.1} 0 ${-r * 1.15} Q ${r * 1.1} ${-r * 1.1} ${r * 1.1} ${-r * 0.1} L ${r * 1.05} ${r * 0.6} Q ${r * 0.6} ${r * 0.7} ${r * 0.55} ${r * 0.5} L ${r * 0.55} ${-r * 0.05} Q ${r * 0.4} ${r * 0.05} ${r * 0.3} ${0} L ${-r * 0.55} ${-r * 0.05} Q ${-r * 0.6} ${r * 0.55} ${-r * 1.05} ${r * 0.6} Z`}
-            fill={hair}
-          />
-          <path
-            d={`M ${-r * 0.95} ${-r * 0.4} Q 0 ${-r * 1.05} ${r * 0.95} ${-r * 0.4}`}
-            stroke={hairHi}
-            strokeWidth={r * 0.07}
-            fill="none"
-            opacity={0.7}
-          />
-        </g>
-      );
-    case "topknot":
-      return (
-        <g>
-          <ellipse cx={0} cy={-r * 1.3} rx={r * 0.42} ry={r * 0.35} fill={hair} />
-          <ellipse cx={-r * 0.1} cy={-r * 1.35} rx={r * 0.15} ry={r * 0.12} fill={hairHi} opacity={0.7} />
-          <rect x={-r * 0.1} y={-r * 1.15} width={r * 0.2} height={r * 0.18} fill={hair} />
-          <path
-            d={`M ${-r * 0.9} ${-r * 0.2} Q ${-r * 0.95} ${-r * 0.95} 0 ${-r * 1.0} Q ${r * 0.95} ${-r * 0.95} ${r * 0.9} ${-r * 0.2} L ${r * 0.85} ${-r * 0.55} L 0 ${-r * 0.7} L ${-r * 0.85} ${-r * 0.55} Z`}
-            fill={hair}
-          />
-        </g>
-      );
-    case "curly":
-      // Curly is a cluster of small blobs.
-      return (
-        <g>
-          {[
-            { cx: -r * 0.85, cy: -r * 0.5, rx: r * 0.32 },
-            { cx: -r * 0.55, cy: -r * 0.95, rx: r * 0.36 },
-            { cx: 0, cy: -r * 1.05, rx: r * 0.4 },
-            { cx: r * 0.55, cy: -r * 0.95, rx: r * 0.36 },
-            { cx: r * 0.85, cy: -r * 0.5, rx: r * 0.32 },
-            { cx: -r * 0.95, cy: r * 0.1, rx: r * 0.22 },
-            { cx: r * 0.95, cy: r * 0.1, rx: r * 0.22 },
-          ].map((b, i) => (
-            <circle key={i} cx={b.cx} cy={b.cy} r={b.rx} fill={hair} />
-          ))}
-          {/* Highlight blob on the lit side */}
-          <circle cx={-r * 0.55} cy={-r * 1.0} r={r * 0.14} fill={hairHi} opacity={0.7} />
-        </g>
-      );
-    default:
-      return null;
-  }
-}
-
-function Eyes({
-  eye,
-  radius,
-  pupilOffset,
-}: {
-  eye: EyeShape;
-  radius: number;
-  pupilOffset?: { dx: number; dy: number };
-}) {
-  const r = radius;
-  const ex = r * 0.4; // eye horizontal offset from center
-  const ey = -r * 0.05; // eye vertical position
-  const pdx = pupilOffset?.dx ?? 0;
-  const pdy = pupilOffset?.dy ?? 0;
-  switch (eye) {
-    case "normal":
-      return (
-        <g>
-          <circle cx={-ex + pdx} cy={ey + pdy} r={r * 0.13} fill="#1a1a1a" />
-          <circle cx={ex + pdx} cy={ey + pdy} r={r * 0.13} fill="#1a1a1a" />
-          {/* white catchlights — also follow the pupil so the highlight
-              reads as part of the eye, not a static reflection. */}
-          <circle cx={-ex + pdx + r * 0.05} cy={ey + pdy - r * 0.04} r={r * 0.04} fill="#FFFFFF" />
-          <circle cx={ex + pdx + r * 0.05} cy={ey + pdy - r * 0.04} r={r * 0.04} fill="#FFFFFF" />
-        </g>
-      );
-    case "wide":
-      // Surprised / curious — large white-ringed eyes with small pupil
-      // that tracks the cursor for extra reactivity.
-      return (
-        <g>
-          <circle cx={-ex} cy={ey} r={r * 0.22} fill="#FFFFFF" stroke="#1a1a1a" strokeWidth={Math.max(0.6, r * 0.05)} />
-          <circle cx={ex} cy={ey} r={r * 0.22} fill="#FFFFFF" stroke="#1a1a1a" strokeWidth={Math.max(0.6, r * 0.05)} />
-          <circle cx={-ex + pdx} cy={ey + pdy} r={r * 0.1} fill="#1a1a1a" />
-          <circle cx={ex + pdx} cy={ey + pdy} r={r * 0.1} fill="#1a1a1a" />
-          <circle cx={-ex + pdx + r * 0.04} cy={ey + pdy - r * 0.05} r={r * 0.035} fill="#FFFFFF" />
-          <circle cx={ex + pdx + r * 0.04} cy={ey + pdy - r * 0.05} r={r * 0.035} fill="#FFFFFF" />
-        </g>
-      );
-    case "hearts": {
-      // Easter-egg heart eyes — pupils are heart paths offset by tracking.
-      const heart = (cx: number, cy: number) => {
-        const s = r * 0.18;
-        // Heart as two semicircles + a triangle, in a [-1,1] unit box scaled by s.
-        return `M ${cx} ${cy - s * 0.25}
-                C ${cx} ${cy - s * 0.6}, ${cx - s * 0.6} ${cy - s * 0.6}, ${cx - s * 0.6} ${cy - s * 0.2}
-                C ${cx - s * 0.6} ${cy + s * 0.15}, ${cx} ${cy + s * 0.4}, ${cx} ${cy + s * 0.55}
-                C ${cx} ${cy + s * 0.4}, ${cx + s * 0.6} ${cy + s * 0.15}, ${cx + s * 0.6} ${cy - s * 0.2}
-                C ${cx + s * 0.6} ${cy - s * 0.6}, ${cx} ${cy - s * 0.6}, ${cx} ${cy - s * 0.25} Z`;
-      };
-      return (
-        <g fill="#E04F6A">
-          <path d={heart(-ex + pdx * 0.5, ey + pdy * 0.5)} />
-          <path d={heart(ex + pdx * 0.5, ey + pdy * 0.5)} />
-        </g>
-      );
-    }
-    case "smile":
-      // Inverted U
-      return (
-        <g stroke="#1a1a1a" strokeWidth={Math.max(0.8, r * 0.12)} fill="none" strokeLinecap="round">
-          <path d={`M ${-ex - r * 0.18} ${ey + r * 0.05} Q ${-ex} ${ey - r * 0.18} ${-ex + r * 0.18} ${ey + r * 0.05}`} />
-          <path d={`M ${ex - r * 0.18} ${ey + r * 0.05} Q ${ex} ${ey - r * 0.18} ${ex + r * 0.18} ${ey + r * 0.05}`} />
-        </g>
-      );
-    case "half":
-      return (
-        <g fill="#1a1a1a">
-          <rect x={-ex - r * 0.18} y={ey - r * 0.04} width={r * 0.36} height={r * 0.08} rx={r * 0.04} />
-          <rect x={ex - r * 0.18} y={ey - r * 0.04} width={r * 0.36} height={r * 0.08} rx={r * 0.04} />
-        </g>
-      );
-    case "closed":
-      return (
-        <g stroke="#1a1a1a" strokeWidth={Math.max(0.8, r * 0.1)} fill="none" strokeLinecap="round">
-          <path d={`M ${-ex - r * 0.2} ${ey} Q ${-ex} ${ey + r * 0.1} ${-ex + r * 0.2} ${ey}`} />
-          <path d={`M ${ex - r * 0.2} ${ey} Q ${ex} ${ey + r * 0.1} ${ex + r * 0.2} ${ey}`} />
-        </g>
-      );
-    case "narrow":
-      return (
-        <g fill="#1a1a1a">
-          <rect x={-ex - r * 0.18} y={ey - r * 0.02} width={r * 0.36} height={r * 0.05} rx={r * 0.02} />
-          <rect x={ex - r * 0.18} y={ey - r * 0.02} width={r * 0.36} height={r * 0.05} rx={r * 0.02} />
-        </g>
-      );
-    case "swirl":
-      return (
-        <g stroke="#1a1a1a" strokeWidth={Math.max(0.7, r * 0.08)} fill="none">
-          <path d={`M ${-ex} ${ey} m ${-r * 0.16} 0 a ${r * 0.16} ${r * 0.16} 0 1 1 ${r * 0.32} 0 a ${r * 0.1} ${r * 0.1} 0 1 0 -${r * 0.2} 0`} />
-          <path d={`M ${ex} ${ey} m ${-r * 0.16} 0 a ${r * 0.16} ${r * 0.16} 0 1 1 ${r * 0.32} 0 a ${r * 0.1} ${r * 0.1} 0 1 0 -${r * 0.2} 0`} />
-        </g>
-      );
-  }
-}
-
-function Mouth({ mouth, radius }: { mouth: MouthShape; radius: number }) {
-  const r = radius;
-  const my = r * 0.45;
-  switch (mouth) {
-    case "small-smile":
-      return (
-        <path
-          d={`M ${-r * 0.18} ${my} Q 0 ${my + r * 0.12} ${r * 0.18} ${my}`}
-          stroke="#5A2D1F"
-          strokeWidth={Math.max(0.8, r * 0.09)}
-          fill="none"
-          strokeLinecap="round"
-        />
-      );
-    case "big-smile":
-      return (
-        <g>
-          <path
-            d={`M ${-r * 0.3} ${my - r * 0.04} Q 0 ${my + r * 0.32} ${r * 0.3} ${my - r * 0.04} Z`}
-            fill="#5A2D1F"
-          />
-          {/* tongue / lip highlight */}
-          <path
-            d={`M ${-r * 0.18} ${my + r * 0.12} Q 0 ${my + r * 0.22} ${r * 0.18} ${my + r * 0.12}`}
-            fill="#D6705C"
-            opacity={0.85}
-          />
-        </g>
-      );
-    case "flat":
-      return (
-        <line
-          x1={-r * 0.2}
-          y1={my}
-          x2={r * 0.2}
-          y2={my}
-          stroke="#5A2D1F"
-          strokeWidth={Math.max(0.8, r * 0.1)}
-          strokeLinecap="round"
-        />
-      );
-    case "frown":
-      return (
-        <path
-          d={`M ${-r * 0.22} ${my + r * 0.08} Q 0 ${my - r * 0.08} ${r * 0.22} ${my + r * 0.08}`}
-          stroke="#5A2D1F"
-          strokeWidth={Math.max(0.8, r * 0.1)}
-          fill="none"
-          strokeLinecap="round"
-        />
-      );
-    case "open-yawn":
-      return (
-        <ellipse
-          cx={0}
-          cy={my + r * 0.05}
-          rx={r * 0.12}
-          ry={r * 0.16}
-          fill="#3A2A1F"
-        />
-      );
-    case "pucker":
-      // Puckered "o" — small vertical ellipse with a pink lip overlay so
-      // it reads as lips rather than a mouth-hole.
-      return (
-        <g>
-          <ellipse cx={0} cy={my + r * 0.02} rx={r * 0.08} ry={r * 0.12} fill="#A24658" />
-          <ellipse cx={0} cy={my} rx={r * 0.05} ry={r * 0.07} fill="#5A2D1F" opacity={0.65} />
-        </g>
-      );
-    case "wide-grin":
-      // Big toothy grin — top arc is the lip, white rect is the teeth row.
-      return (
-        <g>
-          <path
-            d={`M ${-r * 0.34} ${my - r * 0.04}
-                Q 0 ${my + r * 0.34} ${r * 0.34} ${my - r * 0.04}
-                L ${r * 0.3} ${my - r * 0.08}
-                L ${-r * 0.3} ${my - r * 0.08} Z`}
-            fill="#5A2D1F"
-          />
-          <rect
-            x={-r * 0.26}
-            y={my - r * 0.04}
-            width={r * 0.52}
-            height={r * 0.13}
-            rx={r * 0.04}
-            fill="#FBFCF4"
-          />
-          {/* vertical hairlines hint at separate teeth */}
-          <g stroke="#C8B8A0" strokeWidth={Math.max(0.4, r * 0.025)} opacity={0.8}>
-            <line x1={-r * 0.12} y1={my - r * 0.02} x2={-r * 0.12} y2={my + r * 0.07} />
-            <line x1={0} y1={my - r * 0.02} x2={0} y2={my + r * 0.07} />
-            <line x1={r * 0.12} y1={my - r * 0.02} x2={r * 0.12} y2={my + r * 0.07} />
-          </g>
-        </g>
-      );
-  }
-}
-
-function Brows({ brow, radius }: { brow: BrowShape; radius: number }) {
-  if (brow === "none") return null;
-  const r = radius;
-  const ex = r * 0.4;
-  const by = -r * 0.32;
-  const len = r * 0.28;
-  const sw = Math.max(0.7, r * 0.09);
-  // angle-up = outer-end raised (worried "/\\"); angle-down = inner end raised
-  // (angry "\\/"); straight = flat dash.
-  let leftDx = 0;
-  let rightDx = 0;
-  if (brow === "angle-up") {
-    leftDx = -r * 0.12;
-    rightDx = r * 0.12;
-  } else if (brow === "angle-down") {
-    leftDx = r * 0.12;
-    rightDx = -r * 0.12;
-  }
-  // Asymmetric arches — one brow lifted, the other stays flat. Conveys
-  // skepticism / curiosity. Lift = ~0.18r of additional rise on the
-  // raised end with a slight arch via Q control.
-  if (brow === "arch-asymmetric-left" || brow === "arch-asymmetric-right") {
-    const liftLeft = brow === "arch-asymmetric-left";
-    return (
-      <g stroke="#3A2A1F" strokeWidth={sw} strokeLinecap="round" fill="none">
-        {liftLeft ? (
-          <>
-            <path
-              d={`M ${-ex - len / 2} ${by + r * 0.05}
-                  Q ${-ex} ${by - r * 0.2} ${-ex + len / 2} ${by - r * 0.05}`}
-            />
-            <line x1={ex - len / 2} y1={by} x2={ex + len / 2} y2={by} />
-          </>
-        ) : (
-          <>
-            <line x1={-ex - len / 2} y1={by} x2={-ex + len / 2} y2={by} />
-            <path
-              d={`M ${ex - len / 2} ${by - r * 0.05}
-                  Q ${ex} ${by - r * 0.2} ${ex + len / 2} ${by + r * 0.05}`}
-            />
-          </>
-        )}
-      </g>
-    );
-  }
-  return (
-    <g stroke="#3A2A1F" strokeWidth={sw} strokeLinecap="round">
-      <line
-        x1={-ex - len / 2}
-        y1={by + (brow === "angle-up" ? r * 0.08 : 0)}
-        x2={-ex + len / 2}
-        y2={by + leftDx * 0.5}
-      />
-      <line
-        x1={ex - len / 2}
-        y1={by + rightDx * 0.5}
-        x2={ex + len / 2}
-        y2={by + (brow === "angle-up" ? r * 0.08 : 0)}
-      />
-    </g>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// BodyTorso — barrel torso, collar, arms (with hands), legs (with shoes).
-// Mood drives lean / pose. Caller positions; we draw centered on (0,0)
-// with the head's neck base at (0, 0) and feet at (0, height).
+// BodyTorso — 3D articulated torso, collar, arms, legs, shoes.
 // ---------------------------------------------------------------------------
 
 export interface BodyTorsoProps {
   clothing: ClothingColors;
   pose: AvatarPose;
-  /** Optional original outfit preset. */
   stylePreset?: AvatarStylePreset;
-  /** Overall height in SVG units. Width is derived (~ 0.7x). */
   height?: number;
-  /** Skip the rim-light stripe at very small sizes. */
   enableRim?: boolean;
-  /** Skip individual leg drawing at very small sizes (single trunk used). */
   enableLegs?: boolean;
-  /** Open-Peeps-inspired scarf accessory. */
   scarf?: ScarfKind;
 }
 
@@ -707,317 +182,73 @@ export function BodyTorso({
   pose,
   stylePreset = "default",
   height = 32,
-  enableRim = true,
-  enableLegs = true,
   scarf = "none",
 }: BodyTorsoProps) {
-  const h = height;
-  const w = h * 0.7;
-  // Torso barrel control points — wider at the bottom (pear silhouette).
-  const topW = w * 0.55;
-  const botW = w * 0.85;
-  const torsoTop = h * 0.05;
-  const torsoBottom = h * 0.65;
-  const shoulderY = h * 0.1;
-  const armW = w * 0.13;
-  const handR = w * 0.085;
-  const armLen = torsoBottom - shoulderY - handR * 1.55;
-  const shoulderX = topW / 2 + armW * 0.65;
-  const armCrouchY = pose === "crouch" ? -h * 0.05 : 0;
-  // Rotation conventions: SVG rotate() is clockwise for positive degrees.
-  // Both arm rects extend downward from the shoulder (0,0). To swing an
-  // arm across the chest (inward), rotate the LEFT arm POSITIVE and the
-  // RIGHT arm NEGATIVE. crouch swings outward (opposite).
-  const leftArmRot =
-    pose === "cross-arms"
-      ? 70
-      : pose === "crouch"
-        ? -20
-        : pose === "sigh"
-          ? 8
-          : pose === "step-forward"
-            ? 10
-            : 0;
-  const rightArmRot =
-    pose === "cross-arms"
-      ? -70
-      : pose === "wave"
-        ? -28
-        : pose === "crouch"
-          ? 20
-          : pose === "sigh"
-            ? -8
-            : pose === "step-forward"
-              ? -10
-              : 0;
-  const leftLegX = pose === "step-forward" ? -w * 0.08 : -w * 0.22;
-  const rightLegX = pose === "step-forward" ? w * 0.18 : w * 0.05;
-  const leftLegY = pose === "step-forward" ? -h * 0.05 : 0;
-  const isSleeping = pose === "sleeping";
+  const h = Math.max(16, Math.round(height));
+  const w = Math.max(16, Math.round(h * 0.85));
+  const dummyParts: AvatarParts = {
+    skinHue: 28,
+    hairHue: 25,
+    hairStyle: 0,
+    eyeShape: 0,
+    hair: "short",
+    hasEars: true,
+    cheekHue: 355,
+    blinkDelay: 0,
+    breatheDelay: 0,
+    headRatio: 5.5,
+  };
+  const dummyExpr: AvatarExpression = {
+    eye: "normal",
+    mouth: "small-smile",
+    brow: "none",
+    pose,
+    showSweat: false,
+    showZzz: false,
+    leanDeg: 0,
+  };
   return (
     <g aria-hidden>
-      {/* Legs */}
-      {enableLegs && !isSleeping && (
-        <g>
-          {/* left leg + shoe */}
-          <rect
-            x={leftLegX}
-            y={torsoBottom + leftLegY}
-            width={w * 0.17}
-            height={h * 0.32}
-            rx={w * 0.06}
-            fill="#4A382C"
-          />
-          <ellipse
-            cx={leftLegX + w * 0.085}
-            cy={torsoBottom + leftLegY + h * 0.34}
-            rx={w * 0.13}
-            ry={h * 0.04}
-            fill="#1F1410"
-          />
-          {/* right leg + shoe */}
-          <rect
-            x={rightLegX}
-            y={torsoBottom}
-            width={w * 0.17}
-            height={h * 0.32}
-            rx={w * 0.06}
-            fill="#4A382C"
-          />
-          <ellipse
-            cx={rightLegX + w * 0.085}
-            cy={torsoBottom + h * 0.34}
-            rx={w * 0.13}
-            ry={h * 0.04}
-            fill="#1F1410"
-          />
-        </g>
-      )}
-      {/* Torso barrel — pear silhouette via path */}
-      <path
-        d={`M ${-topW / 2} ${torsoTop}
-            L ${topW / 2} ${torsoTop}
-            L ${botW / 2} ${torsoBottom}
-            L ${-botW / 2} ${torsoBottom}
-            Z`}
-        fill={clothing.shirt}
-      />
-      {/* Right-side shading on the torso */}
-      <path
-        d={`M 0 ${torsoTop}
-            L ${topW / 2} ${torsoTop}
-            L ${botW / 2} ${torsoBottom}
-            L 0 ${torsoBottom}
-            Z`}
-        fill={clothing.shirtDark}
-        opacity={0.4}
-      />
-      {/* Rim light on the left edge of the torso */}
-      {enableRim && (
-        <path
-          d={`M ${-topW / 2} ${torsoTop}
-              L ${-topW / 2 + w * 0.05} ${torsoTop}
-              L ${-botW / 2 + w * 0.05} ${torsoBottom}
-              L ${-botW / 2} ${torsoBottom}
-              Z`}
-          fill={clothing.accent}
-          opacity={0.85}
+      <foreignObject
+        x={-w / 2}
+        y={0}
+        width={w}
+        height={h}
+        style={{ overflow: "visible" }}
+      >
+        <ThreeCharacterView
+          width={w}
+          height={h}
+          parts={dummyParts}
+          expression={dummyExpr}
+          clothing={clothing}
+          stylePreset={stylePreset}
+          mode="body"
+          scarf={scarf}
+          showGroundShadow={false}
         />
-      )}
-      {/* Collar — V-shape on top of the torso */}
-      <path
-        d={`M ${-topW / 2} ${torsoTop}
-            L 0 ${h * 0.18}
-            L ${topW / 2} ${torsoTop}
-            L ${topW / 2 - w * 0.05} ${h * 0.02}
-            L 0 ${h * 0.13}
-            L ${-topW / 2 + w * 0.05} ${h * 0.02}
-            Z`}
-        fill={clothing.accent}
-      />
-      {/* Two front buttons */}
-      <circle cx={0} cy={h * 0.32} r={Math.max(0.5, w * 0.04)} fill={clothing.shirtDark} />
-      <circle cx={0} cy={h * 0.48} r={Math.max(0.5, w * 0.04)} fill={clothing.shirtDark} />
-      {stylePreset === "taisho-wagara" && !isSleeping && (
-        <g opacity={0.92}>
-          <path
-            d={`M ${-topW / 2 - w * 0.12} ${torsoTop + h * 0.01}
-                L ${-w * 0.04} ${torsoTop + h * 0.07}
-                L ${-w * 0.08} ${torsoBottom + h * 0.02}
-                L ${-botW / 2 - w * 0.08} ${torsoBottom - h * 0.01}
-                Z`}
-            fill="hsl(176, 48%, 54%)"
-          />
-          <path
-            d={`M ${w * 0.04} ${torsoTop + h * 0.07}
-                L ${topW / 2 + w * 0.12} ${torsoTop + h * 0.01}
-                L ${botW / 2 + w * 0.08} ${torsoBottom - h * 0.01}
-                L ${w * 0.08} ${torsoBottom + h * 0.02}
-                Z`}
-            fill="hsl(218, 40%, 28%)"
-          />
-          <g stroke="hsla(42, 86%, 82%, 0.72)" strokeWidth={Math.max(0.35, w * 0.018)} fill="none">
-            <path d={`M ${-w * 0.34} ${h * 0.2} L ${-w * 0.12} ${h * 0.38} L ${-w * 0.34} ${h * 0.56}`} />
-            <path d={`M ${w * 0.34} ${h * 0.2} L ${w * 0.12} ${h * 0.38} L ${w * 0.34} ${h * 0.56}`} />
-            <line x1={-w * 0.28} y1={h * 0.23} x2={-w * 0.16} y2={h * 0.33} />
-            <line x1={w * 0.28} y1={h * 0.23} x2={w * 0.16} y2={h * 0.33} />
-          </g>
-        </g>
-      )}
-      {stylePreset === "occult-academy" && !isSleeping && (
-        <g>
-          <path
-            d={`M ${-topW / 2 + w * 0.02} ${torsoTop}
-                L ${topW / 2 - w * 0.02} ${torsoTop}
-                L ${botW / 2 - w * 0.06} ${torsoBottom + h * 0.03}
-                L ${-botW / 2 + w * 0.06} ${torsoBottom + h * 0.03}
-                Z`}
-            fill="hsla(250, 35%, 12%, 0.78)"
-          />
-          <path
-            d={`M ${-w * 0.18} ${torsoTop}
-                L 0 ${h * 0.2}
-                L ${w * 0.18} ${torsoTop}
-                L ${w * 0.11} ${h * 0.04}
-                L 0 ${h * 0.14}
-                L ${-w * 0.11} ${h * 0.04}
-                Z`}
-            fill="hsl(272, 68%, 74%)"
-            opacity={0.88}
-          />
-          <circle cx={0} cy={h * 0.39} r={Math.max(0.8, w * 0.07)} fill="none" stroke="hsl(45, 90%, 75%)" strokeWidth={Math.max(0.35, w * 0.018)} />
-          <path d={`M ${-w * 0.04} ${h * 0.39} L ${w * 0.04} ${h * 0.39} M 0 ${h * 0.35} L 0 ${h * 0.43}`} stroke="hsl(45, 90%, 75%)" strokeWidth={Math.max(0.35, w * 0.016)} strokeLinecap="round" />
-        </g>
-      )}
-      {/* Stitching seams + a single vertical shirt wrinkle. Drawn with
-          stroke-dasharray to add fabric texture without bumping the SVG
-          node budget (3 paths total). currentColor + low opacity keeps
-          the seam visible on every shirt palette. */}
-      {enableRim && (
-        <g stroke={clothing.shirtDark} fill="none" strokeLinecap="round" opacity={0.55}>
-          {/* Collar seam — dashed line tracing the V. */}
-          <path
-            d={`M ${-topW / 2 + w * 0.03} ${torsoTop + h * 0.01}
-                L 0 ${h * 0.13}
-                L ${topW / 2 - w * 0.03} ${torsoTop + h * 0.01}`}
-            strokeWidth={Math.max(0.35, w * 0.03)}
-            strokeDasharray="2 1"
-          />
-          {/* Button placket — dashed vertical line between the two buttons. */}
-          <line
-            x1={0}
-            y1={h * 0.2}
-            x2={0}
-            y2={h * 0.6}
-            strokeWidth={Math.max(0.3, w * 0.025)}
-            strokeDasharray="2 1.5"
-            opacity={0.7}
-          />
-          {/* Side-front wrinkle — subtle long-dash stroke. */}
-          <path
-            d={`M ${-topW / 2 + w * 0.18} ${h * 0.18}
-                Q ${-topW / 2 + w * 0.22} ${h * 0.4} ${-topW / 2 + w * 0.2} ${torsoBottom - h * 0.05}`}
-            strokeWidth={Math.max(0.3, w * 0.03)}
-            strokeDasharray="4 2"
-            opacity={0.4}
-          />
-        </g>
-      )}
-      {/* Scarf — wraps the neck/collar; rendered after the torso/collar so
-          it sits in front. Arms are drawn after, so they remain in front
-          of the scarf as if dangling outside it. */}
-      {scarf !== "none" && !isSleeping && <ScarfSvg kind={scarf} width={w} />}
-      {/* Arms — explicit foreground layer. Each limb's local origin is its shoulder. */}
-      <g>
-        <g transform={`translate(${-shoulderX}, ${shoulderY + armCrouchY}) rotate(${leftArmRot})`}>
-          <rect
-            x={-armW / 2}
-            y={0}
-            width={armW}
-            height={armLen}
-            rx={armW * 0.45}
-            fill={pose === "cross-arms" ? clothing.shirt : clothing.shirtDark}
-          />
-          {enableRim && pose !== "cross-arms" && (
-            <rect
-              x={-armW / 2}
-              y={0}
-              width={armW * 0.32}
-              height={armLen}
-              rx={armW * 0.32}
-              fill={clothing.accent}
-              opacity={0.65}
-            />
-          )}
-          <circle cx={0} cy={armLen + handR * 0.5} r={handR} fill="#F0CDA8" />
-        </g>
-        <g transform={`translate(${shoulderX}, ${shoulderY}) rotate(${rightArmRot})`}>
-          <g
-            style={
-              pose === "wave"
-                ? {
-                    animation: "relayHamletWaveHand 1.6s ease-in-out infinite",
-                    transformOrigin: "0px 0px",
-                  }
-                : undefined
-            }
-          >
-            <rect
-              x={-armW / 2}
-              y={0}
-              width={armW}
-              height={armLen}
-              rx={armW * 0.45}
-              fill={clothing.shirtDark}
-            />
-            <circle cx={0} cy={armLen + handR * 0.5} r={handR} fill="#F0CDA8" />
-          </g>
-        </g>
-      </g>
-      {/* Sleeping — show body lying horizontal (single rect on the ground) */}
-      {isSleeping && (
-        <rect
-          x={-w * 0.55}
-          y={torsoBottom - h * 0.08}
-          width={w * 1.1}
-          height={h * 0.16}
-          rx={w * 0.08}
-          fill={clothing.shirt}
-          opacity={0.85}
-        />
-      )}
+      </foreignObject>
     </g>
   );
 }
 
 // ---------------------------------------------------------------------------
-// HamletAvatar — convenience wrapper that stacks head + body and applies
-// the breathing animation. Used by all the non-sim-card consumers.
+// HamletAvatar — Full-body 3D articulated character wrapper.
 // ---------------------------------------------------------------------------
 
 export interface HamletAvatarProps {
   parts: AvatarParts;
   expression: AvatarExpression;
   clothing: ClothingColors;
-  /** Optional original outfit preset. */
   stylePreset?: AvatarStylePreset;
-  /** Total height in SVG units. Width derives from it. */
   height: number;
-  /** Toggle the breathing keyframe. */
   enableBreathe?: boolean;
-  /** Toggle the blink keyframe. */
   enableBlink?: boolean;
-  /** Toggle the cheek blush. */
   enableCheeks?: boolean;
-  /** Optional mood-coloured halo on the head. */
   haloColor?: string;
-  /** Hide the body — used for "head only" consumers like Sim Card. */
   bodyOnly?: false;
-  /** Children rendered above the avatar (hats / crowns). */
   children?: ReactNode;
-  /** Group transform from caller (translate/scale). */
   transform?: string;
-  /** Open-Peeps-inspired accessory layer. */
   glasses?: GlassesKind;
   mustache?: MustacheKind;
   beard?: BeardKind;
@@ -1043,85 +274,44 @@ export function HamletAvatar({
   earring = "none",
   scarf = "none",
 }: HamletAvatarProps) {
-  // Head radius derives from the toushin (head-body) ratio embedded in
-  // parts. Default chibi readout (~4.5 toushin) keeps the legacy 22%-of-
-  // height proportion; higher toushin slims the head and elongates the
-  // body so adults read taller and more realistic next to children.
-  //
-  //   total height = 2 * headR + neck + bodyH
-  //   headRatio    = total height / headR  (≈ "n-heads tall")
-  //
-  // We solve for headR with a small neck gap (~5% of height) and a body
-  // that fills the remainder.
-  const safeRatio = parts.headRatio > 0 ? parts.headRatio : 4.5;
-  // Uses the recipe's convention "height / headR ≈ N-heads tall".
-  // Legacy avatar = 4.5, chibi = 3.0, kid = 4.0, teen = 6.0, adult = 7.5.
-  const headR = Math.max(4, height / safeRatio);
-  const neckH = Math.max(1, headR * 0.2);
-  const bodyH = Math.max(8, height - headR * 2 - neckH);
-  // Vertical layout: head centered at headR + small neck gap, body below.
-  const headCy = headR + 1;
-  const bodyTopY = headCy + headR * 0.95; // neck base
-  // Energized pose gets a squash & stretch jump cycle on top of the idle
-  // breathe. The bottom-center origin keeps the feet planted while the
-  // body squashes/stretches.
-  const energized = expression.pose === "step-forward";
-  const breatheStyle = enableBreathe
-    ? {
-        animation: `relayHamletIdleBreathe 4s ease-in-out ${parts.breatheDelay}s infinite`,
-        transformOrigin: "center",
-      }
-    : undefined;
-  const energizedStyle = energized
-    ? {
-        animation: `relayHamletSquashStretchJump 1.4s ease-in-out ${parts.breatheDelay}s infinite`,
-        transformOrigin: `0px ${headCy + headR + neckH + bodyH}px`,
-      }
-    : undefined;
+  void haloColor;
+  const h = Math.max(24, Math.round(height));
+  const w = Math.max(20, Math.round(h * 0.78));
   return (
     <g transform={transform} aria-hidden>
-      <g style={energizedStyle}>
-      <g style={breatheStyle}>
-        {/* Neck — small rect between head and torso */}
-        <rect
-          x={-headR * 0.2}
-          y={bodyTopY - headR * 0.2}
-          width={headR * 0.4}
-          height={headR * 0.4}
-          fill={`hsl(${parts.skinHue}, 45%, 65%)`}
+      <foreignObject
+        x={-w / 2}
+        y={0}
+        width={w}
+        height={h}
+        style={{ overflow: "visible" }}
+      >
+        <ThreeCharacterView
+          width={w}
+          height={h}
+          parts={parts}
+          expression={expression}
+          clothing={clothing}
+          stylePreset={stylePreset}
+          mode="full"
+          enableBreathe={enableBreathe}
+          enableBlink={enableBlink}
+          enableCheeks={enableCheeks}
+          glasses={glasses}
+          mustache={mustache}
+          beard={beard}
+          earring={earring}
+          scarf={scarf}
+          showGroundShadow={false}
         />
-        <g transform={`translate(0, ${bodyTopY})`}>
-          <BodyTorso
-            clothing={clothing}
-            pose={expression.pose}
-            stylePreset={stylePreset}
-            height={bodyH}
-            scarf={scarf}
-          />
-        </g>
-        <g transform={`translate(0, ${headCy}) rotate(${expression.leanDeg})`}>
-          <HeadFace
-            parts={parts}
-            expression={expression}
-            radius={headR}
-            haloColor={haloColor}
-            enableBlink={enableBlink}
-            enableCheeks={enableCheeks}
-            glasses={glasses}
-            mustache={mustache}
-            beard={beard}
-            earring={earring}
-          />
-        </g>
-      </g>
-      </g>
+      </foreignObject>
       {children}
     </g>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Shared keyframes — caller injects via <style>{HAMLET_AVATAR_CSS}</style>
+// Shared keyframes — kept for CSS consumers across Hamlet
 // ---------------------------------------------------------------------------
 
 export const HAMLET_AVATAR_CSS = `
@@ -1146,7 +336,6 @@ export const HAMLET_AVATAR_CSS = `
   0%, 100% { transform: rotate(-12deg); }
   50%      { transform: rotate(18deg); }
 }
-/* 4-frame steps() sprite-style walk cycle — used by WalkingSim walkers. */
 @keyframes relayHamletWalk4Frame {
   0%   { transform: translateY(0)    rotate(0deg); }
   25%  { transform: translateY(-1.5px) rotate(-2deg); }
@@ -1154,9 +343,6 @@ export const HAMLET_AVATAR_CSS = `
   75%  { transform: translateY(-1.5px) rotate(2deg); }
   100% { transform: translateY(0)    rotate(0deg); }
 }
-/* Squash & stretch jump — energized mood emphasis. Anticipation squash,
-   stretch ascend, apex, squash on landing, restore. transform-origin is
-   set to bottom center by the consumer wrapper so the feet stay planted. */
 @keyframes relayHamletSquashStretchJump {
   0%   { transform: scale(1, 1)       translateY(0); }
   10%  { transform: scale(1.1, 0.85)  translateY(0); }
@@ -1165,9 +351,6 @@ export const HAMLET_AVATAR_CSS = `
   80%  { transform: scale(1.1, 0.85)  translateY(0); }
   100% { transform: scale(1, 1)       translateY(0); }
 }
-/* Reduce-motion fallback — caller animations all reference these
-   keyframes, so disabling animation here removes every Hamlet avatar
-   motion at the OS-level "reduce motion" preference. */
 @media (prefers-reduced-motion: reduce) {
   [style*="relayHamletIdleBreathe"],
   [style*="relayHamletBlink"],
@@ -1179,9 +362,6 @@ export const HAMLET_AVATAR_CSS = `
     animation: none !important;
   }
 }
-/* When animation-timeline:view() is supported, only run idle motion
-   while the avatar is on-screen. This is a no-op in Firefox today, but
-   doesn't break the keyframes there because @supports gates the rule. */
 @supports (animation-timeline: view()) {
   .relay-hamlet-onscreen-anim {
     animation-timeline: view();

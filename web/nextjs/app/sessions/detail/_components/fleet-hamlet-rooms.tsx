@@ -35,7 +35,7 @@ import {
 } from "../_lib/fleet-hamlet-rooms-choreo";
 import {
   HAMLET_AVATAR_CSS,
-  HeadFace,
+  ThreeCharacterView,
 } from "./fleet-hamlet-avatar";
 import { DECOR_CSS } from "./fleet-hamlet-decor";
 import { PARTICLE_CSS } from "./fleet-hamlet-particles";
@@ -225,27 +225,17 @@ function RoomGridCell({
       <header className="shrink-0 flex items-center gap-2 px-2.5 py-1.5 border-b border-[var(--color-border)]">
         <span
           aria-hidden
-          className="shrink-0 inline-block w-[28px] h-[28px]"
+          className="shrink-0 inline-block w-[32px] h-[32px]"
           style={{ lineHeight: 0 }}
         >
-          <svg
-            width={28}
-            height={28}
-            viewBox="0 0 48 48"
-            aria-hidden
-            overflow="visible"
-          >
-            <g transform="translate(24, 26)">
-              <HeadFace
-                parts={parts}
-                expression={expression}
-                radius={14}
-                haloColor={sim.mood.color}
-                enableBlink={false}
-                enableCheeks={false}
-              />
-            </g>
-          </svg>
+          <ThreeCharacterView
+            parts={parts}
+            expression={expression}
+            width={32}
+            height={32}
+            mode="head"
+            haloColor={sim.mood.color}
+          />
         </span>
         <div className="flex-1 min-w-0">
           <div className="flex items-baseline gap-1 flex-wrap">

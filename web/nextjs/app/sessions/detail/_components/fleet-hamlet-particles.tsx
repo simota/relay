@@ -19,10 +19,9 @@ import {
   rainDrops,
   seasonParticles,
 } from "../_lib/fleet-hamlet-particles";
-import { AvatarBody } from "./fleet-hamlet-decor";
 import {
   HAMLET_AVATAR_CSS,
-  HeadFace,
+  ThreeCharacterView,
   avatarStyleFromSeed,
   clothingForStyle,
 } from "./fleet-hamlet-avatar";
@@ -30,7 +29,7 @@ import { getExpressionForMood } from "../_lib/fleet-hamlet-avatar-expression";
 import { DIORAMA_DEFS } from "../_lib/fleet-hamlet-diorama-tokens";
 
 // ---------------------------------------------------------------------------
-// Walking sims — small avatars that traverse the street
+// Walking sims — small 3D avatars that traverse the street
 // ---------------------------------------------------------------------------
 
 export function WalkingSimLayer({
@@ -69,7 +68,6 @@ function WalkingSim({
   yBase: number;
 }) {
   const top = yBase + spec.topPx;
-  // delayMs is negative — start mid-cycle so sims appear pre-placed.
   const delayS = -(spec.startOffset * (spec.durationMs / 1000));
   const durS = (spec.durationMs / 1000).toFixed(1);
   return (
@@ -79,32 +77,19 @@ function WalkingSim({
         top,
         left: 0,
         width: 36,
-        height: 30,
+        height: 36,
         animation: `relayHamletWalkPath ${durS}s linear ${delayS}s infinite`,
-        // CSS variable used by the keyframe to traverse the full street.
         ["--relay-walk-distance" as unknown as string]: `${width + 40}px`,
         transform: spec.direction === -1 ? "scaleX(-1)" : undefined,
         transformOrigin: "center",
       }}
     >
-      <span
-        style={{
-          display: "inline-block",
-          // 4-frame steps() walk gives a sprite-style cadence. We keep
-          // the existing walkBob keyframe as the cushion bounce on a
-          // second wrapper so the rhythm reads as "step + breathe".
-          animation: "relayHamletWalk4Frame 0.6s steps(4, end) infinite",
-        }}
-      >
-        <span
-          style={{
-            display: "inline-block",
-            animation: "relayHamletWalkBob 0.6s ease-in-out infinite",
-          }}
-        >
-          <MiniSimAvatar agentKind={spec.sim.sessionType} hue={spec.sim.hue} sim={spec.sim} />
-        </span>
-      </span>
+      <MiniSimAvatar
+        agentKind={spec.sim.sessionType}
+        hue={spec.sim.hue}
+        sim={spec.sim}
+        motion="walking"
+      />
     </span>
   );
 }
@@ -113,15 +98,19 @@ function MiniSimAvatar({
   agentKind,
   hue,
   sim,
+  motion = "idle",
+  accessories,
+  width = 28,
+  height = 36,
 }: {
   agentKind: SimCardModel["sessionType"];
   hue: number;
-  /** Optional full sim — when present, the mini avatar uses its mood
-   *  expression + deterministic face features. */
   sim?: SimCardModel;
+  motion?: "idle" | "walking" | "working" | "sitting" | "resting";
+  accessories?: Accessories;
+  width?: number;
+  height?: number;
 }) {
-  // Derive a deterministic seed even if the caller didn't pass a sim
-  // (street walkers re-use the agentKind+hue to keep the look stable).
   const seed = sim?.avatarSeed ?? hashStringToInt(`${agentKind}:${hue}`);
   const stage = sim?.stage.key;
   const parts = useMemo(() => avatarPartsFromSeed(seed, stage), [seed, stage]);
@@ -129,70 +118,26 @@ function MiniSimAvatar({
   const expression = useMemo(() => getExpressionForMood(moodKey), [moodKey]);
   const stylePreset = avatarStyleFromSeed(seed, agentKind);
   const clothes = clothingForStyle(agentKind, stylePreset);
-  // Compact 22×30 sprite: head r=5 centered at (11, 6), body 8×11 below.
+
   return (
-    <svg width={22} height={30} viewBox="0 0 22 30" aria-hidden overflow="visible">
-      {/* Ground contact: dark shadow + agent-colour foot ring so walkers
-          read as planted on the path instead of floating over it. */}
-      <ellipse cx={11} cy={28.5} rx={6.8} ry={1.35} fill="rgba(0,0,0,0.3)" />
-      <ellipse
-        cx={11}
-        cy={27.9}
-        rx={5}
-        ry={0.85}
-        fill={clothes.accent}
-        opacity={0.42}
-      />
-      <g
-        style={{
-          animation: `relayHamletIdleBreathe 4s ease-in-out ${parts.breatheDelay}s infinite`,
-          transformOrigin: "center",
-        }}
-      >
-        {/* Torso barrel — small enough that we skip rim-light stripes */}
-        <path
-          d={`M 7 11 L 7.5 14 L 7 22 L 15 22 L 14.5 14 L 15 11 Z`}
-          fill={clothes.shirt}
-          stroke="rgba(25,25,25,0.32)"
-          strokeWidth={0.3}
-        />
-        <path
-          d={`M 11 11 L 15 11 L 14.5 14 L 15 22 L 11 22 Z`}
-          fill={clothes.shirtDark}
-          opacity={0.45}
-        />
-        {/* Collar V */}
-        <path d="M 8 11 L 11 13 L 14 11 L 11 14 Z" fill={clothes.accent} />
-        {stylePreset === "taisho-wagara" && (
-          <g opacity={0.92}>
-            <path d="M 6.5 11.2 L 8.8 12.2 L 8.4 21.4 L 6.4 21.2 Z" fill="hsl(176, 48%, 54%)" />
-            <path d="M 13.2 12.2 L 15.5 11.2 L 15.6 21.2 L 13.6 21.4 Z" fill="hsl(218, 40%, 28%)" />
-            <path d="M 7.1 15 L 8.1 16 L 7.1 17 M 14.9 15 L 13.9 16 L 14.9 17" fill="none" stroke="hsla(42, 86%, 82%, 0.78)" strokeWidth={0.35} strokeLinecap="round" />
-          </g>
-        )}
-        {stylePreset === "occult-academy" && (
-          <g>
-            <path d="M 8 11.2 L 14 11.2 L 14.6 21.8 L 7.4 21.8 Z" fill="hsla(250, 35%, 12%, 0.72)" />
-            <circle cx={11} cy={16.6} r={0.8} fill="none" stroke="hsl(45, 90%, 75%)" strokeWidth={0.32} />
-          </g>
-        )}
-        {/* Legs + shoes */}
-        <rect x={8} y={22} width={2} height={4.5} rx={0.6} fill="#4A382C" />
-        <rect x={12} y={22} width={2} height={4.5} rx={0.6} fill="#4A382C" />
-        <ellipse cx={9} cy={27} rx={1.4} ry={0.6} fill="#1F1410" />
-        <ellipse cx={13} cy={27} rx={1.4} ry={0.6} fill="#1F1410" />
-        {/* Head — translate to (11, 6) and render the shared face primitive */}
-        <g transform="translate(11, 6)">
-          <HeadFace
-            parts={parts}
-            expression={expression}
-            radius={5}
-            enableBlink={false}
-            enableCheeks={false}
-          />
-        </g>
-      </g>
-    </svg>
+    <ThreeCharacterView
+      parts={parts}
+      expression={expression}
+      clothing={clothes}
+      stylePreset={stylePreset}
+      width={width}
+      height={height}
+      mode="full"
+      motion={motion}
+      glasses={accessories?.glasses}
+      mustache={accessories?.mustache}
+      beard={accessories?.beard}
+      earring={accessories?.earring}
+      scarf={accessories?.scarf}
+      hat={accessories?.hat}
+      crown={accessories?.crown}
+      showGroundShadow
+    />
   );
 }
 
@@ -210,38 +155,18 @@ export function MiniAvatar({
   return (
     <span
       className="inline-flex flex-col items-center"
-      style={{ width: 30, height: 40 }}
+      style={{ width: 32, height: 42 }}
       aria-hidden
     >
-      <span style={{ position: "relative", width: 24, height: 24 }}>
-        <MiniSimAvatar agentKind={sim.sessionType} hue={sim.hue} sim={sim} />
-        {accessories?.hat && accessories.hat !== "none" && (
-          <span
-            style={{
-              position: "absolute",
-              top: -4,
-              left: 2,
-              pointerEvents: "none",
-            }}
-          >
-            <HatSvg kind={accessories.hat} />
-          </span>
-        )}
-        {accessories?.crown && (
-          <span
-            style={{
-              position: "absolute",
-              top: -7,
-              left: 4,
-              pointerEvents: "none",
-              animation: "relayHamletTwinkle 2s ease-in-out infinite",
-            }}
-          >
-            <CrownSvg />
-          </span>
-        )}
-      </span>
-      <AvatarBody agentKind={sim.sessionType} width={24} height={10} mood={sim.mood.key} />
+      <MiniSimAvatar
+        agentKind={sim.sessionType}
+        hue={sim.hue}
+        sim={sim}
+        motion="idle"
+        accessories={accessories}
+        width={30}
+        height={36}
+      />
       {accessories?.badge && (
         <span
           className="mt-0.5 px-1 text-[7px] font-mono rounded border"

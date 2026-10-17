@@ -14,14 +14,12 @@ import { useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
 import type { SimCardModel } from "../_lib/fleet-hamlet";
 import {
-  agentHueShift,
-} from "../_lib/fleet-hamlet-layout";
-import {
   buildFamilyClusters,
   type FamilyCluster,
   type FamilyClusterNode,
   TREE_LAYOUT,
 } from "../_lib/fleet-hamlet-tree";
+import { ThreeHouseView } from "./fleet-hamlet-three-house";
 
 const ACTIVE_WINDOW_MS = 60 * 60 * 1000;
 
@@ -303,7 +301,6 @@ function TreeNode({
   const left = node.x - w / 2;
   const top = node.y - h / 2;
 
-  const wallHue = (cluster.hue + agentHueShift(node.card.sessionType) + 360) % 360;
   const isRecent = now - node.card.lastActiveAt <= ACTIVE_WINDOW_MS;
   const dim = !isRecent;
 
@@ -331,7 +328,7 @@ function TreeNode({
           {node.card.stage.emoji}
         </span>
       </div>
-      <MiniHouseSvg roofHue={cluster.hue} wallHue={wallHue} highlight={selected} />
+      <MiniHouseSvg sim={node.card} highlight={selected} isRecent={isRecent} />
       <div
         className={cn(
           "max-w-full px-0.5 text-[9.5px] font-mono truncate text-center",
@@ -345,34 +342,25 @@ function TreeNode({
 }
 
 function MiniHouseSvg({
-  roofHue,
-  wallHue,
+  sim,
   highlight,
+  isRecent,
 }: {
-  roofHue: number;
-  wallHue: number;
+  sim: SimCardModel;
   highlight: boolean;
+  isRecent: boolean;
 }) {
-  // Soft halo behind the mini-house so per-repo colors read at a glance.
   return (
-    <svg
-      width={40}
-      height={36}
-      viewBox="0 0 40 36"
-      aria-hidden
-      style={{
-        filter: highlight
-          ? `drop-shadow(0 2px 3px rgba(0,0,0,0.25)) drop-shadow(0 0 4px hsla(${roofHue}, 65%, 60%, 0.55))`
-          : `drop-shadow(0 0 3px hsla(${roofHue}, 65%, 60%, 0.28))`,
-      }}
-    >
-      <circle cx="20" cy="20" r="17" fill={`hsla(${roofHue}, 65%, 60%, 0.10)`} />
-      <polygon points="5,20 20,8 35,20" fill={`hsl(${roofHue}, 55%, 45%)`} />
-      <rect x="8" y="19" width="24" height="15" fill={`hsl(${wallHue}, 30%, 65%)`} />
-      <rect x="17" y="24" width="6" height="10" fill="hsl(25, 35%, 25%)" rx={0.5} />
-      <rect x="10" y="22" width="4" height="4" fill="hsl(220, 60%, 65%)" />
-      <rect x="26" y="22" width="4" height="4" fill="hsl(220, 60%, 65%)" />
-    </svg>
+    <ThreeHouseView
+      sim={sim}
+      width={44}
+      height={40}
+      sizeVariant="tiny"
+      highlight={highlight}
+      chimneyActive={isRecent}
+      windowsLit={isRecent}
+      dim={!isRecent}
+    />
   );
 }
 

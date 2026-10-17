@@ -25,10 +25,15 @@ import {
   type SimCardModel,
 } from "../_lib/fleet-hamlet";
 import { moodGradient } from "../_lib/fleet-hamlet-decor";
-import { AvatarBody, DECOR_CSS } from "./fleet-hamlet-decor";
-import { HAMLET_AVATAR_CSS, HeadFace } from "./fleet-hamlet-avatar";
+import { DECOR_CSS } from "./fleet-hamlet-decor";
+import {
+  HAMLET_AVATAR_CSS,
+  ThreeCharacterView,
+  avatarStyleFromSeed,
+  clothingForStyle,
+} from "./fleet-hamlet-avatar";
 import { getExpressionForMood } from "../_lib/fleet-hamlet-avatar-expression";
-import { CrownSvg, HatSvg, PARTICLE_CSS } from "./fleet-hamlet-particles";
+import { PARTICLE_CSS } from "./fleet-hamlet-particles";
 import { deriveAccessories } from "../_lib/fleet-hamlet-particles";
 import { sessionKey, statusColor } from "../_lib/fleet-timeline";
 import type { TileSpec } from "../_types";
@@ -652,37 +657,13 @@ export function SimCard({
       <style>{HAMLET_AVATAR_CSS}</style>
       <div className="flex items-start gap-2.5 relative z-[1]">
         <div className="shrink-0 flex flex-col items-center relative">
-          {accessories.crown && (
-            <span
-              aria-hidden
-              style={{
-                position: "absolute",
-                top: -6,
-                left: "50%",
-                marginLeft: -7,
-                zIndex: 2,
-                animation: "relayHamletTwinkle 2s ease-in-out infinite",
-              }}
-            >
-              <CrownSvg />
-            </span>
-          )}
-          {!accessories.crown && accessories.hat !== "none" && (
-            <span
-              aria-hidden
-              style={{
-                position: "absolute",
-                top: -4,
-                left: "50%",
-                marginLeft: -8,
-                zIndex: 2,
-              }}
-            >
-              <HatSvg kind={accessories.hat} />
-            </span>
-          )}
-          <SimAvatar parts={parts} mood={sim.mood} accessories={accessories} />
-          <AvatarBody agentKind={sim.sessionType} width={44} height={18} mood={sim.mood.key} />
+          <SimAvatar
+            parts={parts}
+            mood={sim.mood}
+            accessories={accessories}
+            agentKind={sim.sessionType}
+            avatarSeed={sim.avatarSeed}
+          />
           {accessories.badge && (
             <span
               className="mt-0.5 px-1 text-[8px] font-mono rounded border"
@@ -850,14 +831,12 @@ function NeedBar({ label, value }: { label: string; value: number }) {
   );
 }
 
-// Refined avatar head: egg-shaped face, 6 hair styles, ears, cheek blush,
-// mood-driven eyes / mouth / brows, idle blink, sweat / Zzz overlays. The
-// face is centered in a 48×48 box. Body is rendered separately by the
-// caller via AvatarBody.
 function SimAvatar({
   parts,
   mood,
   accessories,
+  agentKind = "claude",
+  avatarSeed = 1,
 }: {
   parts: AvatarParts;
   mood: SimCardModel["mood"];
@@ -866,36 +845,41 @@ function SimAvatar({
     mustache: import("../_lib/fleet-hamlet-particles").MustacheKind;
     beard: import("../_lib/fleet-hamlet-particles").BeardKind;
     earring: import("../_lib/fleet-hamlet-particles").EarringKind;
+    scarf?: import("../_lib/fleet-hamlet-particles").ScarfKind;
+    hat?: "scholar" | "cap" | "tophat" | "none";
+    crown?: boolean;
   };
+  agentKind?: SimCardModel["sessionType"];
+  avatarSeed?: number;
 }) {
   const expression = useMemo(() => getExpressionForMood(mood.key), [mood.key]);
+  const stylePreset = useMemo(
+    () => avatarStyleFromSeed(avatarSeed, agentKind),
+    [avatarSeed, agentKind],
+  );
+  const clothes = useMemo(
+    () => clothingForStyle(agentKind, stylePreset),
+    [agentKind, stylePreset],
+  );
   return (
-    <svg
-      width={48}
-      height={48}
-      viewBox="0 0 48 48"
-      aria-hidden
+    <ThreeCharacterView
+      parts={parts}
+      expression={expression}
+      clothing={clothes}
+      stylePreset={stylePreset}
+      width={52}
+      height={64}
+      mode="bust"
+      haloColor={mood.color}
+      glasses={accessories?.glasses}
+      mustache={accessories?.mustache}
+      beard={accessories?.beard}
+      earring={accessories?.earring}
+      scarf={accessories?.scarf}
+      hat={accessories?.hat}
+      crown={accessories?.crown}
       className="shrink-0"
-      overflow="visible"
-    >
-      <g
-        transform={`translate(24, 26) rotate(${expression.leanDeg})`}
-        style={{
-          animation: `relayHamletIdleBreathe 4s ease-in-out ${parts.breatheDelay}s infinite`,
-          transformOrigin: "24px 26px",
-        }}
-      >
-        <HeadFace
-          parts={parts}
-          expression={expression}
-          radius={14}
-          haloColor={mood.color}
-          glasses={accessories?.glasses}
-          mustache={accessories?.mustache}
-          beard={accessories?.beard}
-          earring={accessories?.earring}
-        />
-      </g>
-    </svg>
+    />
   );
 }
+

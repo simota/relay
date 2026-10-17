@@ -8,7 +8,7 @@
 // API surface.
 
 import { ArrowLeft, ArrowUpRight } from "lucide-react";
-import { type ReactNode, useCallback, useEffect, useMemo, useRef } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { SessionDetail } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import type { SimCardModel } from "../_lib/fleet-hamlet";
@@ -27,13 +27,13 @@ import {
   type EditEntry,
   type ReadEntry,
   type RoomAssessment,
+  type RoomKind,
   ROOM_ORDER,
   roomColorCss,
   roomColorDot,
 } from "../_lib/fleet-hamlet-house";
 import {
-  agentHueShift,
-  hashRepoToHue,
+  houseSizeFromActivity,
 } from "../_lib/fleet-hamlet-layout";
 import { statusColor } from "../_lib/fleet-timeline";
 import type { TileSpec } from "../_types";
@@ -45,7 +45,9 @@ import {
 } from "../_lib/fleet-hamlet-particles";
 import { FleetHamletLifetime } from "./fleet-hamlet-lifetime";
 import { RelationshipsPanel } from "./fleet-hamlet-relations-panel";
+import { ROOM_SCENE_CSS, RoomScene } from "./fleet-hamlet-room-scene";
 import { SkillsPanel } from "./fleet-hamlet-skills-panel";
+import { ThreeHouseView } from "./fleet-hamlet-three-house";
 
 interface Props {
   sim: SimCardModel;
@@ -117,8 +119,6 @@ export function FleetHamletHouse({
   );
 
   const canOpenTile = !selected && canAdd;
-  const roofHue = hashRepoToHue(sim.repo);
-  const wallHue = (roofHue + agentHueShift(sim.sessionType) + 360) % 360;
   const activeRoom = useMemo(
     () => selectActiveRoom(detail, sim, now),
     [detail, sim, now],
@@ -192,7 +192,7 @@ export function FleetHamletHouse({
                 <kbd className="ml-1 text-[9px] text-[var(--color-fg-dim)] font-mono opacity-70">(esc)</kbd>
               </button>
               <div className="flex items-center gap-2">
-                <HouseGlyph roofHue={roofHue} wallHue={wallHue} />
+                <HouseGlyph sim={sim} archived={archived} />
                 <h2 className="text-[13px] font-mono text-[var(--color-fg)] leading-tight">
                   {sim.sessionType[0]}/{sim.repo ?? "—"}
                   {sim.agentId && (
@@ -238,6 +238,23 @@ export function FleetHamletHouse({
               </div>
             </header>
 
+            {/* 3D Architectural House & Resident Diorama Showcase */}
+            <section
+              className="flex flex-col items-center justify-center p-2 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-bg)] overflow-hidden"
+              aria-label="3D house exterior showcase"
+            >
+              <ThreeHouseView
+                sim={sim}
+                width={256}
+                height={148}
+                sizeVariant={houseSizeFromActivity(sim)}
+                chimneyActive={!archived}
+                windowsLit={!archived}
+                showYardResident
+                interactiveOrbit
+              />
+            </section>
+
             {/* Vitals HUD — 縦並び on lg+, 2x2 grid on md- */}
             <section
               className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-1 gap-2 p-3 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-bg)]"
@@ -279,8 +296,17 @@ export function FleetHamletHouse({
             </section>
           </aside>
 
-          {/* ─── Center: Room Grid ──────────────────────────────────────── */}
-          <main>
+          {/* ─── Center: The Sims 3D Cutaway Dollhouse + Room Grid ──────── */}
+          <main className="flex flex-col gap-3">
+            <HouseDollhouseStage
+              sim={sim}
+              detail={detail}
+              allSims={allSims}
+              now={now}
+              rooms={rooms}
+              activeRoom={activeRoom}
+            />
+
             {/* Room grid: xl 3列, lg 2列, sm 2列, default 1列 */}
             <section
               className="grid gap-2 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3"
@@ -410,7 +436,72 @@ export function FleetHamletHouse({
       </div>
       <style>{DECOR_CSS}</style>
       <style>{PARTICLE_CSS}</style>
+      <style>{ROOM_SCENE_CSS}</style>
     </div>
+  );
+}
+
+function HouseDollhouseStage({
+  sim,
+  detail,
+  allSims,
+  now,
+  rooms,
+  activeRoom,
+}: {
+  sim: SimCardModel;
+  detail: SessionDetail | undefined;
+  allSims: readonly SimCardModel[];
+  now: number;
+  rooms: readonly RoomAssessment[];
+  activeRoom: RoomKind;
+}) {
+  const [selectedRoom, setSelectedRoom] = useState<RoomKind | null>(null);
+  const currentRoom = selectedRoom ?? activeRoom;
+
+  return (
+    <section
+      className="flex flex-col gap-2 p-2.5 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-bg)]"
+      aria-label="3D cutaway dollhouse room stage"
+    >
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="text-[11px] font-mono uppercase tracking-wider text-[var(--color-fg-muted)] flex items-center gap-1.5">
+          <span aria-hidden>💎</span>
+          <span>The Sims 3D Cutaway Dollhouse</span>
+        </div>
+        <div className="flex items-center gap-1 flex-wrap">
+          {rooms.map((r) => {
+            const isCurr = r.kind === currentRoom;
+            const isResidentHere = r.kind === activeRoom;
+            return (
+              <button
+                key={r.kind}
+                type="button"
+                onClick={() => setSelectedRoom(r.kind === activeRoom ? null : r.kind)}
+                className={cn(
+                  "inline-flex items-center gap-1 px-1.5 h-5 rounded-[var(--radius-sm)] text-[10px] font-mono border transition-colors cursor-pointer",
+                  isCurr
+                    ? "border-[var(--color-accent)] text-[var(--color-accent)] bg-[var(--color-accent)]/10"
+                    : "border-[var(--color-border)] text-[var(--color-fg-muted)] hover:text-[var(--color-fg)]",
+                )}
+                title={isResidentHere ? `${r.label} (resident is here)` : r.label}
+              >
+                <span aria-hidden>{r.emoji}</span>
+                <span>{r.label}</span>
+                {isResidentHere && <span aria-hidden className="text-[8px]">●</span>}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      <RoomScene
+        card={sim}
+        detail={detail}
+        allCards={allSims}
+        now={now}
+        forceRoom={currentRoom}
+      />
+    </section>
   );
 }
 
@@ -688,14 +779,17 @@ function RoomCard({
   );
 }
 
-// Tiny "house" glyph for the title bar — mirrors Neighborhood's color logic
-// without re-rendering the full HouseSvg footprint.
-function HouseGlyph({ roofHue, wallHue }: { roofHue: number; wallHue: number }) {
+function HouseGlyph({ sim, archived }: { sim: SimCardModel; archived: boolean }) {
   return (
-    <svg width={24} height={24} viewBox="0 0 24 24" aria-hidden className="shrink-0">
-      <polygon points="2,12 12,3 22,12" fill={`hsl(${roofHue}, 55%, 45%)`} />
-      <rect x="4" y="11" width="16" height="10" fill={`hsl(${wallHue}, 30%, 65%)`} />
-      <rect x="10" y="14" width="4" height="7" fill="hsl(25, 35%, 25%)" />
-    </svg>
+    <ThreeHouseView
+      sim={sim}
+      width={30}
+      height={30}
+      sizeVariant="tiny"
+      chimneyActive={!archived}
+      windowsLit={!archived}
+      dim={archived}
+      className="shrink-0"
+    />
   );
 }
