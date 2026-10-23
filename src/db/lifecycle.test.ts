@@ -3,7 +3,7 @@
 import "../test-setup.js";
 import { Database } from "bun:sqlite";
 import { beforeAll, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createTasksApi } from "../api/tasks.js";
 import { createUndoApi } from "../api/undo.js";
@@ -173,5 +173,242 @@ describe("re-sync ingest", () => {
     db.upsertTasks([{ ...t, title: "edited", due_at: "2099-02-02" }]);
     db.close();
     expect(state(id).due_at).toBe("2099-02-02");
+  });
+});
+
+describe("undo / redo", () => {
+  test("undo of a reassign restores the assignee instead of wedging the stack", async () => {
+    const id = insert(input({ repo: "present-repo", assignee: "self" }));
+    const undoApi = createUndoApi();
+    const db = new RelayDB();
+    db.setAssignee(id, "codex");
+    db.recordUndo({
+      op_kind: "reassign",
+      payload: { tasks: [{ id, assignee: "codex" }] },
+      inverse: { tasks: [{ id, assignee: "self" }] },
+    });
+    db.close();
+
+    const undo = await post(undoApi, "/");
+    expect(undo.status).toBe(200);
+    const after = () => {
+      const d = new RelayDB();
+      const t = d.getTask(id)!;
+      d.close();
+      return t.assignee;
+    };
+    expect(after()).toBe("self");
+    const redo = await post(undoApi, "/?redo=1");
+    expect(redo.status).toBe(200);
+    expect(after()).toBe("codex");
+  });
+
+  test("redo replays the most recently undone entry first", async () => {
+    const id = insert(input({ repo: "present-repo" }));
+    const tasksApi = createTasksApi();
+    const undoApi = createUndoApi();
+    const db = new RelayDB();
+    db.setStatus(id, "in_progress");
+    db.recordUndo({
+      op_kind: "in_progress",
+      payload: { tasks: [{ id, status: "in_progress", due_at: null, closed_at: null }] },
+      inverse: { tasks: [{ id, status: "open", due_at: null, closed_at: null }] },
+    });
+    db.close();
+    await post(tasksApi, "/bulk/close", { ids: [id] });
+
+    await post(undoApi, "/");
+    await post(undoApi, "/");
+    expect(state(id).status).toBe("open");
+    await post(undoApi, "/?redo=1");
+    expect(state(id).status).toBe("in_progress");
+    await post(undoApi, "/?redo=1");
+    expect(state(id).status).toBe("done");
+  });
+
+  test("opens a DB whose undo_log predates the status column", () => {
+    const path = join(RELAY_HOME, `legacy-undo-${Date.now()}.sqlite`);
+    const raw = new Database(path, { create: true });
+    raw.exec(`CREATE TABLE undo_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      op_kind TEXT NOT NULL, payload TEXT NOT NULL,
+      inverse TEXT NOT NULL, created_at TEXT NOT NULL)`);
+    raw.close();
+
+    const db = new RelayDB(path);
+    db.recordUndo({ op_kind: "x", payload: { tasks: [] }, inverse: { tasks: [] } });
+    expect(db.latestUndo("active")?.op_kind).toBe("x");
+    db.close();
+  });
+});
+
+describe("re-sync change detection", () => {
+  test("applies upstream changes that touch only due_at, repo or prompt", () => {
+    const t = input({ repo: "present-repo", due_at: null, prompt: null });
+    const id = insert(t);
+    const db = new RelayDB();
+    const res = db.upsertTasks([{ ...t, due_at: "2099-03-03", prompt: "p", repo: "other-repo" }]);
+    const row = db.getTask(id)!;
+    db.close();
+    expect(res.updated).toBe(1);
+    expect(row).toMatchObject({ due_at: "2099-03-03", prompt: "p", repo: "other-repo" });
+  });
+
+  test("a snoozed task's due_at alone is not an upstream change", () => {
+    const t = input({ repo: "present-repo", due_at: "2099-01-01" });
+    const id = insert(t);
+    snooze([id]);
+    const db = new RelayDB();
+    const res = db.upsertTasks([t]);
+    db.close();
+    expect(res.unchanged).toBe(1);
+    expect(state(id).due_at).toBe(SNOOZE_UNTIL);
+  });
+});
+
+describe("unavailable scan root", () => {
+  async function withOfflineRoot(fn: () => unknown) {
+    const original = readFileSync(CONFIG_PATH, "utf8");
+    const root = join(RELAY_HOME, "roots");
+    const offline = join(RELAY_HOME, "unmounted-volume");
+    writeFileSync(CONFIG_PATH, `[scan]\nroots = [${JSON.stringify(root)}, ${JSON.stringify(offline)}]\n`);
+    try {
+      await fn();
+    } finally {
+      writeFileSync(CONFIG_PATH, original);
+    }
+  }
+
+  test("sync does not auto-close tasks while a scan root is missing", async () => {
+    const open = insert(input());
+    await withOfflineRoot(() => runSync({ source: "manual", silent: true }));
+    expect(state(open).status).toBe("open");
+  });
+
+  test("the Web auto-prune neither closes nor deletes while a scan root is missing", async () => {
+    const open = insert(input());
+    const done = insert(input());
+    const db = new RelayDB();
+    db.setStatus(done, "done");
+    db.close();
+    await withOfflineRoot(() => {
+      const res = pruneMissingRepos({ includeDone: true, execute: true, keepSnoozed: true, skipWhenRootMissing: true });
+      expect(res).toMatchObject({ closedCount: 0, deletedCount: 0 });
+    });
+    expect(state(open).status).toBe("open");
+    expect(state(done).status).toBe("done");
+  });
+});
+
+describe("timestamp comparisons", () => {
+  // Stored timestamps are ISO (`…T…Z`); SQLite's datetime() yields
+  // `YYYY-MM-DD HH:MM:SS`, which sorts below any ISO time on the same date.
+  const hoursFromNow = (h: number) => new Date(Date.now() + h * 3_600_000).toISOString();
+
+  test("Today includes a task due within the next day", () => {
+    const id = insert(input({ repo: "present-repo", due_at: hoursFromNow(23) }));
+    const db = new RelayDB();
+    const ids = db.today(500).map((t) => t.id);
+    const counts = db.viewCounts();
+    db.close();
+    expect(ids).toContain(id);
+    expect(counts.today).toBe(1);
+  });
+
+  test("undo prune drops entries just past the cutoff", () => {
+    const db = new RelayDB();
+    db.recordUndo({ op_kind: "x", payload: { tasks: [] }, inverse: { tasks: [] } });
+    db.close();
+    const raw = new Database(DB_PATH);
+    raw.prepare("UPDATE undo_log SET created_at = ?").run(hoursFromNow(-(7 * 24 + 1)));
+    raw.close();
+    const db2 = new RelayDB();
+    expect(db2.pruneUndoOlderThan(7)).toBe(1);
+    db2.close();
+  });
+});
+
+describe("tracked repos outside scan.roots", () => {
+  test("the Web auto-prune keeps tasks of a tracked repo that exists", () => {
+    const original = readFileSync(CONFIG_PATH, "utf8");
+    const tracked = join(RELAY_HOME, "elsewhere", "tracked-repo");
+    mkdirSync(tracked, { recursive: true });
+    writeFileSync(
+      CONFIG_PATH,
+      `[scan]\nroots = [${JSON.stringify(join(RELAY_HOME, "roots"))}]\ntracked_repos = [${JSON.stringify(tracked)}]\n`,
+    );
+    try {
+      const open = insert(input({ repo: "tracked-repo" }));
+      const done = insert(input({ repo: "tracked-repo" }));
+      const db = new RelayDB();
+      db.setStatus(done, "done");
+      db.close();
+      const res = pruneMissingRepos({ includeDone: true, execute: true, keepSnoozed: true, skipWhenRootMissing: true });
+      expect(res).toMatchObject({ closedCount: 0, deletedCount: 0 });
+      expect(state(open).status).toBe("open");
+      expect(state(done).status).toBe("done");
+    } finally {
+      writeFileSync(CONFIG_PATH, original);
+    }
+  });
+});
+
+describe("untracked sibling of a tracked repo", () => {
+  test("does not keep a deleted repo's tasks alive", async () => {
+    const original = readFileSync(CONFIG_PATH, "utf8");
+    const outside = join(RELAY_HOME, "outside");
+    mkdirSync(join(outside, "pinned"), { recursive: true });
+    mkdirSync(join(outside, "gone-repo"), { recursive: true }); // untracked sibling
+    writeFileSync(
+      CONFIG_PATH,
+      `[scan]\nroots = [${JSON.stringify(join(RELAY_HOME, "roots"))}]\ntracked_repos = [${JSON.stringify(join(outside, "pinned"))}]\n`,
+    );
+    try {
+      const viaSync = insert(input());
+      await runSync({ source: "manual", silent: true });
+      expect(state(viaSync).status).toBe("done");
+
+      const viaPrune = insert(input());
+      const res = pruneMissingRepos({ includeDone: false, execute: true, keepSnoozed: true, skipWhenRootMissing: true });
+      expect(res.closedCount).toBe(1);
+      expect(state(viaPrune).status).toBe("done");
+    } finally {
+      writeFileSync(CONFIG_PATH, original);
+    }
+  });
+});
+
+describe("vanished tracked repo", () => {
+  test("a deleted tracked repo's parent does not disable the missing-repo sweep", async () => {
+    const original = readFileSync(CONFIG_PATH, "utf8");
+    const vanished = join(RELAY_HOME, "deleted-parent", "old-repo");
+    writeFileSync(
+      CONFIG_PATH,
+      `[scan]\nroots = [${JSON.stringify(join(RELAY_HOME, "roots"))}]\ntracked_repos = [${JSON.stringify(vanished)}]\n`,
+    );
+    try {
+      const open = insert(input());
+      await runSync({ source: "manual", silent: true });
+      expect(state(open).status).toBe("done");
+    } finally {
+      writeFileSync(CONFIG_PATH, original);
+    }
+  });
+});
+
+describe("stale close undo", () => {
+  test("undo restores tasks closed by the stale sweep", async () => {
+    const id = insert(input({ repo: "present-repo", due_at: "2099-05-05" }));
+    const raw = new Database(DB_PATH);
+    raw.prepare("UPDATE tasks SET updated_at = ? WHERE id = ?").run("2000-01-01T00:00:00.000Z", id);
+    raw.close();
+    const db = new RelayDB();
+    expect(db.closeStaleTasks(30).ids).toEqual([id]);
+    db.close();
+    expect(state(id).status).toBe("done");
+
+    const res = await post(createUndoApi(), "/");
+    expect(res.status).toBe(200);
+    expect(state(id)).toMatchObject({ status: "open", due_at: "2099-05-05", closed_at: null });
   });
 });

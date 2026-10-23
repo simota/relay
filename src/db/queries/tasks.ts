@@ -107,7 +107,7 @@ export function listTasks(
   }
   const olderThanDays = parseAgeFilter(filters.age);
   if (olderThanDays !== null) {
-    where.push("created_at <= datetime('now', ?)");
+    where.push("created_at <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?)");
     args.push(`-${olderThanDays} days`);
   }
   const sql = `

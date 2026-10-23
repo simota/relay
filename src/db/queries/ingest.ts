@@ -6,6 +6,29 @@ import type { TaskInput } from "../../types.js";
 import type { SnapshotRow, UpsertResult } from "../types.js";
 import { serialize } from "../internal.js";
 
+interface ExistingSyncFields {
+  repo: string;
+  prompt: string | null;
+  due_at: string | null;
+  status: string;
+}
+
+/**
+ * Columns the UPDATE writes but the text/metadata comparison above does not
+ * cover. due_at is skipped for snoozed rows because the UPDATE keeps the
+ * user's snooze-until there, so it never differs "upstream".
+ */
+function syncFieldsChanged(
+  existing: ExistingSyncFields,
+  row: { repo: string; prompt: string | null; due_at: string | null },
+): boolean {
+  return (
+    existing.repo !== row.repo ||
+    (existing.prompt ?? "") !== (row.prompt ?? "") ||
+    (existing.status !== "snoozed" && (existing.due_at ?? "") !== (row.due_at ?? ""))
+  );
+}
+
 export function classifyTasks(
   db: Database,
   tasks: TaskInput[],
@@ -13,13 +36,14 @@ export function classifyTasks(
   const result = { inserted: 0, updated: 0, unchanged: 0, sampleSourceIds: [] as string[] };
   if (tasks.length === 0) return result;
   const findStmt = db.prepare(
-    `SELECT title, body, priority, context_hash, session_id, files, wait_on
+    `SELECT title, body, priority, context_hash, session_id, files, wait_on,
+            repo, prompt, due_at, status
        FROM tasks WHERE source_type = ? AND source_id = ?`,
   );
   const now = new Date().toISOString();
   for (const t of tasks) {
     const existing = findStmt.get(t.source_type, t.source_id) as
-      | {
+      | ({
           title: string;
           body: string;
           priority: number;
@@ -27,7 +51,7 @@ export function classifyTasks(
           session_id: string | null;
           files: string | null;
           wait_on: string;
-        }
+        } & ExistingSyncFields)
       | undefined;
     if (!existing) {
       result.inserted++;
@@ -42,7 +66,8 @@ export function classifyTasks(
         (row.context_hash !== null && (existing.context_hash ?? "") !== row.context_hash) ||
         (existing.session_id ?? "") !== (row.session_id ?? "") ||
         (existing.files ?? "") !== (row.files ?? "") ||
-        existing.wait_on !== row.wait_on;
+        existing.wait_on !== row.wait_on ||
+        syncFieldsChanged(existing, row);
       if (changed) result.updated++;
       else result.unchanged++;
     }
@@ -58,7 +83,8 @@ export function upsertTasks(db: Database, tasks: TaskInput[]): UpsertResult {
   const result: UpsertResult = { inserted: 0, updated: 0, unchanged: 0 };
 
   const findStmt = db.prepare(
-    `SELECT id, title, body, priority, context_hash, session_id, files, wait_on
+    `SELECT id, title, body, priority, context_hash, session_id, files, wait_on,
+            repo, prompt, due_at, status
        FROM tasks WHERE source_type = ? AND source_id = ?`,
   );
   const insertStmt = db.prepare(`
@@ -83,7 +109,7 @@ export function upsertTasks(db: Database, tasks: TaskInput[]): UpsertResult {
     for (const t of batch) {
       const row = serialize(t, now);
       const existing = findStmt.get(t.source_type, t.source_id) as
-        | {
+        | ({
             id: number;
             title: string;
             body: string;
@@ -92,7 +118,7 @@ export function upsertTasks(db: Database, tasks: TaskInput[]): UpsertResult {
             session_id: string | null;
             files: string | null;
             wait_on: string;
-          }
+          } & ExistingSyncFields)
         | undefined;
 
       if (!existing) {
@@ -125,7 +151,8 @@ export function upsertTasks(db: Database, tasks: TaskInput[]): UpsertResult {
         (row.context_hash !== null && (existing.context_hash ?? "") !== row.context_hash) ||
         (existing.session_id ?? "") !== (row.session_id ?? "") ||
         (existing.files ?? "") !== (row.files ?? "") ||
-        existing.wait_on !== row.wait_on;
+        existing.wait_on !== row.wait_on ||
+        syncFieldsChanged(existing, row);
 
       if (changed) {
         updateStmt.run(

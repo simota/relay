@@ -60,11 +60,13 @@ CREATE TABLE IF NOT EXISTS contexts (
   summary      TEXT    NOT NULL DEFAULT '',
   session_id   TEXT,
   session_type TEXT,
-  created_at   TEXT    NOT NULL
+  created_at   TEXT    NOT NULL,
+  generated_at TEXT,
+  model_name   TEXT
 );
 
--- idx_contexts_session is created in client.migrate() so existing DBs that
--- predate the column don't blow up here.
+-- idx_contexts_session is created in runColumnMigrations() (migrations.ts)
+-- so existing DBs that predate the column don't blow up here.
 
 CREATE INDEX IF NOT EXISTS idx_contexts_repo ON contexts (repo);
 
@@ -116,7 +118,8 @@ CREATE TABLE IF NOT EXISTS undo_log (
 );
 
 CREATE INDEX IF NOT EXISTS idx_undo_log_created_at ON undo_log(created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_undo_log_status_created_at ON undo_log(status, created_at DESC);
+-- idx_undo_log_status_created_at depends on undo_log.status, which pre-status
+-- DBs gain via ALTER, so ensureUndoSchema() (migrations.ts) creates it.
 
 -- sessions: first-class store for CLI sessions (Claude / Codex /
 -- Antigravity / Cursor). Phase A introduces the table + helpers only;

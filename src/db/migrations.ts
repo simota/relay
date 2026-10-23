@@ -97,6 +97,8 @@ export function runColumnMigrations(db: Database): void {
   // skipped, so re-running the migration is a no-op. undo_log is guaranteed
   // to exist (ensureUndoSchema is called by every undo write path), but we
   // still gate on table presence to keep this safe on bare-bones DBs.
+  // Pre-status undo_log tables get their `status` column + index here.
+  ensureUndoSchema(db);
   const hasUndoTable =
     db
       .prepare(
@@ -215,13 +217,16 @@ export function ensureUndoSchema(db: Database): void {
       status TEXT NOT NULL DEFAULT 'active'
     );
     CREATE INDEX IF NOT EXISTS idx_undo_log_created_at ON undo_log(created_at DESC);
-    CREATE INDEX IF NOT EXISTS idx_undo_log_status_created_at ON undo_log(status, created_at DESC);
   `);
 
   const cols = db.prepare(`PRAGMA table_info(undo_log)`).all() as Array<{ name: string }>;
   if (!cols.some((col) => col.name === "status")) {
     db.exec(`ALTER TABLE undo_log ADD COLUMN status TEXT NOT NULL DEFAULT 'active'`);
   }
+  // Column-dependent index: must run after the ALTER above.
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_undo_log_status_created_at ON undo_log(status, created_at DESC)`,
+  );
 }
 
 export function ensureSyncHistorySchema(db: Database): void {

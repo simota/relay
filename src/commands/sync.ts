@@ -1,8 +1,16 @@
 import { existsSync, readdirSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import chalk from "chalk";
 import { enabledAdapters, findAdapter } from "../adapters/index.js";
-import { loadConfig, migrateLegacyConfig, resolveScanRoots } from "../config.js";
+import {
+  loadConfig,
+  migrateLegacyConfig,
+  repoExistsOnDisk,
+  resolveEffectiveRoots,
+  resolveScanRoots,
+  type Config,
+} from "../config.js";
+import { unavailableScanRoots } from "./prune.js";
 import { RelayDB, closedSnapshots } from "../db/client.js";
 import type {
   Adapter,
@@ -97,11 +105,9 @@ export async function runSync(opts: SyncOptions = {}): Promise<SyncReport> {
 
   // Expose each tracked path's parent to fs-scanning adapters when that
   // parent isn't already a scan root.
+  const effectiveRoots = resolveEffectiveRoots(cfg);
   const baseRootSet = new Set(baseRoots);
-  const extraRoots = trackedList
-    .map((p) => dirname(p))
-    .filter((r) => !baseRootSet.has(r));
-  const effectiveRoots = Array.from(new Set([...baseRoots, ...extraRoots]));
+  const extraRoots = effectiveRoots.filter((r) => !baseRootSet.has(r));
 
   // Build the set of repo names that live directly under one of the base
   // scan roots. Those are always accepted; only tasks that don't resolve to
@@ -281,11 +287,11 @@ export async function runSync(opts: SyncOptions = {}): Promise<SyncReport> {
   await Promise.all(work);
 
   if (!opts.dryRun) {
-    autoCloseMissingRepoTasks(db, ctx.roots, log);
+    autoCloseMissingRepoTasks(db, cfg, baseRoots, log);
     await autoCloseResolvedRemoteTasks(adapters, ctx, db, log);
     // Trim old undo_log rows so bulk-operation snapshots don't bloat the
     // SQLite file indefinitely. 7 days is well past the practical undo
-    // window — the only consumer is `relay undo`, which always operates
+    // window — the only consumer is the Web undo (POST /api/undo), which always operates
     // on the most recent entry.
     const pruned = db.pruneUndoOlderThan(7);
     if (pruned > 0) {
@@ -305,11 +311,19 @@ export async function runSync(opts: SyncOptions = {}): Promise<SyncReport> {
 
 function autoCloseMissingRepoTasks(
   db: RelayDB,
-  roots: string[],
+  cfg: Config,
+  // Configured scan.roots only: a vanished tracked repo's parent is just a
+  // missing repo, not an offline volume, and must not disable the sweep.
+  scanRoots: string[],
   log: (msg: string) => void,
 ): void {
+  const offline = unavailableScanRoots(scanRoots);
+  if (offline.length > 0) {
+    log(chalk.gray(`⊘ scan root(s) not found, skipping missing-repo auto-close: ${offline.join(", ")}`));
+    return;
+  }
   const repos = db.repoStats().map((r) => r.name);
-  const missing = repos.filter((name) => !roots.some((root) => existsSync(join(root, name))));
+  const missing = repos.filter((name) => !repoExistsOnDisk(name, cfg));
   if (missing.length === 0) return;
   // Snoozed tasks are user-owned: an automatic sweep must not clear them.
   const sweep = { excludeSnoozed: true };
@@ -338,12 +352,12 @@ function autoCloseMissingRepoTasks(
       `⚠ auto-closed ${inverses.length} fs-bound task(s) from ${missing.length} missing repo(s): ${sample}${missing.length > 3 ? ` +${missing.length - 3} more` : ""}`,
     ),
   );
-  log(chalk.gray(`  (undo with \`relay undo\`)`));
+  log(chalk.gray(`  (undo in \`relay web\` with ⌘Z / Ctrl+Z)`));
 }
 
 // For each adapter that reports `fetchResolved`, sweep merged/closed remote
 // items and auto-close matching DB tasks. Mirrors the missing-repo flow:
-// reversible via `relay undo`, no-op when nothing matches.
+// reversible via the Web undo, no-op when nothing matches.
 async function autoCloseResolvedRemoteTasks(
   adapters: Adapter[],
   ctx: AdapterContext,
@@ -383,7 +397,7 @@ async function autoCloseResolvedRemoteTasks(
       `⚠ auto-closed ${inverses.length} task(s) for merged/closed remote items`,
     ),
   );
-  log(chalk.gray(`  (undo with \`relay undo\`)`));
+  log(chalk.gray(`  (undo in \`relay web\` with ⌘Z / Ctrl+Z)`));
 }
 
 function upsertSafely(db: RelayDB, tasks: TaskInput[], report: SyncReport) {

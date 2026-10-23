@@ -1,8 +1,10 @@
 import { existsSync } from "node:fs";
-import { join } from "node:path";
 import chalk from "chalk";
-import { loadConfig, resolveScanRoots } from "../config.js";
+import { loadConfig, repoExistsOnDisk, resolveScanRoots } from "../config.js";
 import { RelayDB, closedSnapshots } from "../db/client.js";
+
+// relay has no `undo` subcommand; the undo log is replayed from the Web UI.
+const UNDO_HINT = "undo in `relay web` with ⌘Z / Ctrl+Z";
 
 export interface PruneOptions {
   missingRepos: boolean;
@@ -42,6 +44,15 @@ const ALL_SOURCES = [
 ] as const;
 
 /**
+ * Scan roots that do not exist on disk. While one is unavailable (e.g. an
+ * unmounted volume) every repo under it looks "missing", so automatic sweeps
+ * must not act on the missing-repo list.
+ */
+export function unavailableScanRoots(roots: string[]): string[] {
+  return roots.filter((root) => !existsSync(root));
+}
+
+/**
  * Pure-function prune: inspects missing repos and optionally executes
  * close + delete. No console output, no process.exit — returns structured data.
  * Called by the Web SSE endpoint (auto-prune after sync) and by runPrune (CLI).
@@ -52,18 +63,21 @@ export function pruneMissingRepos(opts: {
   execute: boolean;
   /** Leave snoozed tasks open (automatic callers such as the Web sync). */
   keepSnoozed?: boolean;
+  /** Do nothing while a scan root is unavailable (automatic callers). */
+  skipWhenRootMissing?: boolean;
   db?: RelayDB;
 }): PruneResult {
   const cfg = loadConfig();
-  const roots = resolveScanRoots(cfg);
   const db = opts.db ?? new RelayDB();
   const owned = opts.db === undefined; // we created it, we close it
 
   try {
     const repos = db.repoStats().map((r) => r.name);
-    const missingRepos = repos.filter(
-      (name) => !roots.some((root) => existsSync(join(root, name))),
-    );
+    const rootsUnavailable =
+      opts.skipWhenRootMissing === true && unavailableScanRoots(resolveScanRoots(cfg)).length > 0;
+    const missingRepos = rootsUnavailable
+      ? []
+      : repos.filter((name) => !repoExistsOnDisk(name, cfg));
 
     if (missingRepos.length === 0) {
       return {
@@ -216,11 +230,11 @@ export function runPrune(opts: PruneOptions): void {
   }
 
   if (!opts.yes) {
-    console.log(
-      chalk.gray(
-        `\nRe-run with --yes to actually execute. Reversible via \`relay undo\`.`,
-      ),
-    );
+    const reversibility =
+      preview.doneTasks.length > 0
+        ? `Closing is reversible (${UNDO_HINT}); deleting done tasks is not.`
+        : `Reversible (${UNDO_HINT}).`;
+    console.log(chalk.gray(`\nRe-run with --yes to actually execute. ${reversibility}`));
     return;
   }
 
@@ -234,5 +248,9 @@ export function runPrune(opts: PruneOptions): void {
   const parts: string[] = [];
   if (result.closedCount > 0) parts.push(`closed ${result.closedCount} open task(s)`);
   if (result.deletedCount > 0) parts.push(`deleted ${result.deletedCount} done task(s)`);
-  console.log(chalk.green(`✓ ${parts.join(" + ")}. Undo with \`relay undo\`.`));
+  const undoNote =
+    result.closedCount > 0
+      ? ` Closes are reversible (${UNDO_HINT})${result.deletedCount > 0 ? "; deletions are not" : ""}.`
+      : "";
+  console.log(chalk.green(`✓ ${parts.join(" + ")}.${undoNote}`));
 }

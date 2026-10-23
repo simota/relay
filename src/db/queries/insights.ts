@@ -3,6 +3,9 @@
 // out without lock contention.
 
 import type { Database } from "bun:sqlite";
+import type { TaskStatusSnapshot } from "../types.js";
+import { recordUndo } from "./runs.js";
+import { closedSnapshots } from "./tasks.js";
 
 /**
  * WFR (Workflow Flow Rate) over the trailing N weeks. Returns one row
@@ -48,7 +51,7 @@ export function insightsWfr(
     const startExpr = `-${(i + 1) * 7} days`;
     const endExpr = `-${i * 7} days`;
     const weekStartRow = db
-      .prepare(`SELECT date('now', ?) AS d, datetime('now', ?) AS start_at, datetime('now', ?) AS end_at`)
+      .prepare(`SELECT date('now', ?) AS d, strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?) AS start_at, strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?) AS end_at`)
       .get(startExpr, startExpr, endExpr) as {
       d: string;
       start_at: string;
@@ -80,9 +83,9 @@ export function insightsThroughput(
       `SELECT
          (SELECT COUNT(*) FROM tasks
             WHERE closed_at IS NOT NULL
-              AND closed_at >= datetime('now', ?)) AS closed,
+              AND closed_at >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?)) AS closed,
          (SELECT COUNT(*) FROM tasks
-            WHERE created_at >= datetime('now', ?)) AS opened`,
+            WHERE created_at >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?)) AS opened`,
     )
     .get(`-${windowDays} days`, `-${windowDays} days`) as {
     closed: number | null;
@@ -116,10 +119,10 @@ export function insightsTouched(
     .prepare(
       `SELECT
          (SELECT COUNT(DISTINCT repo) FROM tasks
-            WHERE updated_at >= datetime('now', ?)
+            WHERE updated_at >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?)
                OR id IN (
                  SELECT task_id FROM runs
-                  WHERE started_at >= datetime('now', ?)
+                  WHERE started_at >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?)
                )) AS active,
          (SELECT COUNT(DISTINCT repo) FROM tasks) AS total`,
     )
@@ -180,17 +183,17 @@ export function insightsNewlyActive(
     .prepare(
       `WITH recent AS (
          SELECT DISTINCT repo FROM tasks
-          WHERE created_at >= datetime('now','-7 days')
-             OR updated_at >= datetime('now','-7 days')
+          WHERE created_at >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now','-7 days')
+             OR updated_at >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now','-7 days')
        ),
        prior AS (
          SELECT DISTINCT repo FROM tasks
-          WHERE updated_at BETWEEN datetime('now', ?) AND datetime('now','-7 days')
+          WHERE updated_at BETWEEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?) AND strftime('%Y-%m-%dT%H:%M:%fZ', 'now','-7 days')
        )
        SELECT r.repo AS repo,
          (SELECT COUNT(*) FROM tasks
             WHERE repo = r.repo
-              AND created_at >= datetime('now','-7 days')) AS new_tasks
+              AND created_at >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now','-7 days')) AS new_tasks
        FROM recent r
        WHERE r.repo NOT IN (SELECT repo FROM prior)
        ORDER BY new_tasks DESC
@@ -265,9 +268,9 @@ export function insightsSourceInflow(
   const rows = db
     .prepare(
       `SELECT source_type,
-         SUM(CASE WHEN created_at >= datetime('now', ?) THEN 1 ELSE 0 END) AS curr,
-         SUM(CASE WHEN created_at >= datetime('now', ?)
-                   AND created_at <  datetime('now', ?) THEN 1 ELSE 0 END) AS prev
+         SUM(CASE WHEN created_at >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?) THEN 1 ELSE 0 END) AS curr,
+         SUM(CASE WHEN created_at >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?)
+                   AND created_at <  strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?) THEN 1 ELSE 0 END) AS prev
        FROM tasks
        GROUP BY source_type
        ORDER BY curr DESC`,
@@ -294,7 +297,7 @@ export function insightsRunsByAgent(
          COUNT(*) AS total,
          SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed
        FROM runs
-       WHERE started_at >= datetime('now', ?)
+       WHERE started_at >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?)
        GROUP BY agent
        ORDER BY total DESC`,
     )
@@ -334,7 +337,7 @@ export function insightsSyncReliabilityRaw(
          END AS day_status,
          COUNT(*) AS count
        FROM sync_history
-       WHERE started_at >= datetime('now', ?)
+       WHERE started_at >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?)
        GROUP BY adapter, day
        ORDER BY adapter, day`,
     )
@@ -441,8 +444,8 @@ export function insightsBurndown(
        SUM(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END) AS ip_n,
        SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END)        AS done_n
      FROM tasks
-     WHERE created_at <= datetime(?, '23:59:59')
-       AND (closed_at IS NULL OR closed_at > datetime(?, '23:59:59'))`,
+     WHERE created_at <= strftime('%Y-%m-%dT%H:%M:%fZ', ?, '23:59:59')
+       AND (closed_at IS NULL OR closed_at > strftime('%Y-%m-%dT%H:%M:%fZ', ?, '23:59:59'))`,
   );
 
   for (let i = days - 1; i >= 0; i--) {
@@ -480,7 +483,7 @@ export function insightsVelocity(
        FROM tasks
        WHERE status = 'done'
          AND closed_at IS NOT NULL
-         AND closed_at >= datetime('now', ?)
+         AND closed_at >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?)
        GROUP BY repo
        ORDER BY closed DESC
        LIMIT 10`,
@@ -625,40 +628,31 @@ export function closeStaleTasks(
   // Find candidate rows first (for undo payload)
   const candidates = db
     .prepare(
-      `SELECT id, status, closed_at FROM tasks
+      `SELECT id, status, due_at, closed_at FROM tasks
        WHERE status = 'open'
          AND wait_on = 'self'
          AND julianday('now') - julianday(updated_at) > ?`,
     )
-    .all(thresholdDays) as Array<{ id: number; status: string; closed_at: string | null }>;
+    .all(thresholdDays) as TaskStatusSnapshot[];
 
   if (candidates.length === 0) return { closed: 0, ids: [] };
 
   const ids = candidates.map((r) => r.id);
   const placeholders = ids.map(() => "?").join(", ");
 
-  db.prepare(
-    `UPDATE tasks SET status = 'done', closed_at = ?, updated_at = ?
-     WHERE id IN (${placeholders})`,
-  ).run(now, now, ...ids);
-
-  // Record undo entry
-  const inverse = candidates.map((r) => ({
-    id: r.id,
-    status: r.status,
-    closed_at: r.closed_at,
-  }));
-  db
-    .prepare(
-      `INSERT INTO undo_log (op_kind, payload, inverse, created_at, status)
-       VALUES (?, ?, ?, ?, 'active')`,
-    )
-    .run(
-      "stale_close",
-      JSON.stringify({ ids, threshold_days: thresholdDays }),
-      JSON.stringify(inverse),
-      now,
-    );
+  db.transaction(() => {
+    db.prepare(
+      `UPDATE tasks SET status = 'done', closed_at = ?, updated_at = ?
+       WHERE id IN (${placeholders}) AND status = 'open'`,
+    ).run(now, now, ...ids);
+    // Same { tasks: TaskStatusSnapshot[] } shape as every other status op so
+    // POST /api/undo can replay it (a bare array was rejected, wedging undo).
+    recordUndo(db, {
+      op_kind: "stale_close",
+      payload: { tasks: closedSnapshots(candidates) },
+      inverse: { tasks: candidates },
+    });
+  })();
 
   return { closed: ids.length, ids };
 }

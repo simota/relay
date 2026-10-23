@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { deriveCwdFromMentions } from "../lib/antigravity-workspace.js";
+import { deriveCwdFromMentions, deriveCwdFromWorkspaceMarker } from "../lib/antigravity-workspace.js";
 import { resolveRepoForCwd } from "../lib/repo-from-cwd.js";
 import { saveSessionContext } from "./session-context.js";
 import {
@@ -139,10 +139,10 @@ export const antigravitySessionAdapter: Adapter = {
       if (!parsed.conversationId) continue;
 
       // Three-step resolution: history.jsonl is authoritative; otherwise fall
-      // back to the transcript-body path mention. The mention path only
-      // matters for subagents (history.jsonl never records them) — for
-      // normal conversations the map hit short-circuits before we even look
-      // at `cwdHint`.
+      // back to the transcript's `workspace` marker, then a path mention
+      // (both folded into `cwdHint`). The fallbacks only matter for
+      // subagents (history.jsonl never records them) — for normal
+      // conversations the map hit short-circuits before we look at `cwdHint`.
       const cwd = idToWorkspace.get(parsed.conversationId) ?? parsed.cwdHint ?? null;
       const repo = cwd ? resolveRepoForCwd(cwd, ctx.roots) : null;
 
@@ -281,7 +281,7 @@ async function loadConversationWorkspaceMap(path: string): Promise<Map<string, s
   return map;
 }
 
-async function parseAntigravityTranscript(
+export async function parseAntigravityTranscript(
   path: string,
   conversationId: string,
   roots: readonly string[] = [],
@@ -305,6 +305,7 @@ async function parseAntigravityTranscript(
   let firstUserMessage: string | null = null;
   let lastTranscriptAt: string | null = null;
   let lastMessageText: string | null = null;
+  const entries: TranscriptEntry[] = [];
 
   for (const line of lines) {
     let entry: TranscriptEntry | null = null;
@@ -313,7 +314,8 @@ async function parseAntigravityTranscript(
     } catch {
       continue;
     }
-    if (!entry) continue;
+    if (!entry || typeof entry !== "object") continue;
+    entries.push(entry);
     if (typeof entry.created_at === "string") {
       lastTranscriptAt = entry.created_at;
     }
@@ -348,7 +350,9 @@ async function parseAntigravityTranscript(
   // one status pass. Symmetric with the Claude / Codex adapters.
   const status = detectAntigravitySessionStatus(text);
   const skillsUsed = distinctSkillNames(extractAntigravitySkills(text));
-  const cwdHint = deriveCwdFromMentions(text, roots);
+  // Steps 2–3 of the cwd chain (step 1, history.jsonl, is applied by the
+  // caller). Keep in sync with src/sessions/antigravity.ts.
+  const cwdHint = deriveCwdFromWorkspaceMarker(entries) ?? deriveCwdFromMentions(text, roots);
 
   return {
     conversationId,

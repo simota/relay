@@ -832,7 +832,7 @@ export function extractAntigravitySkills(text: string): SessionSkillUse[] {
     } catch {
       continue;
     }
-    if (entry.type !== "USER_INPUT" || typeof entry.content !== "string") continue;
+    if (!entry || entry.type !== "USER_INPUT" || typeof entry.content !== "string") continue;
     const ts = typeof entry.created_at === "string" ? entry.created_at : "";
     const seen = new Set<string>();
     for (const match of entry.content.matchAll(ANTIGRAVITY_SKILL_INVOKE_RE)) {

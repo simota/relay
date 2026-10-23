@@ -1,4 +1,5 @@
 import { readFileSync, writeFileSync, renameSync, existsSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 import toml from "@iarna/toml";
 import { z } from "zod";
 import { CONFIG_PATH, expandHome } from "./paths.js";
@@ -232,6 +233,32 @@ export function resolveScanRoots(cfg: Config): string[] {
 }
 
 /**
+ * scan.roots plus the parent of every tracked_repos entry that is not
+ * already a root — the directories repo names are resolved against during
+ * sync. Anything deciding whether a repo still exists must use the same set.
+ */
+export function resolveEffectiveRoots(cfg: Config): string[] {
+  const baseRoots = resolveScanRoots(cfg);
+  const baseRootSet = new Set(baseRoots);
+  const extraRoots = cfg.scan.tracked_repos
+    .map((p) => dirname(p))
+    .filter((r) => !baseRootSet.has(r));
+  return Array.from(new Set([...baseRoots, ...extraRoots]));
+}
+
+/**
+ * Whether repo `name` still exists: directly under a scan root, or as an
+ * exact tracked_repos path. A tracked repo's parent is not a root here —
+ * sync ignores its untracked siblings, so they must not keep a repo alive.
+ */
+export function repoExistsOnDisk(name: string, cfg: Config): boolean {
+  return (
+    resolveScanRoots(cfg).some((root) => existsSync(join(root, name))) ||
+    cfg.scan.tracked_repos.some((p) => basename(p) === name && existsSync(p))
+  );
+}
+
+/**
  * One-shot, idempotent migration for users upgrading from the gemini-era
  * adapter to the antigravity-era adapter (schema_version 7 sibling on the
  * config side). DB rename happens in `src/db/migrations.ts`; this handles
@@ -317,13 +344,16 @@ export function migrateLegacyConfig(path: string = CONFIG_PATH): boolean {
  * Writes to a tmp file then renames for atomic replacement.
  */
 export function saveTrackedRepos(repos: string[], path: string = CONFIG_PATH): void {
-  // Read existing raw TOML (or start from empty object)
+  // Read existing raw TOML (or start from empty object). An unparseable
+  // file is left untouched: rewriting it from {} would drop every other
+  // setting, including adapter opt-outs.
   let raw: toml.JsonMap = {};
   if (existsSync(path)) {
     try {
       raw = toml.parse(readFileSync(path, "utf8")) as toml.JsonMap;
-    } catch {
-      // If parse fails, keep existing structure empty and overwrite
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      throw new Error(`refusing to overwrite unparseable config ${path}: ${reason}`);
     }
   }
 

@@ -36,3 +36,20 @@ export function deriveCwdFromMentions(
   }
   return null;
 }
+
+/**
+ * Step 2 of the cwd chain: an explicit `workspace` marker in a USER_INPUT
+ * entry's ADDITIONAL_METADATA. Antigravity emits it inconsistently, so this
+ * is best-effort and returns null when absent. Shared by the list adapter
+ * and the detail reader so both resolve the same cwd.
+ */
+export function deriveCwdFromWorkspaceMarker(
+  entries: ReadonlyArray<{ type?: unknown; content?: unknown }>,
+): string | null {
+  for (const entry of entries) {
+    if (entry.type !== "USER_INPUT" || typeof entry.content !== "string") continue;
+    const match = entry.content.match(/workspace["']?\s*[:=]\s*["']([^"']+)["']/i);
+    if (match && typeof match[1] === "string") return match[1];
+  }
+  return null;
+}

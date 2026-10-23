@@ -168,7 +168,8 @@ async function readClaudeSummary(
         const todos = block.input.todos;
         if (Array.isArray(todos)) {
           todoIds.clear();
-          for (const todo of todos as Array<Record<string, unknown>>) {
+          for (const todo of todos as unknown[]) {
+            if (!isRecord(todo)) continue;
             const id = typeof todo.id === "string" ? todo.id : String(todo.id ?? "");
             if (id) todoIds.add(id);
           }
@@ -259,7 +260,9 @@ async function readClaudeDetail(
         if (Array.isArray(todos)) {
           todoMap.clear();
           taskCreateCount = 0;
-          for (const todo of todos as Array<Record<string, unknown>>) {
+          for (const todo of todos as unknown[]) {
+            // One malformed item must not abort the whole session.
+            if (!isRecord(todo)) continue;
             const id = typeof todo.id === "string" ? todo.id : String(todo.id ?? "");
             const content = typeof todo.content === "string" ? todo.content : "";
             const status = typeof todo.status === "string" ? todo.status : "pending";
@@ -357,4 +360,8 @@ function firstNonEmptyLine(s: string): string {
 function truncate(s: string, max: number): string {
   if (s.length <= max) return s;
   return s.slice(0, max - 1) + "…";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
