@@ -3,6 +3,9 @@
 // out without lock contention.
 
 import type { Database } from "bun:sqlite";
+import type { TaskStatusSnapshot } from "../types.js";
+import { recordUndo } from "./runs.js";
+import { closedSnapshots } from "./tasks.js";
 
 /**
  * WFR (Workflow Flow Rate) over the trailing N weeks. Returns one row
@@ -625,40 +628,31 @@ export function closeStaleTasks(
   // Find candidate rows first (for undo payload)
   const candidates = db
     .prepare(
-      `SELECT id, status, closed_at FROM tasks
+      `SELECT id, status, due_at, closed_at FROM tasks
        WHERE status = 'open'
          AND wait_on = 'self'
          AND julianday('now') - julianday(updated_at) > ?`,
     )
-    .all(thresholdDays) as Array<{ id: number; status: string; closed_at: string | null }>;
+    .all(thresholdDays) as TaskStatusSnapshot[];
 
   if (candidates.length === 0) return { closed: 0, ids: [] };
 
   const ids = candidates.map((r) => r.id);
   const placeholders = ids.map(() => "?").join(", ");
 
-  db.prepare(
-    `UPDATE tasks SET status = 'done', closed_at = ?, updated_at = ?
-     WHERE id IN (${placeholders})`,
-  ).run(now, now, ...ids);
-
-  // Record undo entry
-  const inverse = candidates.map((r) => ({
-    id: r.id,
-    status: r.status,
-    closed_at: r.closed_at,
-  }));
-  db
-    .prepare(
-      `INSERT INTO undo_log (op_kind, payload, inverse, created_at, status)
-       VALUES (?, ?, ?, ?, 'active')`,
-    )
-    .run(
-      "stale_close",
-      JSON.stringify({ ids, threshold_days: thresholdDays }),
-      JSON.stringify(inverse),
-      now,
-    );
+  db.transaction(() => {
+    db.prepare(
+      `UPDATE tasks SET status = 'done', closed_at = ?, updated_at = ?
+       WHERE id IN (${placeholders}) AND status = 'open'`,
+    ).run(now, now, ...ids);
+    // Same { tasks: TaskStatusSnapshot[] } shape as every other status op so
+    // POST /api/undo can replay it (a bare array was rejected, wedging undo).
+    recordUndo(db, {
+      op_kind: "stale_close",
+      payload: { tasks: closedSnapshots(candidates) },
+      inverse: { tasks: candidates },
+    });
+  })();
 
   return { closed: ids.length, ids };
 }

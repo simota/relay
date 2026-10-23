@@ -327,3 +327,63 @@ describe("timestamp comparisons", () => {
     db2.close();
   });
 });
+
+describe("tracked repos outside scan.roots", () => {
+  test("the Web auto-prune keeps tasks of a tracked repo that exists", () => {
+    const original = readFileSync(CONFIG_PATH, "utf8");
+    const tracked = join(RELAY_HOME, "elsewhere", "tracked-repo");
+    mkdirSync(tracked, { recursive: true });
+    writeFileSync(
+      CONFIG_PATH,
+      `[scan]\nroots = [${JSON.stringify(join(RELAY_HOME, "roots"))}]\ntracked_repos = [${JSON.stringify(tracked)}]\n`,
+    );
+    try {
+      const open = insert(input({ repo: "tracked-repo" }));
+      const done = insert(input({ repo: "tracked-repo" }));
+      const db = new RelayDB();
+      db.setStatus(done, "done");
+      db.close();
+      const res = pruneMissingRepos({ includeDone: true, execute: true, keepSnoozed: true, skipWhenRootMissing: true });
+      expect(res).toMatchObject({ closedCount: 0, deletedCount: 0 });
+      expect(state(open).status).toBe("open");
+      expect(state(done).status).toBe("done");
+    } finally {
+      writeFileSync(CONFIG_PATH, original);
+    }
+  });
+});
+
+describe("vanished tracked repo", () => {
+  test("a deleted tracked repo's parent does not disable the missing-repo sweep", async () => {
+    const original = readFileSync(CONFIG_PATH, "utf8");
+    const vanished = join(RELAY_HOME, "deleted-parent", "old-repo");
+    writeFileSync(
+      CONFIG_PATH,
+      `[scan]\nroots = [${JSON.stringify(join(RELAY_HOME, "roots"))}]\ntracked_repos = [${JSON.stringify(vanished)}]\n`,
+    );
+    try {
+      const open = insert(input());
+      await runSync({ source: "manual", silent: true });
+      expect(state(open).status).toBe("done");
+    } finally {
+      writeFileSync(CONFIG_PATH, original);
+    }
+  });
+});
+
+describe("stale close undo", () => {
+  test("undo restores tasks closed by the stale sweep", async () => {
+    const id = insert(input({ repo: "present-repo", due_at: "2099-05-05" }));
+    const raw = new Database(DB_PATH);
+    raw.prepare("UPDATE tasks SET updated_at = ? WHERE id = ?").run("2000-01-01T00:00:00.000Z", id);
+    raw.close();
+    const db = new RelayDB();
+    expect(db.closeStaleTasks(30).ids).toEqual([id]);
+    db.close();
+    expect(state(id).status).toBe("done");
+
+    const res = await post(createUndoApi(), "/");
+    expect(res.status).toBe(200);
+    expect(state(id)).toMatchObject({ status: "open", due_at: "2099-05-05", closed_at: null });
+  });
+});
