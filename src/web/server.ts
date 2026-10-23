@@ -471,6 +471,7 @@ export function buildApp(opts: BuildAppOptions = {}) {
                 includeDone: true,
                 execute: true,
                 keepSnoozed: true,
+                skipWhenRootMissing: true,
               });
               const perRepoTop = pruneResult.missingRepos
                 .slice(0, 3)

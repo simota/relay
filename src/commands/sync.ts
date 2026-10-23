@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import chalk from "chalk";
 import { enabledAdapters, findAdapter } from "../adapters/index.js";
 import { loadConfig, migrateLegacyConfig, resolveScanRoots } from "../config.js";
+import { unavailableScanRoots } from "./prune.js";
 import { RelayDB, closedSnapshots } from "../db/client.js";
 import type {
   Adapter,
@@ -308,6 +309,11 @@ function autoCloseMissingRepoTasks(
   roots: string[],
   log: (msg: string) => void,
 ): void {
+  const offline = unavailableScanRoots(roots);
+  if (offline.length > 0) {
+    log(chalk.gray(`⊘ scan root(s) not found, skipping missing-repo auto-close: ${offline.join(", ")}`));
+    return;
+  }
   const repos = db.repoStats().map((r) => r.name);
   const missing = repos.filter((name) => !roots.some((root) => existsSync(join(root, name))));
   if (missing.length === 0) return;

@@ -45,6 +45,15 @@ const ALL_SOURCES = [
 ] as const;
 
 /**
+ * Scan roots that do not exist on disk. While one is unavailable (e.g. an
+ * unmounted volume) every repo under it looks "missing", so automatic sweeps
+ * must not act on the missing-repo list.
+ */
+export function unavailableScanRoots(roots: string[]): string[] {
+  return roots.filter((root) => !existsSync(root));
+}
+
+/**
  * Pure-function prune: inspects missing repos and optionally executes
  * close + delete. No console output, no process.exit — returns structured data.
  * Called by the Web SSE endpoint (auto-prune after sync) and by runPrune (CLI).
@@ -55,6 +64,8 @@ export function pruneMissingRepos(opts: {
   execute: boolean;
   /** Leave snoozed tasks open (automatic callers such as the Web sync). */
   keepSnoozed?: boolean;
+  /** Do nothing while a scan root is unavailable (automatic callers). */
+  skipWhenRootMissing?: boolean;
   db?: RelayDB;
 }): PruneResult {
   const cfg = loadConfig();
@@ -64,9 +75,11 @@ export function pruneMissingRepos(opts: {
 
   try {
     const repos = db.repoStats().map((r) => r.name);
-    const missingRepos = repos.filter(
-      (name) => !roots.some((root) => existsSync(join(root, name))),
-    );
+    const rootsUnavailable =
+      opts.skipWhenRootMissing === true && unavailableScanRoots(roots).length > 0;
+    const missingRepos = rootsUnavailable
+      ? []
+      : repos.filter((name) => !roots.some((root) => existsSync(join(root, name))));
 
     if (missingRepos.length === 0) {
       return {

@@ -3,7 +3,7 @@
 import "../test-setup.js";
 import { Database } from "bun:sqlite";
 import { beforeAll, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createTasksApi } from "../api/tasks.js";
 import { createUndoApi } from "../api/undo.js";
@@ -263,5 +263,39 @@ describe("re-sync change detection", () => {
     db.close();
     expect(res.unchanged).toBe(1);
     expect(state(id).due_at).toBe(SNOOZE_UNTIL);
+  });
+});
+
+describe("unavailable scan root", () => {
+  async function withOfflineRoot(fn: () => unknown) {
+    const original = readFileSync(CONFIG_PATH, "utf8");
+    const root = join(RELAY_HOME, "roots");
+    const offline = join(RELAY_HOME, "unmounted-volume");
+    writeFileSync(CONFIG_PATH, `[scan]\nroots = [${JSON.stringify(root)}, ${JSON.stringify(offline)}]\n`);
+    try {
+      await fn();
+    } finally {
+      writeFileSync(CONFIG_PATH, original);
+    }
+  }
+
+  test("sync does not auto-close tasks while a scan root is missing", async () => {
+    const open = insert(input());
+    await withOfflineRoot(() => runSync({ source: "manual", silent: true }));
+    expect(state(open).status).toBe("open");
+  });
+
+  test("the Web auto-prune neither closes nor deletes while a scan root is missing", async () => {
+    const open = insert(input());
+    const done = insert(input());
+    const db = new RelayDB();
+    db.setStatus(done, "done");
+    db.close();
+    await withOfflineRoot(() => {
+      const res = pruneMissingRepos({ includeDone: true, execute: true, keepSnoozed: true, skipWhenRootMissing: true });
+      expect(res).toMatchObject({ closedCount: 0, deletedCount: 0 });
+    });
+    expect(state(open).status).toBe("open");
+    expect(state(done).status).toBe("done");
   });
 });
