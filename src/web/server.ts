@@ -518,7 +518,11 @@ const LOOPBACK_HOSTNAMES = ["127.0.0.1", "localhost", "[::1]"];
 /** DNS names accepted in the Host header (IP literals are always accepted). */
 function allowedHostnames(bindHost: string | undefined): Set<string> {
   const hosts = new Set(LOOPBACK_HOSTNAMES);
-  if (bindHost) hosts.add(bindHost.includes(":") && !bindHost.startsWith("[") ? `[${bindHost}]` : bindHost);
+  if (bindHost) {
+    // Same shape as hostnameOf(): lowercase (DNS is case-insensitive), IPv6 bracketed.
+    const name = bindHost.toLowerCase();
+    hosts.add(name.includes(":") && !name.startsWith("[") ? `[${name}]` : name);
+  }
   return hosts;
 }
 

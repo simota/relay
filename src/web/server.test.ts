@@ -92,6 +92,11 @@ describe("cross-site request guard", () => {
     expect(rebound.status).toBe(403);
   });
 
+  test("matches a --host DNS name case-insensitively", async () => {
+    const res = await buildApp({ host: "Relay.Local" }).request("http://relay.local:7340/api/health");
+    expect(res.status).toBe(200);
+  });
+
   test("rejects cross-site GETs, which can also write (sessions scan, sync stream)", async () => {
     const scan = await app.request("http://127.0.0.1:7340/api/sessions/scan-live", {
       headers: { "sec-fetch-site": "cross-site" },
