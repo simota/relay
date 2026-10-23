@@ -1,8 +1,8 @@
 import { existsSync, readdirSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import chalk from "chalk";
 import { enabledAdapters, findAdapter } from "../adapters/index.js";
-import { loadConfig, migrateLegacyConfig, resolveScanRoots } from "../config.js";
+import { loadConfig, migrateLegacyConfig, resolveEffectiveRoots, resolveScanRoots } from "../config.js";
 import { unavailableScanRoots } from "./prune.js";
 import { RelayDB, closedSnapshots } from "../db/client.js";
 import type {
@@ -98,11 +98,9 @@ export async function runSync(opts: SyncOptions = {}): Promise<SyncReport> {
 
   // Expose each tracked path's parent to fs-scanning adapters when that
   // parent isn't already a scan root.
+  const effectiveRoots = resolveEffectiveRoots(cfg);
   const baseRootSet = new Set(baseRoots);
-  const extraRoots = trackedList
-    .map((p) => dirname(p))
-    .filter((r) => !baseRootSet.has(r));
-  const effectiveRoots = Array.from(new Set([...baseRoots, ...extraRoots]));
+  const extraRoots = effectiveRoots.filter((r) => !baseRootSet.has(r));
 
   // Build the set of repo names that live directly under one of the base
   // scan roots. Those are always accepted; only tasks that don't resolve to
@@ -282,7 +280,7 @@ export async function runSync(opts: SyncOptions = {}): Promise<SyncReport> {
   await Promise.all(work);
 
   if (!opts.dryRun) {
-    autoCloseMissingRepoTasks(db, ctx.roots, log);
+    autoCloseMissingRepoTasks(db, ctx.roots, baseRoots, log);
     await autoCloseResolvedRemoteTasks(adapters, ctx, db, log);
     // Trim old undo_log rows so bulk-operation snapshots don't bloat the
     // SQLite file indefinitely. 7 days is well past the practical undo
@@ -307,9 +305,12 @@ export async function runSync(opts: SyncOptions = {}): Promise<SyncReport> {
 function autoCloseMissingRepoTasks(
   db: RelayDB,
   roots: string[],
+  // Configured scan.roots only: a vanished tracked repo's parent is just a
+  // missing repo, not an offline volume, and must not disable the sweep.
+  scanRoots: string[],
   log: (msg: string) => void,
 ): void {
-  const offline = unavailableScanRoots(roots);
+  const offline = unavailableScanRoots(scanRoots);
   if (offline.length > 0) {
     log(chalk.gray(`⊘ scan root(s) not found, skipping missing-repo auto-close: ${offline.join(", ")}`));
     return;

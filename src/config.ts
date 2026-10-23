@@ -1,4 +1,5 @@
 import { readFileSync, writeFileSync, renameSync, existsSync } from "node:fs";
+import { dirname } from "node:path";
 import toml from "@iarna/toml";
 import { z } from "zod";
 import { CONFIG_PATH, expandHome } from "./paths.js";
@@ -229,6 +230,20 @@ export function loadConfig(path: string = CONFIG_PATH): Config {
 
 export function resolveScanRoots(cfg: Config): string[] {
   return cfg.scan.roots.map(expandHome);
+}
+
+/**
+ * scan.roots plus the parent of every tracked_repos entry that is not
+ * already a root — the directories repo names are resolved against during
+ * sync. Anything deciding whether a repo still exists must use the same set.
+ */
+export function resolveEffectiveRoots(cfg: Config): string[] {
+  const baseRoots = resolveScanRoots(cfg);
+  const baseRootSet = new Set(baseRoots);
+  const extraRoots = cfg.scan.tracked_repos
+    .map((p) => dirname(p))
+    .filter((r) => !baseRootSet.has(r));
+  return Array.from(new Set([...baseRoots, ...extraRoots]));
 }
 
 /**
