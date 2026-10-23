@@ -1,12 +1,12 @@
-// Preloaded by `bun test` (see bunfig.toml). src/paths.ts reads RELAY_HOME
-// once at module load and all test files share one process, so the
-// throwaway home has to be set here, before any test file is imported.
-import { afterAll } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+// Points RELAY_HOME at a throwaway directory. src/paths.ts reads RELAY_HOME
+// once at module load and all test files share one process, so this must
+// run before anything imports src/paths.ts: bunfig.toml preloads it via
+// src/test-preload.ts, and DB-touching test files also import it first so
+// a run that skips the preload (e.g. started from a subdirectory) still
+// never touches the user's ~/.relay. Module caching makes it run once.
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const home = mkdtempSync(join(tmpdir(), "relay-test-"));
-process.env.RELAY_HOME = home;
-// A preloaded afterAll is a global hook: it runs once, after all files.
-afterAll(() => rmSync(home, { recursive: true, force: true }));
+export const TEST_RELAY_HOME = mkdtempSync(join(tmpdir(), "relay-test-"));
+process.env.RELAY_HOME = TEST_RELAY_HOME;

@@ -1,3 +1,6 @@
+// First import: guarantees a throwaway RELAY_HOME even when bunfig.toml's
+// preload is skipped (e.g. `bun test` started from a subdirectory).
+import "../test-setup.js";
 import { Database } from "bun:sqlite";
 import { beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
