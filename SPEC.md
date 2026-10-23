@@ -809,7 +809,7 @@ simple request (text/plain / form) による書き込みをこのガードで遮
    - `codex`: `cd <repo> && codex resume <session_id>` または `cd <repo> && codex '<prompt>'`
    - `antigravity`: `cd <repo> && agy '<prompt>'`
    - `self`: editor 起動 (`$EDITOR <repo>`)
-   - `human-review`: GitHub PR URL を `open`
+   - `human-review`: `source_id` の URL (GitHub PR / Issue)、無ければ body 中の最初の http(s) URL を `open` (macOS) / `xdg-open` で開く。URL が無ければ起動せず失敗にする (body をそのまま渡さない)
 5. launcher プロセス終了時、`runs.ended_at` を更新
 6. Codex / Antigravity は launcher 終了時に context snapshot を保存する。Claude Code は Stop hook で保存する。
 

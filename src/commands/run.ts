@@ -247,7 +247,7 @@ function printPreview(args: PreviewArgs): void {
     } else if (task.assignee === "self") {
       console.log(chalk.gray("(no prompt — assignee=self launches $EDITOR)"));
     } else if (task.assignee === "human-review") {
-      console.log(chalk.gray("(no prompt — assignee=human-review opens task body URL)"));
+      console.log(chalk.gray("(no prompt — assignee=human-review opens the task's review URL)"));
     } else {
       console.log(chalk.gray("(no prompt)"));
     }
