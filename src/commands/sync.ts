@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import chalk from "chalk";
 import { enabledAdapters, findAdapter } from "../adapters/index.js";
 import { loadConfig, migrateLegacyConfig, resolveScanRoots } from "../config.js";
-import { RelayDB } from "../db/client.js";
+import { RelayDB, closedSnapshots } from "../db/client.js";
 import type {
   Adapter,
   AdapterContext,
@@ -311,17 +311,19 @@ function autoCloseMissingRepoTasks(
   const repos = db.repoStats().map((r) => r.name);
   const missing = repos.filter((name) => !roots.some((root) => existsSync(join(root, name))));
   if (missing.length === 0) return;
-  const tasks = db.findOpenTasksInRepos(missing);
+  // Snoozed tasks are user-owned: an automatic sweep must not clear them.
+  const sweep = { excludeSnoozed: true };
+  const tasks = db.findOpenTasksInRepos(missing, undefined, sweep);
   if (tasks.length === 0) {
     log(chalk.gray(`⊘ ${missing.length} repo(s) missing on disk, but no fs-bound tasks to close`));
     return;
   }
   const ids = tasks.map((t) => t.id);
-  const inverses = db.batchCloseTasks(ids);
+  const inverses = db.batchCloseTasks(ids, sweep);
   if (inverses.length === 0) return;
   db.recordUndo({
     op_kind: "sync_auto_close_missing_repos",
-    payload: { tasks: ids },
+    payload: { tasks: closedSnapshots(inverses) },
     inverse: { tasks: inverses },
   });
   const perRepo = new Map<string, number>();
@@ -370,16 +372,9 @@ async function autoCloseResolvedRemoteTasks(
   const inverses = db.closeTasksBySourceIds(items);
   if (inverses.length === 0) return;
 
-  const now = new Date().toISOString();
-  const closedSnapshots = inverses.map((inv) => ({
-    id: inv.id,
-    status: "done" as const,
-    due_at: inv.due_at,
-    closed_at: now,
-  }));
   db.recordUndo({
     op_kind: "sync_auto_close_resolved_remote",
-    payload: { tasks: closedSnapshots },
+    payload: { tasks: closedSnapshots(inverses) },
     inverse: { tasks: inverses },
   });
 

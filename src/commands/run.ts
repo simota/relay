@@ -5,7 +5,7 @@ import chalk from "chalk";
 import { loadConfig } from "../config.js";
 import { gitSnapshot } from "../context/git.js";
 import { RelayDB, type RelayContext } from "../db/client.js";
-import { buildPrompt, runTask } from "../executor/index.js";
+import { buildPrompt, resolveReviewUrl, runTask } from "../executor/index.js";
 import { resolveRepoPath } from "../repo-resolver.js";
 import type { SessionType, Task } from "../types.js";
 import { clearFocus, getFocus } from "./focus.js";
@@ -122,6 +122,13 @@ export async function runRun(id: number, options: RunRunOptions = {}): Promise<v
       (repoTemplate ? chalk.gray("\n   + .agents/RELAY_PROMPT.md applied") : "") +
       (preamble ? chalk.gray("\n   + context preamble injected") : ""),
   );
+
+  // Fail before marking the task in_progress: the launcher would throw anyway.
+  if (task.assignee === "human-review" && !resolveReviewUrl(task)) {
+    console.log(chalk.red(`✗ #${task.id} has no http(s) URL to open (source_id or body)`));
+    db.close();
+    process.exit(1);
+  }
 
   const runId = db.insertRun(task.id, task.assignee);
   db.setStatus(task.id, "in_progress");
@@ -247,7 +254,7 @@ function printPreview(args: PreviewArgs): void {
     } else if (task.assignee === "self") {
       console.log(chalk.gray("(no prompt — assignee=self launches $EDITOR)"));
     } else if (task.assignee === "human-review") {
-      console.log(chalk.gray("(no prompt — assignee=human-review opens task body URL)"));
+      console.log(chalk.gray("(no prompt — assignee=human-review opens the task's review URL)"));
     } else {
       console.log(chalk.gray("(no prompt)"));
     }

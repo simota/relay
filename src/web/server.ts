@@ -3,6 +3,7 @@ import type { Context } from "hono";
 import { cors } from "hono/cors";
 import { streamSSE } from "hono/streaming";
 import { createHash } from "node:crypto";
+import { isIP } from "node:net";
 import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -68,8 +69,28 @@ const MIME: Record<string, string> = {
   ".ogg": "audio/ogg",
 };
 
-export function buildApp() {
+export interface BuildAppOptions {
+  /** Address `relay web` binds to; also accepted as a request Host. */
+  host?: string;
+}
+
+export function buildApp(opts: BuildAppOptions = {}) {
   const app = new Hono();
+  const allowedNames = allowedHostnames(opts.host);
+
+  // --- Host check (DNS rebinding) ---------------------------------------
+  // A page on attacker.example whose DNS later resolves to this machine
+  // talks to the server as a same-origin peer, so Origin checks and CORS
+  // can't tell it apart. Rebinding needs a DNS name, so accept /api requests
+  // only when Host is an IP literal, a loopback name, or the --host value.
+  // This also covers wildcard binds (0.0.0.0 / ::) reached by LAN IP.
+  app.use("/api/*", async (c, next) => {
+    const hostname = hostnameOf(requestHost(c));
+    if (!allowedNames.has(hostname) && isIP(hostname.replace(/^\[|\]$/g, "")) === 0) {
+      return c.json({ error: "host not allowed" }, 403);
+    }
+    return next();
+  });
 
   // --- CORS ------------------------------------------------------------
   // Allow the Next.js dev server (`next dev` on :3340) to call /api/*
@@ -81,12 +102,26 @@ export function buildApp() {
   app.use("/api/*", cors({
     origin: (origin) => {
       if (!origin) return origin;
-      if (/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin)) return origin;
+      if (LOCAL_ORIGIN_RE.test(origin)) return origin;
       return null;
     },
     allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowHeaders: ["Content-Type", "Accept"],
   }));
+
+  // --- Cross-site guard -----------------------------------------------
+  // CORS only hides responses; it does not stop a "simple" request
+  // (text/plain or form body, no preflight) or an <img> / EventSource from
+  // any web page the user visits from reaching the handler, and
+  // `c.req.json()` parses the body regardless of Content-Type. Several GETs
+  // also write (/api/sync/stream closes and deletes tasks; the sessions
+  // scan/stream routes persist rows), so the guard covers every method:
+  // only this server's pages, localhost dev origins, and non-browser
+  // clients get through (see isSameSiteRequest).
+  app.use("/api/*", async (c, next) => {
+    if (!isSameSiteRequest(c)) return c.json({ error: "cross-site request rejected" }, 403);
+    return next();
+  });
 
   // --- Health ----------------------------------------------------------
   app.get("/api/health", (c) => {
@@ -435,6 +470,7 @@ export function buildApp() {
               const pruneResult = pruneMissingRepos({
                 includeDone: true,
                 execute: true,
+                keepSnoozed: true,
               });
               const perRepoTop = pruneResult.missingRepos
                 .slice(0, 3)
@@ -474,6 +510,51 @@ export function buildApp() {
   app.get("*", (c) => serveStatic(c.req.path));
 
   return app;
+}
+
+const LOCAL_ORIGIN_RE = /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/;
+const LOOPBACK_HOSTNAMES = ["127.0.0.1", "localhost", "[::1]"];
+
+/** DNS names accepted in the Host header (IP literals are always accepted). */
+function allowedHostnames(bindHost: string | undefined): Set<string> {
+  const hosts = new Set(LOOPBACK_HOSTNAMES);
+  if (bindHost) {
+    // Same shape as hostnameOf(): lowercase (DNS is case-insensitive), IPv6 bracketed.
+    const name = bindHost.toLowerCase();
+    hosts.add(name.includes(":") && !name.startsWith("[") ? `[${name}]` : name);
+  }
+  return hosts;
+}
+
+function requestHost(c: Context): string {
+  return c.req.header("host") ?? new URL(c.req.url).host;
+}
+
+/** "127.0.0.1:7340" → "127.0.0.1", "[::1]:7340" → "[::1]". */
+function hostnameOf(host: string): string {
+  return host.replace(/:\d+$/, "").toLowerCase();
+}
+
+/**
+ * True when the request comes from this server's own pages, a localhost
+ * dev origin, or a non-browser client. Browsers send Origin on cross-origin
+ * requests; Origin-less ones (curl, CLI scripts, same-origin GET) are
+ * allowed unless Sec-Fetch-Site marks them cross-site (e.g. an <img>).
+ * The Host check above already rejects rebinding hosts, so Origin == Host
+ * means same-origin.
+ */
+function isSameSiteRequest(c: Context): boolean {
+  const origin = c.req.header("origin");
+  if (!origin) return c.req.header("sec-fetch-site") !== "cross-site";
+  return LOCAL_ORIGIN_RE.test(origin) || originHost(origin) === requestHost(c);
+}
+
+function originHost(origin: string): string | null {
+  try {
+    return new URL(origin).host;
+  } catch {
+    return null; // e.g. the opaque "null" origin
+  }
 }
 
 function transitionStatus(c: Context, status: string) {

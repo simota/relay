@@ -16,7 +16,7 @@ export async function runWeb(opts: WebOptions = {}): Promise<void> {
   const host = opts.host ?? "127.0.0.1";
   migrateLegacyConfig();
   preflightDatabase();
-  const app = buildApp();
+  const app = buildApp({ host });
 
   // Bun.serve directly when available; Hono provides `fetch` adapter.
   const server = Bun.serve({

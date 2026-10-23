@@ -42,7 +42,7 @@ export async function runTask(opts: RunOptions): Promise<RunResult> {
   });
 }
 
-function resolveCommand(
+export function resolveCommand(
   task: Task,
   opts: RunOptions,
 ): { bin: string; args: string[] } {
@@ -82,11 +82,39 @@ function resolveCommand(
       const editor = process.env.EDITOR ?? "vim";
       return { bin: editor, args: ["."] };
     }
-    case "human-review":
-      return { bin: "open", args: [task.body] };
+    case "human-review": {
+      // Never hand `task.body` to the opener: for GitHub PRs it is the PR
+      // description (third-party text, possibly flag-shaped) and the URL
+      // lives in `source_id`. Only a parsed http(s) URL is forwarded.
+      const url = resolveReviewUrl(task);
+      if (!url) throw new Error(`no http(s) URL to open for task #${task.id}`);
+      return { bin: process.platform === "darwin" ? "open" : "xdg-open", args: [url] };
+    }
     default:
       throw new Error(`unknown assignee: ${task.assignee}`);
   }
+}
+
+/**
+ * URL a `human-review` task should open: `source_id` when it is itself a
+ * URL (github_pr / github_issue), else the first http(s) URL in the body
+ * (manual tasks). Returns the normalized `href`, which always starts with
+ * the scheme, or null when nothing usable exists.
+ */
+export function resolveReviewUrl(task: Task): string | null {
+  // Trailing sentence punctuation ("see https://x/y.") is prose, not URL.
+  const fromBody = task.body.match(/https?:\/\/[^\s<>"'`)\]]+/)?.[0]?.replace(/[.,;:!?]+$/, "");
+  const candidates = [task.source_id, fromBody];
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    try {
+      const url = new URL(candidate);
+      if (url.protocol === "http:" || url.protocol === "https:") return url.href;
+    } catch {
+      // not a URL — try the next candidate
+    }
+  }
+  return null;
 }
 
 export function buildPrompt(

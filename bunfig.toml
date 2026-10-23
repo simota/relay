@@ -1,0 +1,4 @@
+[test]
+# Point RELAY_HOME at a throwaway directory before any test imports
+# src/paths.ts, so `bun test` never touches the user's ~/.relay.
+preload = ["./src/test-preload.ts"]

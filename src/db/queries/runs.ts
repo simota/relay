@@ -264,18 +264,23 @@ export function recordUndo(
   input: { op_kind: string; payload: unknown; inverse: unknown },
 ): number {
   ensureUndoSchema(db);
-  const info = db
-    .prepare(
-      `INSERT INTO undo_log (op_kind, payload, inverse, created_at, status)
-       VALUES (?, ?, ?, ?, 'active')`,
-    )
-    .run(
-      input.op_kind,
-      JSON.stringify(input.payload),
-      JSON.stringify(input.inverse),
-      new Date().toISOString(),
-    );
-  return Number(info.lastInsertRowid);
+  // A new action invalidates the redo stack: replaying an `undone` entry
+  // recorded before this action would silently overwrite its effect.
+  const record = db.transaction(() => {
+    db.prepare(`DELETE FROM undo_log WHERE status = 'undone'`).run();
+    return db
+      .prepare(
+        `INSERT INTO undo_log (op_kind, payload, inverse, created_at, status)
+         VALUES (?, ?, ?, ?, 'active')`,
+      )
+      .run(
+        input.op_kind,
+        JSON.stringify(input.payload),
+        JSON.stringify(input.inverse),
+        new Date().toISOString(),
+      );
+  });
+  return Number(record().lastInsertRowid);
 }
 
 export function listUndo(db: Database, limit = 20): UndoLogRow[] {

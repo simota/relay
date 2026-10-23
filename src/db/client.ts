@@ -47,6 +47,8 @@ import {
   updateTaskState as _updateTaskState,
   upsertSession as _upsertSession,
 } from "./queries/tasks.js";
+import type { CloseSweepOptions } from "./queries/tasks.js";
+export { closedSnapshots } from "./queries/tasks.js";
 import {
   countForViewFilter as _countForViewFilter,
   createView as _createView,
@@ -277,8 +279,8 @@ export class RelayDB {
     return _myOpenPrCountPerRepo(this.db);
   }
 
-  findOpenTasksInRepos(repos: string[], sourceTypes?: string[]): Task[] {
-    return _findOpenTasksInRepos(this.db, repos, sourceTypes);
+  findOpenTasksInRepos(repos: string[], sourceTypes?: string[], opts?: CloseSweepOptions): Task[] {
+    return _findOpenTasksInRepos(this.db, repos, sourceTypes, opts);
   }
 
   findDoneTasksInRepos(repos: string[], sourceTypes?: string[]): Task[] {
@@ -291,8 +293,8 @@ export class RelayDB {
     return _closeTasksBySourceIds(this.db, items);
   }
 
-  batchCloseTasks(ids: number[]): TaskStatusSnapshot[] {
-    return _batchCloseTasks(this.db, ids);
+  batchCloseTasks(ids: number[], opts?: CloseSweepOptions): TaskStatusSnapshot[] {
+    return _batchCloseTasks(this.db, ids, opts);
   }
 
   batchDeleteTasks(ids: number[]): Task[] {
