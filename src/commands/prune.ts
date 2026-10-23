@@ -1,7 +1,6 @@
 import { existsSync } from "node:fs";
-import { join } from "node:path";
 import chalk from "chalk";
-import { loadConfig, resolveEffectiveRoots, resolveScanRoots } from "../config.js";
+import { loadConfig, repoExistsOnDisk, resolveScanRoots } from "../config.js";
 import { RelayDB, closedSnapshots } from "../db/client.js";
 
 // relay has no `undo` subcommand; the undo log is replayed from the Web UI.
@@ -69,9 +68,6 @@ export function pruneMissingRepos(opts: {
   db?: RelayDB;
 }): PruneResult {
   const cfg = loadConfig();
-  // Same root set as sync, so repos tracked outside scan.roots are not
-  // treated as missing.
-  const roots = resolveEffectiveRoots(cfg);
   const db = opts.db ?? new RelayDB();
   const owned = opts.db === undefined; // we created it, we close it
 
@@ -81,7 +77,7 @@ export function pruneMissingRepos(opts: {
       opts.skipWhenRootMissing === true && unavailableScanRoots(resolveScanRoots(cfg)).length > 0;
     const missingRepos = rootsUnavailable
       ? []
-      : repos.filter((name) => !roots.some((root) => existsSync(join(root, name))));
+      : repos.filter((name) => !repoExistsOnDisk(name, cfg));
 
     if (missingRepos.length === 0) {
       return {

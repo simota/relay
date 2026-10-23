@@ -2,7 +2,14 @@ import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import chalk from "chalk";
 import { enabledAdapters, findAdapter } from "../adapters/index.js";
-import { loadConfig, migrateLegacyConfig, resolveEffectiveRoots, resolveScanRoots } from "../config.js";
+import {
+  loadConfig,
+  migrateLegacyConfig,
+  repoExistsOnDisk,
+  resolveEffectiveRoots,
+  resolveScanRoots,
+  type Config,
+} from "../config.js";
 import { unavailableScanRoots } from "./prune.js";
 import { RelayDB, closedSnapshots } from "../db/client.js";
 import type {
@@ -280,7 +287,7 @@ export async function runSync(opts: SyncOptions = {}): Promise<SyncReport> {
   await Promise.all(work);
 
   if (!opts.dryRun) {
-    autoCloseMissingRepoTasks(db, ctx.roots, baseRoots, log);
+    autoCloseMissingRepoTasks(db, cfg, baseRoots, log);
     await autoCloseResolvedRemoteTasks(adapters, ctx, db, log);
     // Trim old undo_log rows so bulk-operation snapshots don't bloat the
     // SQLite file indefinitely. 7 days is well past the practical undo
@@ -304,7 +311,7 @@ export async function runSync(opts: SyncOptions = {}): Promise<SyncReport> {
 
 function autoCloseMissingRepoTasks(
   db: RelayDB,
-  roots: string[],
+  cfg: Config,
   // Configured scan.roots only: a vanished tracked repo's parent is just a
   // missing repo, not an offline volume, and must not disable the sweep.
   scanRoots: string[],
@@ -316,7 +323,7 @@ function autoCloseMissingRepoTasks(
     return;
   }
   const repos = db.repoStats().map((r) => r.name);
-  const missing = repos.filter((name) => !roots.some((root) => existsSync(join(root, name))));
+  const missing = repos.filter((name) => !repoExistsOnDisk(name, cfg));
   if (missing.length === 0) return;
   // Snoozed tasks are user-owned: an automatic sweep must not clear them.
   const sweep = { excludeSnoozed: true };

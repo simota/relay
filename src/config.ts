@@ -1,5 +1,5 @@
 import { readFileSync, writeFileSync, renameSync, existsSync } from "node:fs";
-import { dirname } from "node:path";
+import { basename, dirname, join } from "node:path";
 import toml from "@iarna/toml";
 import { z } from "zod";
 import { CONFIG_PATH, expandHome } from "./paths.js";
@@ -244,6 +244,18 @@ export function resolveEffectiveRoots(cfg: Config): string[] {
     .map((p) => dirname(p))
     .filter((r) => !baseRootSet.has(r));
   return Array.from(new Set([...baseRoots, ...extraRoots]));
+}
+
+/**
+ * Whether repo `name` still exists: directly under a scan root, or as an
+ * exact tracked_repos path. A tracked repo's parent is not a root here —
+ * sync ignores its untracked siblings, so they must not keep a repo alive.
+ */
+export function repoExistsOnDisk(name: string, cfg: Config): boolean {
+  return (
+    resolveScanRoots(cfg).some((root) => existsSync(join(root, name))) ||
+    cfg.scan.tracked_repos.some((p) => basename(p) === name && existsSync(p))
+  );
 }
 
 /**

@@ -353,6 +353,31 @@ describe("tracked repos outside scan.roots", () => {
   });
 });
 
+describe("untracked sibling of a tracked repo", () => {
+  test("does not keep a deleted repo's tasks alive", async () => {
+    const original = readFileSync(CONFIG_PATH, "utf8");
+    const outside = join(RELAY_HOME, "outside");
+    mkdirSync(join(outside, "pinned"), { recursive: true });
+    mkdirSync(join(outside, "gone-repo"), { recursive: true }); // untracked sibling
+    writeFileSync(
+      CONFIG_PATH,
+      `[scan]\nroots = [${JSON.stringify(join(RELAY_HOME, "roots"))}]\ntracked_repos = [${JSON.stringify(join(outside, "pinned"))}]\n`,
+    );
+    try {
+      const viaSync = insert(input());
+      await runSync({ source: "manual", silent: true });
+      expect(state(viaSync).status).toBe("done");
+
+      const viaPrune = insert(input());
+      const res = pruneMissingRepos({ includeDone: false, execute: true, keepSnoozed: true, skipWhenRootMissing: true });
+      expect(res.closedCount).toBe(1);
+      expect(state(viaPrune).status).toBe("done");
+    } finally {
+      writeFileSync(CONFIG_PATH, original);
+    }
+  });
+});
+
 describe("vanished tracked repo", () => {
   test("a deleted tracked repo's parent does not disable the missing-repo sweep", async () => {
     const original = readFileSync(CONFIG_PATH, "utf8");
