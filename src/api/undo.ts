@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { RelayDB, type TaskStatusSnapshot } from "../db/client.js";
-import type { Task } from "../types.js";
+import { Assignee, type Task } from "../types.js";
 
 interface UndoPayload {
   tasks: TaskStatusSnapshot[];
@@ -100,6 +100,20 @@ export function createUndoApi() {
       }
     }
 
+    // reassign rows carry `{ id, assignee }` snapshots (no status), so they
+    // must not go through the status snapshot parser below.
+    if (row.op_kind === "reassign") {
+      const assignees = parseAssigneePayload(redo ? row.payload : row.inverse);
+      if (!assignees) {
+        db.close();
+        return c.json({ error: "undo payload is invalid" }, 500);
+      }
+      for (const a of assignees) db.setAssignee(a.id, a.assignee);
+      db.markUndoStatus(row.id, redo ? "active" : "undone");
+      db.close();
+      return c.json({ ok: true, id: row.id, op_kind: row.op_kind, count: assignees.length, undone: !redo, redone: redo });
+    }
+
     const payload = parseUndoPayload(redo ? row.payload : row.inverse);
     if (!payload) {
       db.close();
@@ -170,6 +184,27 @@ function parseOlderThanDays(value: string | undefined): number | null {
   if (!match) return null;
   const days = Number(match[1]);
   return Number.isInteger(days) && days > 0 ? days : null;
+}
+
+function parseAssigneePayload(value: string): Array<{ id: number; assignee: Assignee }> | null {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    const tasks = (parsed as Record<string, unknown>).tasks;
+    if (!Array.isArray(tasks)) return null;
+    const out: Array<{ id: number; assignee: Assignee }> = [];
+    for (const item of tasks) {
+      if (!item || typeof item !== "object") return null;
+      const record = item as Record<string, unknown>;
+      const id = record.id;
+      const assignee = Assignee.safeParse(record.assignee);
+      if (typeof id !== "number" || !Number.isInteger(id) || id <= 0 || !assignee.success) return null;
+      out.push({ id, assignee: assignee.data });
+    }
+    return out;
+  } catch {
+    return null;
+  }
 }
 
 function parseUndoPayload(value: string): UndoPayload | null {

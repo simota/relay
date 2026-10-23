@@ -298,12 +298,17 @@ export function listUndo(db: Database, limit = 20): UndoLogRow[] {
 
 export function latestUndo(db: Database, status: UndoLogRow["status"]): UndoLogRow | null {
   ensureUndoSchema(db);
+  // Undo pops the newest active entry. Undone entries always sit above every
+  // active one (recordUndo clears them on a new action) and were undone
+  // newest-first, so the one undone most recently — the next to redo — is
+  // the oldest of them.
+  const order = status === "undone" ? "ASC" : "DESC";
   const row = db
     .prepare(
       `SELECT id, op_kind, payload, inverse, created_at, status
          FROM undo_log
         WHERE status = ?
-        ORDER BY created_at DESC, id DESC
+        ORDER BY created_at ${order}, id ${order}
         LIMIT 1`,
     )
     .get(status) as UndoLogRow | undefined;
