@@ -97,7 +97,11 @@ export function createScanApi() {
     }
     const deduped = [...new Set(validated)];
 
-    saveTrackedRepos(deduped);
+    try {
+      saveTrackedRepos(deduped);
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : String(err) }, 500);
+    }
 
     // Echo status back so the UI can immediately flag stale entries.
     const statuses: TrackedRepoStatus[] = deduped.map((p) => {

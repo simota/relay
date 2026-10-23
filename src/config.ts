@@ -317,13 +317,16 @@ export function migrateLegacyConfig(path: string = CONFIG_PATH): boolean {
  * Writes to a tmp file then renames for atomic replacement.
  */
 export function saveTrackedRepos(repos: string[], path: string = CONFIG_PATH): void {
-  // Read existing raw TOML (or start from empty object)
+  // Read existing raw TOML (or start from empty object). An unparseable
+  // file is left untouched: rewriting it from {} would drop every other
+  // setting, including adapter opt-outs.
   let raw: toml.JsonMap = {};
   if (existsSync(path)) {
     try {
       raw = toml.parse(readFileSync(path, "utf8")) as toml.JsonMap;
-    } catch {
-      // If parse fails, keep existing structure empty and overwrite
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      throw new Error(`refusing to overwrite unparseable config ${path}: ${reason}`);
     }
   }
 
