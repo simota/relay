@@ -112,7 +112,7 @@ export const gitStashAdapter: Adapter = {
    * git_stash source_ids*. Anything the DB knows about but the live
    * sweep no longer sees has been popped or dropped — emit it as
    * resolved so `autoCloseResolvedRemoteTasks` closes the task
-   * (undo-able via `relay undo`).
+   * (undo-able from the Web UI).
    *
    * If `ctx.knownOpenSourceIds` isn't wired (e.g. unit-test harness),
    * we degrade to a no-op: `fetch()` will still ingest current stashes

@@ -306,7 +306,7 @@ program
   .option("--all-sources", "include github_issue / github_pr / manual too")
   .option("--include-done", "also delete done tasks whose repo is gone (physical delete)")
   .option("--yes", "skip confirmation prompt")
-  .description("Tidy up tasks pointing at gone repos. Reversible via `relay undo`.")
+  .description("Tidy up tasks pointing at gone repos. Closes are undoable in `relay web` (⌘Z).")
   .action((opts) => {
     runPrune({
       missingRepos: Boolean(opts.missingRepos),

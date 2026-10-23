@@ -4,6 +4,9 @@ import chalk from "chalk";
 import { loadConfig, resolveScanRoots } from "../config.js";
 import { RelayDB, closedSnapshots } from "../db/client.js";
 
+// relay has no `undo` subcommand; the undo log is replayed from the Web UI.
+const UNDO_HINT = "undo in `relay web` with ⌘Z / Ctrl+Z";
+
 export interface PruneOptions {
   missingRepos: boolean;
   source?: string;
@@ -216,11 +219,11 @@ export function runPrune(opts: PruneOptions): void {
   }
 
   if (!opts.yes) {
-    console.log(
-      chalk.gray(
-        `\nRe-run with --yes to actually execute. Reversible via \`relay undo\`.`,
-      ),
-    );
+    const reversibility =
+      preview.doneTasks.length > 0
+        ? `Closing is reversible (${UNDO_HINT}); deleting done tasks is not.`
+        : `Reversible (${UNDO_HINT}).`;
+    console.log(chalk.gray(`\nRe-run with --yes to actually execute. ${reversibility}`));
     return;
   }
 
@@ -234,5 +237,9 @@ export function runPrune(opts: PruneOptions): void {
   const parts: string[] = [];
   if (result.closedCount > 0) parts.push(`closed ${result.closedCount} open task(s)`);
   if (result.deletedCount > 0) parts.push(`deleted ${result.deletedCount} done task(s)`);
-  console.log(chalk.green(`✓ ${parts.join(" + ")}. Undo with \`relay undo\`.`));
+  const undoNote =
+    result.closedCount > 0
+      ? ` Closes are reversible (${UNDO_HINT})${result.deletedCount > 0 ? "; deletions are not" : ""}.`
+      : "";
+  console.log(chalk.green(`✓ ${parts.join(" + ")}.${undoNote}`));
 }

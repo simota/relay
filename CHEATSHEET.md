@@ -112,7 +112,7 @@ Web UI のキーバインドは `HOTKEYS.md`。最頻出だけ抜粋:
 | Command | 用途 |
 |---|---|
 | `relay backfill [--list] [--dry-run] [--only <name>]` | 冪等な後方互換 fixup (例: legacy context の session_id 補完)。 |
-| `relay prune --missing-repos --yes` * | 消えた repo のタスクを一掃。`relay undo` で取り戻し可。 |
+| `relay prune --missing-repos --yes` * | 消えた repo のタスクを一掃。`relay web` の ⌘Z / Ctrl+Z で取り戻し可（`--include-done` の物理削除は不可）。 |
 
 ## Developer shortcuts
 

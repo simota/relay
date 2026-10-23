@@ -315,7 +315,7 @@ function extractAssigneeLogins(item: ProjectItem): string[] {
  * The `done`-equivalent statuses are not mapped to `done` directly
  * here — they're handled by `fetchResolved` which closes the task
  * through the standard auto-close path (so it's undo-able via
- * `relay undo`).
+ * the Web undo).
  */
 function mapStatus(value: string | null): "open" | "in_progress" {
   if (!value) return "open";

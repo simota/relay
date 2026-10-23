@@ -285,7 +285,7 @@ export async function runSync(opts: SyncOptions = {}): Promise<SyncReport> {
     await autoCloseResolvedRemoteTasks(adapters, ctx, db, log);
     // Trim old undo_log rows so bulk-operation snapshots don't bloat the
     // SQLite file indefinitely. 7 days is well past the practical undo
-    // window — the only consumer is `relay undo`, which always operates
+    // window — the only consumer is the Web undo (POST /api/undo), which always operates
     // on the most recent entry.
     const pruned = db.pruneUndoOlderThan(7);
     if (pruned > 0) {
@@ -338,12 +338,12 @@ function autoCloseMissingRepoTasks(
       `⚠ auto-closed ${inverses.length} fs-bound task(s) from ${missing.length} missing repo(s): ${sample}${missing.length > 3 ? ` +${missing.length - 3} more` : ""}`,
     ),
   );
-  log(chalk.gray(`  (undo with \`relay undo\`)`));
+  log(chalk.gray(`  (undo in \`relay web\` with ⌘Z / Ctrl+Z)`));
 }
 
 // For each adapter that reports `fetchResolved`, sweep merged/closed remote
 // items and auto-close matching DB tasks. Mirrors the missing-repo flow:
-// reversible via `relay undo`, no-op when nothing matches.
+// reversible via the Web undo, no-op when nothing matches.
 async function autoCloseResolvedRemoteTasks(
   adapters: Adapter[],
   ctx: AdapterContext,
@@ -383,7 +383,7 @@ async function autoCloseResolvedRemoteTasks(
       `⚠ auto-closed ${inverses.length} task(s) for merged/closed remote items`,
     ),
   );
-  log(chalk.gray(`  (undo with \`relay undo\`)`));
+  log(chalk.gray(`  (undo in \`relay web\` with ⌘Z / Ctrl+Z)`));
 }
 
 function upsertSafely(db: RelayDB, tasks: TaskInput[], report: SyncReport) {
