@@ -49,6 +49,11 @@ describe("human-review launch", () => {
     expect(resolveReviewUrl(t)).toBe("https://example.com/review/7");
   });
 
+  test("drops trailing sentence punctuation from a body URL", () => {
+    const t = task({ source_type: "manual", source_id: "manual:1:abc", body: "Please review https://example.com/reviews/7." });
+    expect(resolveReviewUrl(t)).toBe("https://example.com/reviews/7");
+  });
+
   test("throws instead of launching when there is no URL", () => {
     const t = task({ source_type: "manual", source_id: "manual:1:abc", body: "-a Terminal file:///etc/passwd" });
     expect(resolveReviewUrl(t)).toBeNull();

@@ -102,7 +102,9 @@ export function resolveCommand(
  * the scheme, or null when nothing usable exists.
  */
 export function resolveReviewUrl(task: Task): string | null {
-  const candidates = [task.source_id, task.body.match(/https?:\/\/[^\s<>"'`)\]]+/)?.[0]];
+  // Trailing sentence punctuation ("see https://x/y.") is prose, not URL.
+  const fromBody = task.body.match(/https?:\/\/[^\s<>"'`)\]]+/)?.[0]?.replace(/[.,;:!?]+$/, "");
+  const candidates = [task.source_id, fromBody];
   for (const candidate of candidates) {
     if (!candidate) continue;
     try {
