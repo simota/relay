@@ -175,3 +175,93 @@ describe("re-sync ingest", () => {
     expect(state(id).due_at).toBe("2099-02-02");
   });
 });
+
+describe("undo / redo", () => {
+  test("undo of a reassign restores the assignee instead of wedging the stack", async () => {
+    const id = insert(input({ repo: "present-repo", assignee: "self" }));
+    const undoApi = createUndoApi();
+    const db = new RelayDB();
+    db.setAssignee(id, "codex");
+    db.recordUndo({
+      op_kind: "reassign",
+      payload: { tasks: [{ id, assignee: "codex" }] },
+      inverse: { tasks: [{ id, assignee: "self" }] },
+    });
+    db.close();
+
+    const undo = await post(undoApi, "/");
+    expect(undo.status).toBe(200);
+    const after = () => {
+      const d = new RelayDB();
+      const t = d.getTask(id)!;
+      d.close();
+      return t.assignee;
+    };
+    expect(after()).toBe("self");
+    const redo = await post(undoApi, "/?redo=1");
+    expect(redo.status).toBe(200);
+    expect(after()).toBe("codex");
+  });
+
+  test("redo replays the most recently undone entry first", async () => {
+    const id = insert(input({ repo: "present-repo" }));
+    const tasksApi = createTasksApi();
+    const undoApi = createUndoApi();
+    const db = new RelayDB();
+    db.setStatus(id, "in_progress");
+    db.recordUndo({
+      op_kind: "in_progress",
+      payload: { tasks: [{ id, status: "in_progress", due_at: null, closed_at: null }] },
+      inverse: { tasks: [{ id, status: "open", due_at: null, closed_at: null }] },
+    });
+    db.close();
+    await post(tasksApi, "/bulk/close", { ids: [id] });
+
+    await post(undoApi, "/");
+    await post(undoApi, "/");
+    expect(state(id).status).toBe("open");
+    await post(undoApi, "/?redo=1");
+    expect(state(id).status).toBe("in_progress");
+    await post(undoApi, "/?redo=1");
+    expect(state(id).status).toBe("done");
+  });
+
+  test("opens a DB whose undo_log predates the status column", () => {
+    const path = join(RELAY_HOME, `legacy-undo-${Date.now()}.sqlite`);
+    const raw = new Database(path, { create: true });
+    raw.exec(`CREATE TABLE undo_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      op_kind TEXT NOT NULL, payload TEXT NOT NULL,
+      inverse TEXT NOT NULL, created_at TEXT NOT NULL)`);
+    raw.close();
+
+    const db = new RelayDB(path);
+    db.recordUndo({ op_kind: "x", payload: { tasks: [] }, inverse: { tasks: [] } });
+    expect(db.latestUndo("active")?.op_kind).toBe("x");
+    db.close();
+  });
+});
+
+describe("re-sync change detection", () => {
+  test("applies upstream changes that touch only due_at, repo or prompt", () => {
+    const t = input({ repo: "present-repo", due_at: null, prompt: null });
+    const id = insert(t);
+    const db = new RelayDB();
+    const res = db.upsertTasks([{ ...t, due_at: "2099-03-03", prompt: "p", repo: "other-repo" }]);
+    const row = db.getTask(id)!;
+    db.close();
+    expect(res.updated).toBe(1);
+    expect(row).toMatchObject({ due_at: "2099-03-03", prompt: "p", repo: "other-repo" });
+  });
+
+  test("a snoozed task's due_at alone is not an upstream change", () => {
+    const t = input({ repo: "present-repo", due_at: "2099-01-01" });
+    const id = insert(t);
+    snooze([id]);
+    const db = new RelayDB();
+    const res = db.upsertTasks([t]);
+    db.close();
+    expect(res.unchanged).toBe(1);
+    expect(state(id).due_at).toBe(SNOOZE_UNTIL);
+  });
+});
