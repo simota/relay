@@ -92,7 +92,7 @@ export function countForViewFilter(db: Database, filter: ViewFilter): number {
   }
   const olderThanDays = parseAgeFilter(filter.age);
   if (olderThanDays !== null) {
-    where.push("created_at <= datetime('now', ?)");
+    where.push("created_at <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?)");
     args.push(`-${olderThanDays} days`);
   }
   const row = db
@@ -109,7 +109,7 @@ export function smartInboxCounts(db: Database): Record<string, number> {
                   THEN 1 ELSE 0 END) AS github_pr_review,
          SUM(CASE WHEN source_type = 'code_todo'
                    AND status != 'done'
-                   AND created_at <= datetime('now', '-30 days')
+                   AND created_at <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-30 days')
                   THEN 1 ELSE 0 END) AS old_code_todos,
          SUM(CASE WHEN status = 'snoozed'
                    AND due_at IS NOT NULL

@@ -24,7 +24,7 @@ export function today(
   const sql = `
     SELECT * FROM tasks
     WHERE status IN ('open', 'in_progress')
-      AND (due_at IS NULL OR due_at <= datetime('now', '+1 day'))
+      AND (due_at IS NULL OR due_at <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+1 day'))
       ${excludeClause}
     ORDER BY
       ${effective} DESC,
@@ -49,7 +49,7 @@ export function viewCounts(
     .prepare(
       `SELECT
          SUM(CASE WHEN status IN ('open','in_progress')
-                   AND (due_at IS NULL OR due_at <= datetime('now','+1 day'))
+                   AND (due_at IS NULL OR due_at <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now','+1 day'))
                    THEN 1 ELSE 0 END) AS today,
          SUM(CASE WHEN status IN ('open','in_progress') THEN 1 ELSE 0 END) AS open_c,
          SUM(CASE WHEN status = 'snoozed' THEN 1 ELSE 0 END) AS snoozed_c,
@@ -91,7 +91,7 @@ export function sourceDelta7d(db: Database): number {
       `SELECT COUNT(*) AS n
          FROM tasks
         WHERE status != 'done'
-          AND created_at >= datetime('now','-7 days')`,
+          AND created_at >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now','-7 days')`,
     )
     .get() as { n: number | null };
   return row.n ?? 0;

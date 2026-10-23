@@ -299,3 +299,31 @@ describe("unavailable scan root", () => {
     expect(state(done).status).toBe("done");
   });
 });
+
+describe("timestamp comparisons", () => {
+  // Stored timestamps are ISO (`…T…Z`); SQLite's datetime() yields
+  // `YYYY-MM-DD HH:MM:SS`, which sorts below any ISO time on the same date.
+  const hoursFromNow = (h: number) => new Date(Date.now() + h * 3_600_000).toISOString();
+
+  test("Today includes a task due within the next day", () => {
+    const id = insert(input({ repo: "present-repo", due_at: hoursFromNow(23) }));
+    const db = new RelayDB();
+    const ids = db.today(500).map((t) => t.id);
+    const counts = db.viewCounts();
+    db.close();
+    expect(ids).toContain(id);
+    expect(counts.today).toBe(1);
+  });
+
+  test("undo prune drops entries just past the cutoff", () => {
+    const db = new RelayDB();
+    db.recordUndo({ op_kind: "x", payload: { tasks: [] }, inverse: { tasks: [] } });
+    db.close();
+    const raw = new Database(DB_PATH);
+    raw.prepare("UPDATE undo_log SET created_at = ?").run(hoursFromNow(-(7 * 24 + 1)));
+    raw.close();
+    const db2 = new RelayDB();
+    expect(db2.pruneUndoOlderThan(7)).toBe(1);
+    db2.close();
+  });
+});

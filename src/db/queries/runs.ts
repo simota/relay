@@ -325,7 +325,7 @@ export function pruneUndoOlderThan(db: Database, days: number): number {
   ensureUndoSchema(db);
   const safeDays = Math.max(1, Math.trunc(days));
   const info = db
-    .prepare(`DELETE FROM undo_log WHERE created_at < datetime('now', ?)`)
+    .prepare(`DELETE FROM undo_log WHERE created_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?)`)
     .run(`-${safeDays} days`);
   return Number(info.changes);
 }
