@@ -76,6 +76,9 @@ function openInBrowser(url: string): void {
         : "xdg-open";
   try {
     const child = spawn(cmd, [url], { detached: true, stdio: "ignore" });
+    // A missing opener (e.g. no xdg-open on a headless box) is reported via
+    // an async 'error' event; unhandled, it would crash the server.
+    child.on("error", () => {});
     child.unref();
   } catch {
     // Browser opening is non-critical; ignore failures.
