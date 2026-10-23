@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { deriveCwdFromMentions } from "../lib/antigravity-workspace.js";
+import { deriveCwdFromMentions, deriveCwdFromWorkspaceMarker } from "../lib/antigravity-workspace.js";
 import { extractPromiseLedger } from "../lib/promise-ledger.js";
 import { resolveRepoForCwd } from "../lib/repo-from-cwd.js";
 import { distinctSkillNames, extractAntigravitySkills } from "../lib/session-skills.js";
@@ -152,7 +152,7 @@ async function readAntigravityDetail(
   // adapter (`src/adapters/antigravity-session.ts`).
   const cwd =
     workspaceMap.get(id) ??
-    deriveCwdFromTranscript(entries) ??
+    deriveCwdFromWorkspaceMarker(entries) ??
     deriveCwdFromMentions(text, roots);
   const repo = cwd ? resolveRepoForCwd(cwd, roots) : null;
 
@@ -239,19 +239,6 @@ async function readAntigravityDetail(
     skill_chains: [],
     ...(promise_ledger ? { promise_ledger } : {}),
   };
-}
-
-function deriveCwdFromTranscript(entries: TranscriptEntry[]): string | null {
-  // Fallback when history.jsonl lacks the conversation. The first
-  // USER_INPUT entry sometimes contains a `<workspace>` marker in
-  // ADDITIONAL_METADATA, but Antigravity is inconsistent about emitting it,
-  // so this best-effort check just returns null when it is missing.
-  for (const entry of entries) {
-    if (entry.type !== "USER_INPUT" || typeof entry.content !== "string") continue;
-    const match = entry.content.match(/workspace["']?\s*[:=]\s*["']([^"']+)["']/i);
-    if (match && typeof match[1] === "string") return match[1];
-  }
-  return null;
 }
 
 function roleOf(entry: TranscriptEntry): SessionMessage["role"] | null {
