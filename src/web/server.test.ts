@@ -80,16 +80,37 @@ describe("cross-site request guard", () => {
     expect(read.status).toBe(403);
   });
 
-  test("skips the host check for a wildcard --host bind", async () => {
-    const res = await buildApp({ host: "0.0.0.0" }).request("http://192.168.1.20:7340/api/health");
-    expect(res.status).toBe(200);
+  test("a wildcard --host bind accepts IP-literal hosts but not rebound names", async () => {
+    const wildcard = buildApp({ host: "0.0.0.0" });
+    const lan = await wildcard.request("http://192.168.1.20:7340/api/health");
+    expect(lan.status).toBe(200);
+    const rebound = await wildcard.request("http://attacker.example:7340/api/tasks", {
+      method: "POST",
+      headers: { host: "attacker.example:7340", origin: "http://attacker.example:7340", "content-type": "application/json" },
+      body: JSON.stringify({ repo: "demo", title: "rebound" }),
+    });
+    expect(rebound.status).toBe(403);
   });
 
-  test("does not block cross-site reads of safe methods (CORS governs those)", async () => {
-    const res = await app.request("http://127.0.0.1:7340/api/health", {
+  test("rejects cross-site GETs, which can also write (sessions scan, sync stream)", async () => {
+    const scan = await app.request("http://127.0.0.1:7340/api/sessions/scan-live", {
+      headers: { "sec-fetch-site": "cross-site" },
+    });
+    expect(scan.status).toBe(403);
+    const read = await app.request("http://127.0.0.1:7340/api/health", {
       headers: { origin: "https://evil.example" },
     });
-    expect(res.status).toBe(200);
-    expect(res.headers.get("access-control-allow-origin")).toBeNull();
+    expect(read.status).toBe(403);
+  });
+
+  test("allows same-origin and address-bar GETs", async () => {
+    const sameOrigin = await app.request("http://127.0.0.1:7340/api/health", {
+      headers: { "sec-fetch-site": "same-origin" },
+    });
+    expect(sameOrigin.status).toBe(200);
+    const typed = await app.request("http://127.0.0.1:7340/api/health", {
+      headers: { "sec-fetch-site": "none" },
+    });
+    expect(typed.status).toBe(200);
   });
 });

@@ -3,6 +3,7 @@ import type { Context } from "hono";
 import { cors } from "hono/cors";
 import { streamSSE } from "hono/streaming";
 import { createHash } from "node:crypto";
+import { isIP } from "node:net";
 import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -75,16 +76,17 @@ export interface BuildAppOptions {
 
 export function buildApp(opts: BuildAppOptions = {}) {
   const app = new Hono();
-  const allowedHosts = allowedHostnames(opts.host);
+  const allowedNames = allowedHostnames(opts.host);
 
   // --- Host check (DNS rebinding) ---------------------------------------
-  // A page on attacker.example whose DNS later resolves to 127.0.0.1 talks
-  // to this server as a same-origin peer, so Origin checks and CORS can't
-  // tell it apart. Only accept /api requests addressed to a loopback name
-  // or the configured --host. A wildcard bind (0.0.0.0 / ::) has no name
-  // to compare against, so the check is skipped there.
+  // A page on attacker.example whose DNS later resolves to this machine
+  // talks to the server as a same-origin peer, so Origin checks and CORS
+  // can't tell it apart. Rebinding needs a DNS name, so accept /api requests
+  // only when Host is an IP literal, a loopback name, or the --host value.
+  // This also covers wildcard binds (0.0.0.0 / ::) reached by LAN IP.
   app.use("/api/*", async (c, next) => {
-    if (allowedHosts && !allowedHosts.has(hostnameOf(requestHost(c)))) {
+    const hostname = hostnameOf(requestHost(c));
+    if (!allowedNames.has(hostname) && isIP(hostname.replace(/^\[|\]$/g, "")) === 0) {
       return c.json({ error: "host not allowed" }, 403);
     }
     return next();
@@ -107,14 +109,16 @@ export function buildApp(opts: BuildAppOptions = {}) {
     allowHeaders: ["Content-Type", "Accept"],
   }));
 
-  // --- Cross-site write guard -----------------------------------------
+  // --- Cross-site guard -----------------------------------------------
   // CORS only hides responses; it does not stop a "simple" request
-  // (text/plain or form body, no preflight) from any web page the user
-  // visits from reaching the handler, and `c.req.json()` parses the body
-  // regardless of Content-Type. Reject state-changing requests that are
-  // not from this server or a localhost dev origin (see isSameSiteRequest).
+  // (text/plain or form body, no preflight) or an <img> / EventSource from
+  // any web page the user visits from reaching the handler, and
+  // `c.req.json()` parses the body regardless of Content-Type. Several GETs
+  // also write (/api/sync/stream closes and deletes tasks; the sessions
+  // scan/stream routes persist rows), so the guard covers every method:
+  // only this server's pages, localhost dev origins, and non-browser
+  // clients get through (see isSameSiteRequest).
   app.use("/api/*", async (c, next) => {
-    if (SAFE_METHODS.has(c.req.method)) return next();
     if (!isSameSiteRequest(c)) return c.json({ error: "cross-site request rejected" }, 403);
     return next();
   });
@@ -453,11 +457,7 @@ export function buildApp(opts: BuildAppOptions = {}) {
     });
   });
 
-  // GET for EventSource, but it writes: sync auto-closes tasks and the
-  // prune below physically deletes done ones. Apply the write guard so an
-  // <img> or EventSource on another site cannot trigger it.
   app.get("/api/sync/stream", (c) => {
-    if (!isSameSiteRequest(c)) return c.json({ error: "cross-site request rejected" }, 403);
     const source = c.req.query("adapter") ?? c.req.query("source");
     return streamSSE(c, async (stream) => {
       await runSync({
@@ -513,13 +513,10 @@ export function buildApp(opts: BuildAppOptions = {}) {
 }
 
 const LOCAL_ORIGIN_RE = /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/;
-const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 const LOOPBACK_HOSTNAMES = ["127.0.0.1", "localhost", "[::1]"];
-const WILDCARD_HOSTS = new Set(["0.0.0.0", "::", "[::]"]);
 
-/** Hostnames accepted in the Host header, or null to accept any. */
-function allowedHostnames(bindHost: string | undefined): Set<string> | null {
-  if (bindHost && WILDCARD_HOSTS.has(bindHost)) return null;
+/** DNS names accepted in the Host header (IP literals are always accepted). */
+function allowedHostnames(bindHost: string | undefined): Set<string> {
   const hosts = new Set(LOOPBACK_HOSTNAMES);
   if (bindHost) hosts.add(bindHost.includes(":") && !bindHost.startsWith("[") ? `[${bindHost}]` : bindHost);
   return hosts;
