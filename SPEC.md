@@ -784,6 +784,12 @@ Next.js 15 + React 19。ルートは path-based:
 `/contexts{,/graph}` / `/context` / `/sync` / `/insights` / `/review`。
 詳細は `WEB_DESIGN.md`、キーバインドは `HOTKEYS.md` を参照。
 
+`/api/*` の状態変更リクエスト (GET / HEAD / OPTIONS 以外) は、`Origin` が
+サーバ自身 (`Host` と一致) または `http(s)://localhost|127.0.0.1(:port)` の
+場合のみ受け付け、それ以外 (および `Origin` 無しで `Sec-Fetch-Site: cross-site`)
+は 403 を返す。CORS はレスポンスの読み取りしか防がないため、他サイトからの
+simple request (text/plain / form) による書き込みをこのガードで遮断する。
+
 ## 9. Storage
 
 - Path: `~/.relay/db.sqlite`

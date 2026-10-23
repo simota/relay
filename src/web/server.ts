@@ -81,12 +81,31 @@ export function buildApp() {
   app.use("/api/*", cors({
     origin: (origin) => {
       if (!origin) return origin;
-      if (/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin)) return origin;
+      if (LOCAL_ORIGIN_RE.test(origin)) return origin;
       return null;
     },
     allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowHeaders: ["Content-Type", "Accept"],
   }));
+
+  // --- Cross-site write guard -----------------------------------------
+  // CORS only hides responses; it does not stop a "simple" request
+  // (text/plain or form body, no preflight) from any web page the user
+  // visits from reaching the handler, and `c.req.json()` parses the body
+  // regardless of Content-Type. Reject state-changing requests whose
+  // Origin is neither this server nor a localhost dev origin. Requests
+  // without an Origin (curl, CLI scripts) are allowed unless the browser
+  // marks them cross-site via Sec-Fetch-Site.
+  app.use("/api/*", async (c, next) => {
+    if (SAFE_METHODS.has(c.req.method)) return next();
+    const origin = c.req.header("origin");
+    const host = c.req.header("host") ?? new URL(c.req.url).host;
+    const allowed = origin
+      ? LOCAL_ORIGIN_RE.test(origin) || originHost(origin) === host
+      : c.req.header("sec-fetch-site") !== "cross-site";
+    if (!allowed) return c.json({ error: "cross-site request rejected" }, 403);
+    return next();
+  });
 
   // --- Health ----------------------------------------------------------
   app.get("/api/health", (c) => {
@@ -474,6 +493,17 @@ export function buildApp() {
   app.get("*", (c) => serveStatic(c.req.path));
 
   return app;
+}
+
+const LOCAL_ORIGIN_RE = /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/;
+const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+
+function originHost(origin: string): string | null {
+  try {
+    return new URL(origin).host;
+  } catch {
+    return null; // e.g. the opaque "null" origin
+  }
 }
 
 function transitionStatus(c: Context, status: string) {
