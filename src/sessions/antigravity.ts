@@ -136,7 +136,9 @@ async function readAntigravityDetail(
     const trimmed = line.trim();
     if (!trimmed) continue;
     try {
-      entries.push(JSON.parse(trimmed) as TranscriptEntry);
+      const entry = JSON.parse(trimmed) as unknown;
+      // `null` / scalar lines parse fine but are not entries.
+      if (entry && typeof entry === "object") entries.push(entry as TranscriptEntry);
     } catch {
       // skip malformed lines
     }

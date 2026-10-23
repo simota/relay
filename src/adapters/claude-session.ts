@@ -323,7 +323,7 @@ async function pickWithinLookback(
  * that match TaskCreate / TaskUpdate / TodoWrite.
  * Pure with respect to I/O — all file reading happens in the caller.
  */
-function extractToolEvents(text: string): { cwd: string | null; events: ToolEvent[] } {
+export function extractToolEvents(text: string): { cwd: string | null; events: ToolEvent[] } {
   const lines = text.split("\n");
   let cwd: string | null = null;
   const events: ToolEvent[] = [];
@@ -359,7 +359,9 @@ function extractToolEvents(text: string): { cwd: string | null; events: ToolEven
         const todos = block.input.todos;
         if (Array.isArray(todos)) {
           const items: TodoItem[] = [];
-          for (const todo of todos as Array<Record<string, unknown>>) {
+          for (const todo of todos as unknown[]) {
+            // One malformed item must not abort the whole session (or sync).
+            if (!isRecord(todo)) continue;
             const id = typeof todo.id === "string" ? todo.id : String(todo.id ?? "");
             const content = typeof todo.content === "string" ? todo.content : "";
             const status = typeof todo.status === "string" ? todo.status : "pending";
@@ -549,4 +551,8 @@ function legacyProjectToRepo(projectDir: string): string | null {
   const ghIdx = segments.findIndex((s) => s === "github");
   if (ghIdx < 0 || segments.length <= ghIdx + 2) return null;
   return segments[ghIdx + 2] ?? null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
