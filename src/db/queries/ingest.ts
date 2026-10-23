@@ -71,7 +71,10 @@ export function upsertTasks(db: Database, tasks: TaskInput[]): UpsertResult {
   const updateStmt = db.prepare(`
     UPDATE tasks SET
       repo = ?, title = ?, body = ?, priority = ?,
-      prompt = ?, files = ?, context_hash = COALESCE(?, context_hash), session_id = ?, due_at = ?,
+      prompt = ?, files = ?, context_hash = COALESCE(?, context_hash), session_id = ?,
+      -- A snoozed task's due_at is the user's snooze-until; adapters only
+      -- own due_at while the task is not snoozed.
+      due_at = CASE WHEN status = 'snoozed' THEN due_at ELSE ? END,
       wait_on = ?, updated_at = ?
     WHERE id = ?
   `);

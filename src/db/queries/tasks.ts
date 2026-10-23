@@ -168,10 +168,24 @@ export function myOpenPrCountPerRepo(db: Database): Map<string, number> {
   return out;
 }
 
+export interface CloseSweepOptions {
+  /**
+   * Leave `snoozed` tasks alone. Automatic sweeps (sync, Web auto-prune)
+   * set this so a user's "remind me later" is never cleared behind their
+   * back; the explicit `relay prune --missing-repos` does not.
+   */
+  excludeSnoozed?: boolean;
+}
+
+function closableStatusSql(opts: CloseSweepOptions | undefined): string {
+  return opts?.excludeSnoozed ? "status NOT IN ('done', 'snoozed')" : "status != 'done'";
+}
+
 export function findOpenTasksInRepos(
   db: Database,
   repos: string[],
   sourceTypes?: string[],
+  opts?: CloseSweepOptions,
 ): Task[] {
   if (repos.length === 0) return [];
   const types = sourceTypes ?? FS_BOUND_SOURCES;
@@ -179,7 +193,7 @@ export function findOpenTasksInRepos(
     SELECT * FROM tasks
      WHERE repo IN (${repos.map(() => "?").join(", ")})
        AND source_type IN (${types.map(() => "?").join(", ")})
-       AND status != 'done'
+       AND ${closableStatusSql(opts)}
      ORDER BY repo, id`;
   const rows = db.prepare(sql).all(...repos, ...types) as Array<Record<string, unknown>>;
   return rows.map(hydrate);
@@ -245,14 +259,31 @@ export function closeTasksBySourceIds(
   return inverses;
 }
 
-export function batchCloseTasks(db: Database, ids: number[]): TaskStatusSnapshot[] {
+/**
+ * Redo payload for a close sweep: the post-close state of every row that
+ * was changed. Undo/redo replay `{ tasks: TaskStatusSnapshot[] }`, so a
+ * bare id list here would make redo fail as an invalid payload.
+ */
+export function closedSnapshots(inverses: TaskStatusSnapshot[]): TaskStatusSnapshot[] {
+  const now = new Date().toISOString();
+  return inverses.map((inv) => ({ id: inv.id, status: "done", due_at: inv.due_at, closed_at: now }));
+}
+
+export function batchCloseTasks(
+  db: Database,
+  ids: number[],
+  opts?: CloseSweepOptions,
+): TaskStatusSnapshot[] {
   if (ids.length === 0) return [];
   const inverses: TaskStatusSnapshot[] = [];
+  // Same status predicate in the lookup and the UPDATE, so every inverse
+  // snapshot corresponds to a row that was actually changed.
+  const closable = closableStatusSql(opts);
   const findStmt = db.prepare(
-    `SELECT id, status, due_at, closed_at FROM tasks WHERE id = ?`,
+    `SELECT id, status, due_at, closed_at FROM tasks WHERE id = ? AND ${closable}`,
   );
   const closeStmt = db.prepare(
-    `UPDATE tasks SET status = 'done', closed_at = ?, updated_at = ? WHERE id = ? AND status != 'done'`,
+    `UPDATE tasks SET status = 'done', closed_at = ?, updated_at = ? WHERE id = ? AND ${closable}`,
   );
   const now = new Date().toISOString();
   const tx = db.transaction((batch: number[]) => {
@@ -260,7 +291,7 @@ export function batchCloseTasks(db: Database, ids: number[]): TaskStatusSnapshot
       const row = findStmt.get(id) as
         | { id: number; status: string; due_at: string | null; closed_at: string | null }
         | undefined;
-      if (!row || row.status === "done") continue;
+      if (!row) continue;
       inverses.push({
         id: row.id,
         status: row.status as Task["status"],
@@ -409,13 +440,14 @@ export function bulkClose(db: Database, ids: number[]): number {
   if (ids.length === 0) return 0;
   const now = new Date().toISOString();
   const placeholders = ids.map(() => "?").join(", ");
+  // Already-done tasks keep their original closed_at.
   const info = db
     .prepare(
       `UPDATE tasks
           SET status = 'done',
               updated_at = ?,
               closed_at = ?
-        WHERE id IN (${placeholders})`,
+        WHERE id IN (${placeholders}) AND status != 'done'`,
     )
     .run(now, now, ...ids);
   return Number(info.changes);

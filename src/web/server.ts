@@ -454,6 +454,7 @@ export function buildApp() {
               const pruneResult = pruneMissingRepos({
                 includeDone: true,
                 execute: true,
+                keepSnoozed: true,
               });
               const perRepoTop = pruneResult.missingRepos
                 .slice(0, 3)

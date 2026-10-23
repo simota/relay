@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import chalk from "chalk";
 import { loadConfig, resolveScanRoots } from "../config.js";
-import { RelayDB } from "../db/client.js";
+import { RelayDB, closedSnapshots } from "../db/client.js";
 
 export interface PruneOptions {
   missingRepos: boolean;
@@ -50,6 +50,8 @@ export function pruneMissingRepos(opts: {
   includeDone: boolean;
   sourceFilter?: string[];
   execute: boolean;
+  /** Leave snoozed tasks open (automatic callers such as the Web sync). */
+  keepSnoozed?: boolean;
   db?: RelayDB;
 }): PruneResult {
   const cfg = loadConfig();
@@ -76,7 +78,8 @@ export function pruneMissingRepos(opts: {
     }
 
     const sourceFilter = opts.sourceFilter; // undefined → fs-bound default in DB helper
-    const openTasks = db.findOpenTasksInRepos(missingRepos, sourceFilter);
+    const sweep = { excludeSnoozed: opts.keepSnoozed === true };
+    const openTasks = db.findOpenTasksInRepos(missingRepos, sourceFilter, sweep);
     const doneTasks = opts.includeDone
       ? db.findDoneTasksInRepos(missingRepos, sourceFilter)
       : [];
@@ -110,12 +113,14 @@ export function pruneMissingRepos(opts: {
     let closedCount = 0;
     if (openTasks.length > 0) {
       const ids = openTasks.map((t) => t.id);
-      const inverses = db.batchCloseTasks(ids);
-      db.recordUndo({
-        op_kind: "prune_missing_repos",
-        payload: { tasks: ids },
-        inverse: { tasks: inverses },
-      });
+      const inverses = db.batchCloseTasks(ids, sweep);
+      if (inverses.length > 0) {
+        db.recordUndo({
+          op_kind: "prune_missing_repos",
+          payload: { tasks: closedSnapshots(inverses) },
+          inverse: { tasks: inverses },
+        });
+      }
       closedCount = inverses.length;
     }
 
