@@ -50,7 +50,8 @@ bun run typecheck                        # root: tsc --noEmit on src/
 (cd web/nextjs && bun run typecheck)     # web: tsc --noEmit
 
 # test
-bun test                                 # currently no test files exist
+bun test                                 # src/**/*.test.ts + web/nextjs unit tests;
+                                         # bunfig.toml preloads a throwaway RELAY_HOME
 
 # bundle (only for distribution; dev uses `bun run src/cli.ts`)
 bun run build                            # → dist/cli.js
@@ -148,7 +149,8 @@ a clean working tree:
 
 - [ ] `bun run typecheck` exits 0 (root `tsc --noEmit` on `src/`)
 - [ ] `(cd web/nextjs && bun run typecheck)` exits 0
-- [ ] `bun test` exits 0 (no test files yet; treat empty run as pass)
+- [ ] `bun test` exits 0 (root `src/**/*.test.ts` and `web/nextjs` unit tests;
+      `web/nextjs` deps must be installed for the Three.js test)
 - [ ] If the goal touches `src/db/schema.sql` or `src/db/schema.ts`, also
       bump `schema_version` and re-run `bun run src/cli.ts sync` against a
       throwaway `RELAY_HOME` to confirm idempotent ingest

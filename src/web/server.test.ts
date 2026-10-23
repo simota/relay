@@ -1,20 +1,10 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { beforeAll, describe, expect, test } from "bun:test";
+import { buildApp } from "./server.js";
 
-// RELAY_HOME is read at module load (src/paths.ts), so point it at a
-// throwaway directory before importing the server.
-const home = mkdtempSync(join(tmpdir(), "relay-server-test-"));
-process.env.RELAY_HOME = home;
-const { buildApp } = await import("./server.js");
-
+// RELAY_HOME points at a throwaway directory (src/test-setup.ts).
 let app: ReturnType<typeof buildApp>;
 beforeAll(() => {
   app = buildApp();
-});
-afterAll(() => {
-  rmSync(home, { recursive: true, force: true });
 });
 
 function createTask(headers: Record<string, string>) {
