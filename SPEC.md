@@ -784,11 +784,17 @@ Next.js 15 + React 19。ルートは path-based:
 `/contexts{,/graph}` / `/context` / `/sync` / `/insights` / `/review`。
 詳細は `WEB_DESIGN.md`、キーバインドは `HOTKEYS.md` を参照。
 
-`/api/*` の状態変更リクエスト (GET / HEAD / OPTIONS 以外) は、`Origin` が
-サーバ自身 (`Host` と一致) または `http(s)://localhost|127.0.0.1(:port)` の
-場合のみ受け付け、それ以外 (および `Origin` 無しで `Sec-Fetch-Site: cross-site`)
-は 403 を返す。CORS はレスポンスの読み取りしか防がないため、他サイトからの
-simple request (text/plain / form) による書き込みをこのガードで遮断する。
+`/api/*` は `Host` がループバック名 (`127.0.0.1` / `localhost` / `[::1]`) か
+`relay web --host` で指定した値の場合のみ受け付ける (DNS rebinding 対策。
+`--host 0.0.0.0` / `::` のワイルドカード bind では判定できないため省略)。
+状態変更リクエスト (GET / HEAD / OPTIONS 以外、および書き込みを伴う
+`GET /api/sync/stream`) は、`Origin` がサーバ自身 (`Host` と一致) または
+`http(s)://localhost|127.0.0.1|[::1](:port)` の場合のみ受け付け、それ以外
+(および `Origin` 無しで `Sec-Fetch-Site: cross-site`) は 403 を返す。CORS は
+レスポンスの読み取りしか防がないため、他サイトからの simple request
+(text/plain / form) や `<img>` による書き込みをこのガードで遮断する。
+`next dev` は `localhost` / `127.0.0.1` / `[::1]` で開くこと (LAN IP で開くと
+書き込みが 403 になる)。
 
 ## 9. Storage
 

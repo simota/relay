@@ -68,8 +68,27 @@ const MIME: Record<string, string> = {
   ".ogg": "audio/ogg",
 };
 
-export function buildApp() {
+export interface BuildAppOptions {
+  /** Address `relay web` binds to; also accepted as a request Host. */
+  host?: string;
+}
+
+export function buildApp(opts: BuildAppOptions = {}) {
   const app = new Hono();
+  const allowedHosts = allowedHostnames(opts.host);
+
+  // --- Host check (DNS rebinding) ---------------------------------------
+  // A page on attacker.example whose DNS later resolves to 127.0.0.1 talks
+  // to this server as a same-origin peer, so Origin checks and CORS can't
+  // tell it apart. Only accept /api requests addressed to a loopback name
+  // or the configured --host. A wildcard bind (0.0.0.0 / ::) has no name
+  // to compare against, so the check is skipped there.
+  app.use("/api/*", async (c, next) => {
+    if (allowedHosts && !allowedHosts.has(hostnameOf(requestHost(c)))) {
+      return c.json({ error: "host not allowed" }, 403);
+    }
+    return next();
+  });
 
   // --- CORS ------------------------------------------------------------
   // Allow the Next.js dev server (`next dev` on :3340) to call /api/*
@@ -92,18 +111,11 @@ export function buildApp() {
   // CORS only hides responses; it does not stop a "simple" request
   // (text/plain or form body, no preflight) from any web page the user
   // visits from reaching the handler, and `c.req.json()` parses the body
-  // regardless of Content-Type. Reject state-changing requests whose
-  // Origin is neither this server nor a localhost dev origin. Requests
-  // without an Origin (curl, CLI scripts) are allowed unless the browser
-  // marks them cross-site via Sec-Fetch-Site.
+  // regardless of Content-Type. Reject state-changing requests that are
+  // not from this server or a localhost dev origin (see isSameSiteRequest).
   app.use("/api/*", async (c, next) => {
     if (SAFE_METHODS.has(c.req.method)) return next();
-    const origin = c.req.header("origin");
-    const host = c.req.header("host") ?? new URL(c.req.url).host;
-    const allowed = origin
-      ? LOCAL_ORIGIN_RE.test(origin) || originHost(origin) === host
-      : c.req.header("sec-fetch-site") !== "cross-site";
-    if (!allowed) return c.json({ error: "cross-site request rejected" }, 403);
+    if (!isSameSiteRequest(c)) return c.json({ error: "cross-site request rejected" }, 403);
     return next();
   });
 
@@ -441,7 +453,11 @@ export function buildApp() {
     });
   });
 
+  // GET for EventSource, but it writes: sync auto-closes tasks and the
+  // prune below physically deletes done ones. Apply the write guard so an
+  // <img> or EventSource on another site cannot trigger it.
   app.get("/api/sync/stream", (c) => {
+    if (!isSameSiteRequest(c)) return c.json({ error: "cross-site request rejected" }, 403);
     const source = c.req.query("adapter") ?? c.req.query("source");
     return streamSSE(c, async (stream) => {
       await runSync({
@@ -496,8 +512,41 @@ export function buildApp() {
   return app;
 }
 
-const LOCAL_ORIGIN_RE = /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/;
+const LOCAL_ORIGIN_RE = /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/;
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+const LOOPBACK_HOSTNAMES = ["127.0.0.1", "localhost", "[::1]"];
+const WILDCARD_HOSTS = new Set(["0.0.0.0", "::", "[::]"]);
+
+/** Hostnames accepted in the Host header, or null to accept any. */
+function allowedHostnames(bindHost: string | undefined): Set<string> | null {
+  if (bindHost && WILDCARD_HOSTS.has(bindHost)) return null;
+  const hosts = new Set(LOOPBACK_HOSTNAMES);
+  if (bindHost) hosts.add(bindHost.includes(":") && !bindHost.startsWith("[") ? `[${bindHost}]` : bindHost);
+  return hosts;
+}
+
+function requestHost(c: Context): string {
+  return c.req.header("host") ?? new URL(c.req.url).host;
+}
+
+/** "127.0.0.1:7340" → "127.0.0.1", "[::1]:7340" → "[::1]". */
+function hostnameOf(host: string): string {
+  return host.replace(/:\d+$/, "").toLowerCase();
+}
+
+/**
+ * True when the request comes from this server's own pages, a localhost
+ * dev origin, or a non-browser client. Browsers send Origin on cross-origin
+ * requests; Origin-less ones (curl, CLI scripts, same-origin GET) are
+ * allowed unless Sec-Fetch-Site marks them cross-site (e.g. an <img>).
+ * The Host check above already rejects rebinding hosts, so Origin == Host
+ * means same-origin.
+ */
+function isSameSiteRequest(c: Context): boolean {
+  const origin = c.req.header("origin");
+  if (!origin) return c.req.header("sec-fetch-site") !== "cross-site";
+  return LOCAL_ORIGIN_RE.test(origin) || originHost(origin) === requestHost(c);
+}
 
 function originHost(origin: string): string | null {
   try {
