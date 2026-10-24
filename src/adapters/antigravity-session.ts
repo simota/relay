@@ -73,6 +73,17 @@ interface TranscriptEntry {
   content?: string;
 }
 
+/** User or assistant rows (see roleOf in src/sessions/antigravity.ts). */
+function isConversationEntry(entry: TranscriptEntry): boolean {
+  if (entry.type === "CONVERSATION_HISTORY") return false;
+  return (
+    entry.type === "USER_INPUT" ||
+    entry.source === "USER_EXPLICIT" ||
+    entry.type === "PLANNER_RESPONSE" ||
+    entry.source === "MODEL"
+  );
+}
+
 export const antigravitySessionAdapter: Adapter = {
   name: "antigravity_session_todo",
   flagKeys: ["antigravity_session"] as const,
@@ -324,9 +335,12 @@ export async function parseAntigravityTranscript(
     }
   }
 
-  // Walk backwards once to grab the most recent visible message preview.
-  // Skip CONVERSATION_HISTORY / PLANNER_RESPONSE noise when a richer
-  // assistant-style content is available.
+  // Walk backwards once to grab the most recent user / assistant message
+  // preview. Tool output (`cat .env`, command logs) and system / history
+  // rows never become the preview: it is persisted to
+  // sessions.last_message_text and the context summary. Roles follow the
+  // detail reader's roleOf() in src/sessions/antigravity.ts; Claude and
+  // Codex previews are likewise user/assistant text only.
   for (let i = lines.length - 1; i >= 0; i--) {
     const line = lines[i];
     if (!line) continue;
@@ -337,6 +351,7 @@ export async function parseAntigravityTranscript(
       continue;
     }
     if (!entry || typeof entry.content !== "string") continue;
+    if (!isConversationEntry(entry)) continue;
     const previewSource =
       entry.type === "USER_INPUT" ? extractUserRequest(entry.content) : entry.content;
     const preview = firstNonEmptyLine(previewSource);

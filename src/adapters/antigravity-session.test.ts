@@ -21,3 +21,19 @@ describe("parseAntigravityTranscript cwd chain", () => {
     expect(parsed.cwdHint).toBe(join(root, "foo"));
   });
 });
+
+describe("parseAntigravityTranscript preview", () => {
+  test("never uses tool output as the last-message preview", async () => {
+    const transcript = join(RELAY_HOME, "ag-preview.jsonl");
+    const rows = [
+      { type: "USER_INPUT", source: "USER_EXPLICIT", content: "<USER_REQUEST>show env</USER_REQUEST>" },
+      { type: "PLANNER_RESPONSE", source: "MODEL", content: "Reading the env file." },
+      { type: "TOOL_OUTPUT", source: "TOOL", content: "AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI" },
+      { type: "CONVERSATION_HISTORY", content: "history blob" },
+    ];
+    writeFileSync(transcript, rows.map((r) => JSON.stringify(r)).join("\n") + "\n");
+
+    const parsed = await parseAntigravityTranscript(transcript, "conv-2", []);
+    expect(parsed.lastMessageText).toBe("Reading the env file.");
+  });
+});
