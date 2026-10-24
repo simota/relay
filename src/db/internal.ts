@@ -1,6 +1,7 @@
 // Pure helpers extracted from `client.ts`. None of these touch instance
 // state; query modules and the RelayDB facade import them as needed.
 
+import { normalizeDueAt } from "../lib/due-date.js";
 import type { Task, TaskInput } from "../types.js";
 import type { ContextGraphData, RelayContext, SavedView, ViewFilter } from "./types.js";
 
@@ -56,7 +57,7 @@ export function serialize(t: TaskInput, now: string) {
     files: t.files && t.files.length ? JSON.stringify(t.files) : null,
     context_hash: t.context_hash ?? null,
     session_id: t.session_id ?? null,
-    due_at: t.due_at ?? null,
+    due_at: t.due_at == null ? null : normalizeDueAt(t.due_at),
     wait_on: t.wait_on ?? "self",
     created_at: now,
     updated_at: now,

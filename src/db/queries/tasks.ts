@@ -15,6 +15,8 @@ export const FS_BOUND_SOURCES: readonly string[] = [
   "agents_note",
   "docs_checklist",
   "git_dirty_worktree",
+  "git_stash",
+  "orphan_branch",
   "claude_session_todo",
   "codex_session_todo",
   "antigravity_session_todo",
@@ -423,6 +425,8 @@ export function bulkSnooze(db: Database, ids: number[], until: string): number {
   if (ids.length === 0) return 0;
   const now = new Date().toISOString();
   const placeholders = ids.map(() => "?").join(", ");
+  // Done tasks stay done, mirroring bulkClose; re-snoozing to the same
+  // until is a no-op.
   const info = db
     .prepare(
       `UPDATE tasks
@@ -430,9 +434,11 @@ export function bulkSnooze(db: Database, ids: number[], until: string): number {
               due_at = ?,
               updated_at = ?,
               closed_at = NULL
-        WHERE id IN (${placeholders})`,
+        WHERE id IN (${placeholders})
+          AND status != 'done'
+          AND NOT (status = 'snoozed' AND due_at IS ?)`,
     )
-    .run(until, now, ...ids);
+    .run(until, now, ...ids, until);
   return Number(info.changes);
 }
 

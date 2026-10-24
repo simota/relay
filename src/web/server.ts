@@ -30,6 +30,7 @@ import { clearFocus, getFocus, setFocus } from "../commands/focus.js";
 import { pruneMissingRepos } from "../commands/prune.js";
 import { runSync } from "../commands/sync.js";
 import { loadConfig, resolveScanRoots } from "../config.js";
+import { parseDueInput } from "../lib/due-date.js";
 import { resolveRepoPath } from "../repo-resolver.js";
 import { Assignee } from "../types.js";
 import {
@@ -250,6 +251,12 @@ export function buildApp(opts: BuildAppOptions = {}) {
       ? Math.min(100, Math.max(0, Math.round(rawPriority)))
       : 50;
 
+    let dueAt: string | null = null;
+    if (body.due_at != null && body.due_at !== "") {
+      dueAt = typeof body.due_at === "string" ? parseDueInput(body.due_at) : null;
+      if (!dueAt) return c.json({ error: "due_at must be YYYY-MM-DD or an ISO datetime" }, 400);
+    }
+
     const task = {
       source_type: "manual" as const,
       source_id: `manual:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`,
@@ -268,7 +275,7 @@ export function buildApp(opts: BuildAppOptions = {}) {
         : [],
       context_hash: null,
       session_id: null,
-      due_at: typeof body.due_at === "string" ? body.due_at : null,
+      due_at: dueAt,
       wait_on: "self" as const,
     };
 
@@ -566,6 +573,12 @@ function transitionStatus(c: Context, status: string) {
   if (!task) {
     db.close();
     return c.json({ error: "not found" }, 404);
+  }
+  // Same-status transitions change nothing: don't re-stamp closed_at or push
+  // a no-op entry that the next undo would silently consume.
+  if (task.status === status) {
+    db.close();
+    return c.json(task);
   }
   db.setStatus(id, status);
   const updated = db.getTask(id);

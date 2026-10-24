@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { RelayDB } from "../db/client.js";
+import { parseDueInput } from "../lib/due-date.js";
 import type { Task } from "../types.js";
 
 interface BulkBody {
@@ -13,14 +14,18 @@ export function createTasksApi() {
   app.post("/bulk/snooze", async (c) => {
     const body = (await c.req.json().catch(() => null)) as BulkBody | null;
     const ids = parseIds(body?.ids);
-    const until = typeof body?.until === "string" ? body.until : "";
+    const until = typeof body?.until === "string" ? parseDueInput(body.until) : null;
     if (!ids) return c.json({ error: "ids must be positive integers" }, 400);
-    if (!until || Number.isNaN(Date.parse(until))) {
-      return c.json({ error: "until must be a valid date string" }, 400);
+    if (!until) {
+      return c.json({ error: "until must be YYYY-MM-DD or an ISO datetime" }, 400);
     }
 
     const db = new RelayDB();
-    const tasks = db.getTasksByIds(ids);
+    // bulkSnooze skips done rows and rows already snoozed until `until`;
+    // snapshot exactly the rows it changes.
+    const tasks = db
+      .getTasksByIds(ids)
+      .filter((task) => task.status !== "done" && !(task.status === "snoozed" && task.due_at === until));
     const count = db.bulkSnooze(ids, until);
     if (count > 0) {
       db.recordUndo({

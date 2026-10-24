@@ -41,6 +41,11 @@ export function runClose(id: number): void {
     db.close();
     process.exit(1);
   }
+  if (task.status === "done") {
+    console.log(chalk.gray(`#${id} already closed`));
+    db.close();
+    return;
+  }
   db.setStatus(id, "done");
   db.close();
   console.log(chalk.green(`✓ closed #${id}: ${task.title}`));
@@ -58,6 +63,11 @@ export function runSnooze(id: number): void {
     db.close();
     process.exit(1);
   }
+  if (task.status === "snoozed") {
+    console.log(chalk.gray(`#${id} already snoozed`));
+    db.close();
+    return;
+  }
   db.setStatus(id, "snoozed");
   db.close();
   console.log(chalk.yellow(`⏸ snoozed #${id}: ${task.title}`));
@@ -70,6 +80,11 @@ export function runReopen(id: number): void {
     console.log(chalk.red(`task #${id} not found`));
     db.close();
     process.exit(1);
+  }
+  if (task.status === "open") {
+    console.log(chalk.gray(`#${id} already open`));
+    db.close();
+    return;
   }
   db.setStatus(id, "open");
   db.close();

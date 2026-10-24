@@ -60,7 +60,7 @@ export interface DigestReport {
 export function normalizeSince(input?: string): DigestSince {
   if (!input) return "7d";
   const lc = input.toLowerCase();
-  if (lc in SINCE_HOURS) return lc as DigestSince;
+  if (Object.hasOwn(SINCE_HOURS, lc)) return lc as DigestSince;
   return "7d";
 }
 

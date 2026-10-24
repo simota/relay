@@ -36,7 +36,10 @@ export function runImport(opts: ImportOptions): void {
 
   let raw: string;
   try {
-    raw = readFileSync(opts.file, "utf8");
+    // Excel / Notion CSV exports start with a UTF-8 BOM, which would
+    // otherwise become part of the first header ("\uFEFFName") or break
+    // JSON.parse.
+    raw = readFileSync(opts.file, "utf8").replace(/^\uFEFF/, "");
   } catch (e) {
     console.log(chalk.red(`could not read ${opts.file}: ${(e as Error).message}`));
     process.exit(1);

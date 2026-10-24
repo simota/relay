@@ -168,7 +168,7 @@ export const orphanBranchAdapter: Adapter = {
   async fetchResolved(ctx: AdapterContext): Promise<ResolvedSource[]> {
     if (!ctx.knownOpenSourceIds) return [];
 
-    const { liveSourceIds } = await scanCurrent(ctx);
+    const { liveSourceIds, scannedRepos } = await scanCurrent(ctx);
     const known = ctx.knownOpenSourceIds("orphan_branch");
     if (known.length === 0) return [];
 
@@ -176,6 +176,10 @@ export const orphanBranchAdapter: Adapter = {
     const resolved: ResolvedSource[] = [];
     for (const sourceId of known) {
       if (live.has(sourceId)) continue;
+      // A repo we could not read (offline scan root, git error) proves
+      // nothing about its branches; deleted repos go through the
+      // missing-repo sweep instead.
+      if (!scannedRepos.has(repoOfSourceId(sourceId))) continue;
       resolved.push({ source_type: "orphan_branch", source_id: sourceId });
     }
     return resolved;
@@ -186,11 +190,13 @@ interface ScanResult {
   tasks: TaskInput[];
   /** Source IDs visible *right now* — used by `fetchResolved` for the diff. */
   liveSourceIds: string[];
+  /** Repos whose branch listing succeeded; only their ids can resolve. */
+  scannedRepos: Set<string>;
 }
 
 async function scanCurrent(ctx: AdapterContext): Promise<ScanResult> {
   const repos = await enumerateGitRepos(ctx);
-  if (repos.length === 0) return { tasks: [], liveSourceIds: [] };
+  if (repos.length === 0) return { tasks: [], liveSourceIds: [], scannedRepos: new Set() };
 
   const storeBody = ctx.orphanBranch?.storeBody ?? false;
   const excludePatterns =
@@ -228,8 +234,11 @@ async function scanCurrent(ctx: AdapterContext): Promise<ScanResult> {
     ageDays: number;
   }
   const candidates: Candidate[] = [];
+  const scannedRepos = new Set<string>();
 
   for (const { repo, repoDir, defaultBranch, branches } of perRepo) {
+    if (branches === null) continue;
+    scannedRepos.add(repo);
     if (branches.length === 0) continue;
 
     for (const branch of branches) {
@@ -323,7 +332,14 @@ async function scanCurrent(ctx: AdapterContext): Promise<ScanResult> {
     liveSourceIds.push(task.source_id);
   }
 
-  return { tasks, liveSourceIds };
+  return { tasks, liveSourceIds, scannedRepos };
+}
+
+const SOURCE_ID_MARKER = ":orphan-branch:";
+
+function repoOfSourceId(sourceId: string): string {
+  const at = sourceId.indexOf(SOURCE_ID_MARKER);
+  return at === -1 ? sourceId : sourceId.slice(0, at);
 }
 
 function sourceIdFor(repo: string, branch: string, tipShort: string): string {
@@ -332,7 +348,7 @@ function sourceIdFor(repo: string, branch: string, tipShort: string): string {
   // falls off `liveSourceIds` and gets closed by `fetchResolved`. This
   // mirrors the design choice in `git_stash` where the oid anchors
   // identity through reflog shuffling.
-  return `${repo}:orphan-branch:${branch}:${tipShort}`;
+  return `${repo}${SOURCE_ID_MARKER}${branch}:${tipShort}`;
 }
 
 function computePriority(days: number): number {
@@ -458,16 +474,17 @@ async function detectDefaultBranch(repoDir: string): Promise<string | null> {
 
 /**
  * `git for-each-ref refs/heads/ --format=<REF_FORMAT>`. Empty repos
- * (no commits yet) and corrupt repos both yield empty arrays —
- * silently, so one bad repo doesn't abort the 40-repo sweep.
+ * (no commits yet) yield an empty array; a failed or timed-out call
+ * yields null so the repo is skipped rather than read as "no branches".
+ * Either way one bad repo doesn't abort the 40-repo sweep.
  */
-async function listLocalBranches(repoDir: string): Promise<LocalBranch[]> {
+async function listLocalBranches(repoDir: string): Promise<LocalBranch[] | null> {
   const out = await runGit(
     repoDir,
     ["for-each-ref", "refs/heads/", `--format=${REF_FORMAT}`],
     GIT_CALL_TIMEOUT_MS,
   );
-  if (out === null) return [];
+  if (out === null) return null;
   const lines = out.split("\n");
   const branches: LocalBranch[] = [];
   for (const line of lines) {

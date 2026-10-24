@@ -12,6 +12,9 @@ const PERIODS = {
   "90d": 90,
 } as const;
 
+// ~2 years; the UI asks for at most 90 days.
+const MAX_HEATMAP_WEEKS = 104;
+
 // --- Response contracts ---------------------------------------------------
 
 export type WfrPeriod = "8w" | "12w";
@@ -654,6 +657,9 @@ function parseRange(from?: string, to?: string, period?: string): { weekStarts: 
 
   const firstWeek = startOfIsoWeek(fromDate);
   const lastWeek = startOfIsoWeek(toDate);
+  // The response is repos × weeks; an unbounded `from` (0001-01-01) builds
+  // hundreds of thousands of columns.
+  if ((lastWeek.getTime() - firstWeek.getTime()) / WEEK_MS >= MAX_HEATMAP_WEEKS) return null;
   const starts: string[] = [];
   for (let t = firstWeek.getTime(); t <= lastWeek.getTime(); t += WEEK_MS) {
     starts.push(new Date(t).toISOString());
@@ -666,7 +672,7 @@ function parseRange(from?: string, to?: string, period?: string): { weekStarts: 
 
 function parsePeriod(value?: string): number | null {
   if (!value) return PERIODS["30d"];
-  return value in PERIODS ? PERIODS[value as keyof typeof PERIODS] : null;
+  return Object.hasOwn(PERIODS, value) ? PERIODS[value as keyof typeof PERIODS] : null;
 }
 
 function parseSources(value?: string): SourceType[] | null {

@@ -3,6 +3,7 @@ import { stdin, stdout } from "node:process";
 import chalk from "chalk";
 import { RelayDB } from "../db/client.js";
 import { loadConfig } from "../config.js";
+import { parseDueInput } from "../lib/due-date.js";
 import { resolveRepoPath } from "../repo-resolver.js";
 import type { Assignee, TaskInput } from "../types.js";
 
@@ -112,8 +113,6 @@ export async function runAdd(opts: AddOptions): Promise<void> {
 
 function normalizeDue(due: string | null | undefined): string | null {
   if (!due) return null;
-  // Accept "YYYY-MM-DD" or ISO datetime; pass through if parsable.
-  const d = new Date(due);
-  if (Number.isNaN(d.getTime())) return null;
-  return d.toISOString();
+  // Accept "YYYY-MM-DD" (local midnight) or an ISO datetime.
+  return parseDueInput(due);
 }
