@@ -45,5 +45,10 @@ describe("parseDueInput", () => {
     expect(parseDueInput("not a date")).toBeNull();
     expect(parseDueInput("2026-02-31")).toBeNull();
     expect(parseDueInput("2026-13-01T00:00:00Z")).toBeNull();
+    // Date would roll these over into the next month.
+    expect(parseDueInput("2026-02-31T00:00:00Z")).toBeNull();
+    expect(parseDueInput("2026-04-31 10:00")).toBeNull();
+    expect(parseDueInput("2026-02-29T00:00:00Z")).toBeNull();
+    expect(parseDueInput("2028-02-29T00:00:00Z")).toBe("2028-02-29T00:00:00.000Z");
   });
 });

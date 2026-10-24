@@ -175,6 +175,17 @@ describe("task state writes", () => {
       });
     expect(await (await snooze()).json()).toEqual({ ok: true, count: 1 });
     expect(undoCount()).toBe(before + 1);
+    // Undo / redo must only touch the row that changed, never the done one.
+    const latest = (() => {
+      const db = new RelayDB();
+      const row = db.listUndo(1)[0]!;
+      db.close();
+      return row;
+    })();
+    const ids = (side: string) => (JSON.parse(side) as { tasks: Array<{ id: number }> }).tasks.map((t) => t.id);
+    expect(latest.op_kind).toBe("bulk_snooze");
+    expect(ids(latest.payload)).toEqual([open.id]);
+    expect(ids(latest.inverse)).toEqual([open.id]);
     // Re-snoozing to the same until changes nothing.
     expect(await (await snooze()).json()).toEqual({ ok: true, count: 0 });
     expect(undoCount()).toBe(before + 1);

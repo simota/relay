@@ -17,7 +17,13 @@ let repoDir: string;
 const originalPath = process.env.PATH;
 
 function git(...args: string[]): string {
-  const res = spawnSync("git", args, { cwd: repoDir, encoding: "utf8" });
+  // Ignore the developer's global / system git config (commit signing,
+  // hooks) so fixture commits work everywhere.
+  const res = spawnSync("git", args, {
+    cwd: repoDir,
+    encoding: "utf8",
+    env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" },
+  });
   if (res.status !== 0) throw new Error(`git ${args.join(" ")}: ${res.stderr}`);
   return res.stdout.trim();
 }

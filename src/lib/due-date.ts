@@ -6,7 +6,7 @@
 // therefore become local midnight, matching agenda's local-day buckets.
 
 const DATE_ONLY = /^(\d{4})-(\d{2})-(\d{2})$/;
-const ISO_DATE_PREFIX = /^\d{4}-\d{2}-\d{2}(?:[T ]|$)/;
+const ISO_DATE_PREFIX = /^(\d{4})-(\d{2})-(\d{2})(?:[T ]|$)/;
 
 /**
  * Normalize a due value for storage. Calendar dates become local midnight;
@@ -37,7 +37,14 @@ export function parseDueInput(value: string): string | null {
     // Unchanged means the calendar date does not exist (e.g. 2026-02-31).
     return normalized === trimmed ? null : normalized;
   }
-  if (!ISO_DATE_PREFIX.test(trimmed)) return null;
+  const m = ISO_DATE_PREFIX.exec(trimmed);
+  if (!m) return null;
+  // `new Date("2026-02-31T00:00Z")` rolls over to March 3rd; check the
+  // calendar date as written before handing the rest to the parser.
+  const [, y, mo, day] = m;
+  const written = new Date(Date.UTC(2000, Number(mo) - 1, Number(day)));
+  written.setUTCFullYear(Number(y));
+  if (written.getUTCMonth() !== Number(mo) - 1 || written.getUTCDate() !== Number(day)) return null;
   const d = new Date(trimmed);
   return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }
