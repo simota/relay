@@ -167,12 +167,12 @@ describe("re-sync ingest", () => {
   });
 
   test("still updates due_at from the adapter for non-snoozed tasks", () => {
-    const t = input({ repo: "present-repo", due_at: "2099-01-01" });
+    const t = input({ repo: "present-repo", due_at: "2099-01-01T00:00:00.000Z" });
     const id = insert(t);
     const db = new RelayDB();
-    db.upsertTasks([{ ...t, title: "edited", due_at: "2099-02-02" }]);
+    db.upsertTasks([{ ...t, title: "edited", due_at: "2099-02-02T00:00:00.000Z" }]);
     db.close();
-    expect(state(id).due_at).toBe("2099-02-02");
+    expect(state(id).due_at).toBe("2099-02-02T00:00:00.000Z");
   });
 });
 
@@ -247,15 +247,15 @@ describe("re-sync change detection", () => {
     const t = input({ repo: "present-repo", due_at: null, prompt: null });
     const id = insert(t);
     const db = new RelayDB();
-    const res = db.upsertTasks([{ ...t, due_at: "2099-03-03", prompt: "p", repo: "other-repo" }]);
+    const res = db.upsertTasks([{ ...t, due_at: "2099-03-03T00:00:00.000Z", prompt: "p", repo: "other-repo" }]);
     const row = db.getTask(id)!;
     db.close();
     expect(res.updated).toBe(1);
-    expect(row).toMatchObject({ due_at: "2099-03-03", prompt: "p", repo: "other-repo" });
+    expect(row).toMatchObject({ due_at: "2099-03-03T00:00:00.000Z", prompt: "p", repo: "other-repo" });
   });
 
   test("a snoozed task's due_at alone is not an upstream change", () => {
-    const t = input({ repo: "present-repo", due_at: "2099-01-01" });
+    const t = input({ repo: "present-repo", due_at: "2099-01-01T00:00:00.000Z" });
     const id = insert(t);
     snooze([id]);
     const db = new RelayDB();
@@ -398,7 +398,7 @@ describe("vanished tracked repo", () => {
 
 describe("stale close undo", () => {
   test("undo restores tasks closed by the stale sweep", async () => {
-    const id = insert(input({ repo: "present-repo", due_at: "2099-05-05" }));
+    const id = insert(input({ repo: "present-repo", due_at: "2099-05-05T00:00:00.000Z" }));
     const raw = new Database(DB_PATH);
     raw.prepare("UPDATE tasks SET updated_at = ? WHERE id = ?").run("2000-01-01T00:00:00.000Z", id);
     raw.close();
@@ -409,6 +409,20 @@ describe("stale close undo", () => {
 
     const res = await post(createUndoApi(), "/");
     expect(res.status).toBe(200);
-    expect(state(id)).toMatchObject({ status: "open", due_at: "2099-05-05", closed_at: null });
+    expect(state(id)).toMatchObject({ status: "open", due_at: "2099-05-05T00:00:00.000Z", closed_at: null });
+  });
+});
+
+describe("calendar-date due_at from adapters", () => {
+  test("is stored as local midnight and re-ingests as unchanged", () => {
+    const task = input({ source_type: "gh_project_card", source_id: "card:due", due_at: "2026-10-25" });
+    const db = new RelayDB();
+    expect(db.upsertTasks([task]).inserted).toBe(1);
+    expect(db.getTaskBySourceId("gh_project_card", "card:due")?.due_at).toBe(
+      new Date(2026, 9, 25).toISOString(),
+    );
+    expect(db.classifyTasks([task]).unchanged).toBe(1);
+    expect(db.upsertTasks([task]).unchanged).toBe(1);
+    db.close();
   });
 });

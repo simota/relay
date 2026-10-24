@@ -107,7 +107,7 @@ $ relay run 42
 | `files` | TEXT NULL | JSON array of file paths |
 | `context_hash` | TEXT NULL | snapshot ID (後述) |
 | `session_id` | TEXT NULL | Claude Code session UUID (resume 用) |
-| `due_at` | TEXT NULL | ISO8601 |
+| `due_at` | TEXT NULL | ISO8601 (UTC instant)。`YYYY-MM-DD` の日付のみ入力 (`relay add --due`, ProjectV2 Date field) はローカル日付の 0:00 に正規化して保存 |
 | `wait_on` | TEXT | `'self'` \| `'reviewer'` \| `'external'` \| `'scheduled'`、default `'self'`。"今日やる" と "待ち" の二段組で使う。schema_version 2 で追加 |
 | `created_at` | TEXT | ISO8601 |
 | `updated_at` | TEXT | ISO8601 |
