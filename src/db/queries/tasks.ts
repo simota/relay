@@ -15,6 +15,8 @@ export const FS_BOUND_SOURCES: readonly string[] = [
   "agents_note",
   "docs_checklist",
   "git_dirty_worktree",
+  "git_stash",
+  "orphan_branch",
   "claude_session_todo",
   "codex_session_todo",
   "antigravity_session_todo",

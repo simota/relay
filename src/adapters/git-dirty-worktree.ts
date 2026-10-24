@@ -59,6 +59,8 @@ async function scanCurrent(ctx: AdapterContext): Promise<{ tasks: TaskInput[]; c
     const repo = basename(repoDir);
     const sourceId = `${repo}:dirty-worktree`;
     const files = await dirtyFiles(repoDir);
+    // git failed or timed out: neither dirty nor provably clean.
+    if (files === null) continue;
     if (files.length === 0) {
       cleanSourceIds.push(sourceId);
       continue;
@@ -94,8 +96,9 @@ async function scanCurrent(ctx: AdapterContext): Promise<{ tasks: TaskInput[]; c
   return { tasks, cleanSourceIds };
 }
 
-async function dirtyFiles(repoDir: string): Promise<string[]> {
+async function dirtyFiles(repoDir: string): Promise<string[] | null> {
   const stdout = await git(repoDir, ["status", "--porcelain=v1"]);
+  if (stdout === null) return null;
   const files = new Set<string>();
   for (const line of stdout.split("\n")) {
     if (!line.trim()) continue;
@@ -123,7 +126,8 @@ function computePriority(ageDays: number, files: string[]): number {
   return Math.max(PRIORITY_FLOOR, Math.min(85, raw));
 }
 
-function git(cwd: string, args: string[]): Promise<string> {
+/** stdout of a successful git call; null on non-zero exit, kill, or spawn error. */
+function git(cwd: string, args: string[]): Promise<string | null> {
   return new Promise((resolve) => {
     const proc = spawn("git", args, { cwd });
     let stdout = "";
@@ -131,13 +135,13 @@ function git(cwd: string, args: string[]): Promise<string> {
     proc.stdout.on("data", (chunk: Buffer) => {
       stdout += chunk.toString("utf8");
     });
-    proc.on("close", () => {
+    proc.on("close", (code) => {
       clearTimeout(timer);
-      resolve(stdout);
+      resolve(code === 0 ? stdout : null);
     });
     proc.on("error", () => {
       clearTimeout(timer);
-      resolve("");
+      resolve(null);
     });
   });
 }

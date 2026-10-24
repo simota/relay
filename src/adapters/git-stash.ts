@@ -121,7 +121,7 @@ export const gitStashAdapter: Adapter = {
   async fetchResolved(ctx: AdapterContext): Promise<ResolvedSource[]> {
     if (!ctx.knownOpenSourceIds) return [];
 
-    const { liveSourceIds } = await scanCurrent(ctx);
+    const { liveSourceIds, scannedRepos } = await scanCurrent(ctx);
     const known = ctx.knownOpenSourceIds("git_stash");
     if (known.length === 0) return [];
 
@@ -129,6 +129,10 @@ export const gitStashAdapter: Adapter = {
     const resolved: ResolvedSource[] = [];
     for (const sourceId of known) {
       if (live.has(sourceId)) continue;
+      // A repo we could not read (offline scan root, git error) proves
+      // nothing about its stashes; deleted repos go through the
+      // missing-repo sweep instead.
+      if (!scannedRepos.has(repoOfSourceId(sourceId))) continue;
       resolved.push({ source_type: "git_stash", source_id: sourceId });
     }
     return resolved;
@@ -139,11 +143,13 @@ interface ScanResult {
   tasks: TaskInput[];
   /** Source IDs visible *right now* — used by `fetchResolved` for the diff. */
   liveSourceIds: string[];
+  /** Repos whose `git stash list` succeeded; only their ids can resolve. */
+  scannedRepos: Set<string>;
 }
 
 async function scanCurrent(ctx: AdapterContext): Promise<ScanResult> {
   const repos = await enumerateGitRepos(ctx);
-  if (repos.length === 0) return { tasks: [], liveSourceIds: [] };
+  if (repos.length === 0) return { tasks: [], liveSourceIds: [], scannedRepos: new Set() };
 
   const storeBody = ctx.gitStash?.storeBody ?? false;
   const now = Date.now();
@@ -162,6 +168,7 @@ async function scanCurrent(ctx: AdapterContext): Promise<ScanResult> {
 
   const tasks: TaskInput[] = [];
   const liveSourceIds: string[] = [];
+  const scannedRepos = new Set<string>();
 
   // Cumulative body-fetch budget. Each `git stash show` is bounded by
   // STASH_SHOW_TIMEOUT_MS; this overall cap protects against pathological
@@ -169,6 +176,8 @@ async function scanCurrent(ctx: AdapterContext): Promise<ScanResult> {
   const budget = { remainingMs: STASH_SHOW_TOTAL_BUDGET_MS };
 
   for (const { repo, repoDir, entries } of perRepo) {
+    if (entries === null) continue;
+    scannedRepos.add(repo);
     if (entries.length === 0) continue; // stash 0 件 repo は task 0 件 — 静的 skip
 
     for (const entry of entries) {
@@ -208,7 +217,14 @@ async function scanCurrent(ctx: AdapterContext): Promise<ScanResult> {
     }
   }
 
-  return { tasks, liveSourceIds };
+  return { tasks, liveSourceIds, scannedRepos };
+}
+
+const SOURCE_ID_MARKER = ":stash:";
+
+function repoOfSourceId(sourceId: string): string {
+  const at = sourceId.lastIndexOf(SOURCE_ID_MARKER);
+  return at === -1 ? sourceId : sourceId.slice(0, at);
 }
 
 function sourceIdFor(repo: string, oid: string): string {
@@ -217,7 +233,7 @@ function sourceIdFor(repo: string, oid: string): string {
   // identifier through `git stash push`/`pop` cycles that move
   // `stash@{0}` around without changing the underlying content.
   const shortOid = oid.slice(0, 8);
-  return `${repo}:stash:${shortOid}`;
+  return `${repo}${SOURCE_ID_MARKER}${shortOid}`;
 }
 
 function computePriority(days: number): number {
@@ -296,16 +312,17 @@ async function stashShowStat(
 
 /**
  * `git stash list --format=<STASH_FORMAT>` per repo. Empty list → empty
- * array; non-zero exit (corrupt repo, permission error) → empty array
- * silently. A single broken repo must not abort the whole 40-repo sweep.
+ * array; non-zero exit (corrupt repo, permission error) → null, so the
+ * repo is skipped rather than read as "no stashes". A single broken repo
+ * must not abort the whole 40-repo sweep.
  */
-async function listStashes(repoDir: string): Promise<StashEntry[]> {
+async function listStashes(repoDir: string): Promise<StashEntry[] | null> {
   const out = await runGit(repoDir, [
     "stash",
     "list",
     `--format=${STASH_FORMAT}`,
   ]);
-  if (out === null) return [];
+  if (out === null) return null;
   const lines = out.split("\n");
   const entries: StashEntry[] = [];
   for (const line of lines) {
