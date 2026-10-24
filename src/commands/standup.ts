@@ -221,7 +221,7 @@ function emptyMessageFor(kind: SectionKind): string {
 function normalizeSince(input?: string): StandupSince {
   if (!input) return "24h";
   const lc = input.toLowerCase();
-  if (lc in SINCE_HOURS) return lc as StandupSince;
+  if (Object.hasOwn(SINCE_HOURS, lc)) return lc as StandupSince;
   return "24h";
 }
 

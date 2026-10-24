@@ -2,6 +2,7 @@
 // preload is skipped (e.g. `bun test` started from a subdirectory).
 import "../test-setup.js";
 import { beforeAll, describe, expect, test } from "bun:test";
+import { RelayDB } from "../db/client.js";
 import { buildApp } from "./server.js";
 
 let app: ReturnType<typeof buildApp>;
@@ -117,5 +118,95 @@ describe("cross-site request guard", () => {
       headers: { "sec-fetch-site": "none" },
     });
     expect(typed.status).toBe(200);
+  });
+});
+
+describe("task state writes", () => {
+  const base = "http://127.0.0.1:7340";
+  const json = { "content-type": "application/json" };
+
+  async function newTask(extra: Record<string, unknown> = {}) {
+    const res = await app.request(`${base}/api/tasks`, {
+      method: "POST",
+      headers: json,
+      body: JSON.stringify({ repo: "demo", title: "state", ...extra }),
+    });
+    return { status: res.status, task: (await res.json()) as { id: number; due_at: string | null; status: string; closed_at: string | null } };
+  }
+
+  function undoCount() {
+    const db = new RelayDB();
+    const n = db.listUndo(1000).length;
+    db.close();
+    return n;
+  }
+
+  test("a same-status transition writes no undo entry and keeps closed_at", async () => {
+    const { task } = await newTask();
+    const first = await app.request(`${base}/api/tasks/${task.id}/close`, { method: "POST" });
+    const closed = (await first.json()) as { closed_at: string };
+    const before = undoCount();
+    await Bun.sleep(5);
+    const again = await app.request(`${base}/api/tasks/${task.id}/close`, { method: "POST" });
+    expect(again.status).toBe(200);
+    expect(((await again.json()) as { closed_at: string }).closed_at).toBe(closed.closed_at);
+    expect(undoCount()).toBe(before);
+  });
+
+  test("POST /api/tasks rejects an invalid due_at and stores a date as an instant", async () => {
+    expect((await newTask({ due_at: "not a date" })).status).toBe(400);
+    expect((await newTask({ due_at: "1" })).status).toBe(400);
+    const { status, task } = await newTask({ due_at: "2026-10-25" });
+    expect(status).toBe(201);
+    expect(task.due_at).toBe(new Date(2026, 9, 25).toISOString());
+  });
+
+  test("bulk snooze leaves done tasks done and records only changed rows", async () => {
+    const { task: done } = await newTask();
+    await app.request(`${base}/api/tasks/${done.id}/close`, { method: "POST" });
+    const { task: open } = await newTask();
+    const before = undoCount();
+    const until = "2027-01-01T00:00:00.000Z";
+    const snooze = () =>
+      app.request(`${base}/api/tasks/bulk/snooze`, {
+        method: "POST",
+        headers: json,
+        body: JSON.stringify({ ids: [done.id, open.id], until }),
+      });
+    expect(await (await snooze()).json()).toEqual({ ok: true, count: 1 });
+    expect(undoCount()).toBe(before + 1);
+    // Re-snoozing to the same until changes nothing.
+    expect(await (await snooze()).json()).toEqual({ ok: true, count: 0 });
+    expect(undoCount()).toBe(before + 1);
+
+    const db = new RelayDB();
+    expect(db.getTask(done.id)?.status).toBe("done");
+    expect(db.getTask(open.id)?.status).toBe("snoozed");
+    db.close();
+
+    const bad = await app.request(`${base}/api/tasks/bulk/snooze`, {
+      method: "POST",
+      headers: json,
+      body: JSON.stringify({ ids: [open.id], until: "1" }),
+    });
+    expect(bad.status).toBe(400);
+  });
+});
+
+describe("query parameter lookups", () => {
+  test("Object.prototype keys fall back instead of throwing", async () => {
+    for (const path of ["/api/digest?since=constructor", "/api/digest?since=__proto__", "/api/standup?since=constructor"]) {
+      const res = await app.request(`http://127.0.0.1:7340${path}`);
+      expect(res.status).toBe(200);
+    }
+    const heatmap = await app.request("http://127.0.0.1:7340/api/insights/heatmap?period=constructor");
+    expect(heatmap.status).toBe(400);
+  });
+
+  test("the insights heatmap rejects multi-year ranges", async () => {
+    const huge = await app.request("http://127.0.0.1:7340/api/insights/heatmap?from=0001-01-01&to=9999-12-31");
+    expect(huge.status).toBe(400);
+    const year = await app.request("http://127.0.0.1:7340/api/insights/heatmap?from=2026-01-01&to=2026-12-31");
+    expect(year.status).toBe(200);
   });
 });
