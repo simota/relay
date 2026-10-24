@@ -42,7 +42,7 @@ export const codeTodoAdapter: Adapter = {
     // `scan.roots` (see `src/commands/sync.ts:97-100`).
     const perRoot = await Promise.all(
       ctx.roots.map(async (root) => {
-        const matches = await runRipgrep(root, ctx.exclude);
+        const matches = await runRipgrep(root, ctx.exclude, ctx.log);
         return { root, matches };
       }),
     );
@@ -82,7 +82,11 @@ export const codeTodoAdapter: Adapter = {
   },
 };
 
-function runRipgrep(root: string, exclude: string[]): Promise<RgMatch[]> {
+function runRipgrep(
+  root: string,
+  exclude: string[],
+  log?: (msg: string) => void,
+): Promise<RgMatch[]> {
   return new Promise((resolve, reject) => {
     if (!existsSync(root) || !statSync(root).isDirectory()) {
       // Misconfigured `scan.roots` entry — `rg` would exit 2 here and fail
@@ -120,9 +124,14 @@ function runRipgrep(root: string, exclude: string[]): Promise<RgMatch[]> {
 
     proc.on("error", reject);
     proc.on("close", (code) => {
-      // rg exits 1 when no matches — treat as success
+      // rg exits 1 when no matches — treat as success. 2 means some paths
+      // errored (e.g. an unreadable directory) while the rest were still
+      // searched; keep those matches rather than failing every root.
       if (code === 0 || code === 1) resolve(matches);
-      else reject(new Error(`rg exited with ${code}`));
+      else if (code === 2) {
+        log?.(`code_todo: rg reported errors under ${root}; unreadable paths skipped`);
+        resolve(matches);
+      } else reject(new Error(`rg exited with ${code}`));
     });
   });
 }
