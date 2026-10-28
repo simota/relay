@@ -1,5 +1,5 @@
 import { existsSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import type { Config } from "./config.js";
 import { expandHome } from "./paths.js";
 
@@ -12,6 +12,12 @@ export function resolveRepoPath(repo: string, cfg: Config): string | null {
     const root = expandHome(rawRoot);
     const direct = join(root, repo);
     if (isDir(direct)) return direct;
+  }
+  // tracked_repos pins repos outside scan.roots; sync ingests them under
+  // their basename, so the same name must resolve back to that exact path.
+  for (const rawTracked of cfg.scan.tracked_repos) {
+    const tracked = expandHome(rawTracked);
+    if (basename(tracked) === repo && isDir(tracked)) return tracked;
   }
   return null;
 }

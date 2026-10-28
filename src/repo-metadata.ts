@@ -53,16 +53,17 @@ export function deriveGithubUrlFromSourceId(sourceId: string): string | null {
   return m ? (m[1] ?? null) : null;
 }
 
-import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { repoExistsOnDisk, type Config } from "./config.js";
 
-// Returns the subset of `candidates` whose directory does not exist under
-// any configured scan root. Used to filter missing-repo tasks out of
+// Returns the subset of `candidates` that no longer exist on disk — neither
+// under a scan root nor as a tracked_repos path (same rule as the sync
+// sweep, see repoExistsOnDisk). Used to filter missing-repo tasks out of
 // Today's queue / `relay today` without mutating their DB status — the
 // task is preserved in case the repo gets re-cloned.
-export function findMissingRepos(candidates: string[], roots: string[]): string[] {
-  if (candidates.length === 0 || roots.length === 0) return [];
-  return candidates.filter((name) => !roots.some((root) => existsSync(join(root, name))));
+export function findMissingRepos(candidates: string[], cfg: Config): string[] {
+  if (candidates.length === 0) return [];
+  if (cfg.scan.roots.length === 0 && cfg.scan.tracked_repos.length === 0) return [];
+  return candidates.filter((name) => !repoExistsOnDisk(name, cfg));
 }
 
 function normalizeGithubUrl(remote: string): string | null {

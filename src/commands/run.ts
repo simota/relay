@@ -44,7 +44,7 @@ export async function runRun(id: number, options: RunRunOptions = {}): Promise<v
   const cfg = loadConfig();
   const repoRoot = resolveRepoPath(task.repo, cfg);
   if (!repoRoot) {
-    console.log(chalk.red(`repo '${task.repo}' not found under configured scan.roots`));
+    console.log(chalk.red(`repo '${task.repo}' not found under scan.roots or scan.tracked_repos`));
     db.close();
     process.exit(1);
   }

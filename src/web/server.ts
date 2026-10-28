@@ -154,9 +154,8 @@ export function buildApp(opts: BuildAppOptions = {}) {
   app.get("/api/counts", (c) => {
     const db = new RelayDB();
     const cfg = loadConfig();
-    const roots = resolveScanRoots(cfg);
     const repoNames = db.repoStats().map((r) => r.name);
-    const missing = findMissingRepos(repoNames, roots);
+    const missing = findMissingRepos(repoNames, cfg);
     // Counts exclude missing-repo tasks so the headline numbers match what
     // the queue actually shows.
     const views = db.viewCounts(missing);
@@ -208,9 +207,8 @@ export function buildApp(opts: BuildAppOptions = {}) {
     // rows stay in the DB (so re-clone can restore them), they just don't
     // pollute Today's queue.
     const cfg = loadConfig();
-    const roots = resolveScanRoots(cfg);
     const repoNames = db.repoStats().map((r) => r.name);
-    const missing = findMissingRepos(repoNames, roots);
+    const missing = findMissingRepos(repoNames, cfg);
     const tasks = db.today(limit, missing, cfg.ui.priority_decay_days);
     db.close();
     return c.json(tasks);
@@ -401,7 +399,7 @@ export function buildApp(opts: BuildAppOptions = {}) {
   app.get("/api/repos/:name/path", (c) => {
     const cfg = loadConfig();
     const path = resolveRepoPath(c.req.param("name"), cfg);
-    if (!path) return c.json({ error: "not found in scan.roots" }, 404);
+    if (!path) return c.json({ error: "not found in scan.roots or scan.tracked_repos" }, 404);
     return c.json({ path });
   });
 

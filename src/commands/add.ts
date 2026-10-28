@@ -73,7 +73,7 @@ export async function runAdd(opts: AddOptions): Promise<void> {
 
   const repoPath = resolveRepoPath(repo, cfg);
   if (!repoPath) {
-    console.log(chalk.yellow(`! warning: '${repo}' not found under configured scan.roots`));
+    console.log(chalk.yellow(`! warning: '${repo}' not found under scan.roots or scan.tracked_repos`));
   }
 
   const task: TaskInput = {
