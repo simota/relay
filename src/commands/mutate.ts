@@ -46,7 +46,7 @@ export function runClose(id: number): void {
     db.close();
     return;
   }
-  db.setStatus(id, "done");
+  setStatusWithUndo(db, task, "done", "close");
   db.close();
   console.log(chalk.green(`✓ closed #${id}: ${task.title}`));
   const hint = deriveCloseHint(task, loadConfig().close_hints);
@@ -68,7 +68,7 @@ export function runSnooze(id: number): void {
     db.close();
     return;
   }
-  db.setStatus(id, "snoozed");
+  setStatusWithUndo(db, task, "snoozed", "snooze");
   db.close();
   console.log(chalk.yellow(`⏸ snoozed #${id}: ${task.title}`));
 }
@@ -86,9 +86,29 @@ export function runReopen(id: number): void {
     db.close();
     return;
   }
-  db.setStatus(id, "open");
+  setStatusWithUndo(db, task, "open", "reopen");
   db.close();
   console.log(chalk.green(`↺ re-opened #${id}: ${task.title}`));
+}
+
+/**
+ * Same record as the Web's transitionStatus: makes the CLI change undoable
+ * and, through recordUndo, discards stale redo entries — otherwise a Web
+ * redo of an earlier action would silently overwrite this change.
+ */
+function setStatusWithUndo(db: RelayDB, before: Task, status: Task["status"], opKind: string): void {
+  db.setStatus(before.id, status);
+  const after = db.getTask(before.id);
+  if (!after) return;
+  db.recordUndo({
+    op_kind: opKind,
+    payload: { tasks: [statusSnapshot(after)] },
+    inverse: { tasks: [statusSnapshot(before)] },
+  });
+}
+
+function statusSnapshot(task: Task) {
+  return { id: task.id, status: task.status, due_at: task.due_at, closed_at: task.closed_at };
 }
 
 export function runAssign(id: number, raw: string): void {

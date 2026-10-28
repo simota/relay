@@ -7,6 +7,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createTasksApi } from "../api/tasks.js";
 import { createUndoApi } from "../api/undo.js";
+import { runSnooze } from "../commands/mutate.js";
 import { pruneMissingRepos } from "../commands/prune.js";
 import { runSync } from "../commands/sync.js";
 import { CONFIG_PATH, DB_PATH, RELAY_HOME } from "../paths.js";
@@ -146,6 +147,20 @@ describe("Web bulk actions", () => {
 
     expect(await redo.json()).toMatchObject({ redone: false });
     expect(state(id)).toMatchObject({ status: "snoozed", due_at: SNOOZE_UNTIL });
+  });
+
+  test("a CLI status change after a Web undo discards the stale redo entry", async () => {
+    const id = insert(input({ repo: "present-repo" }));
+    await post(createTasksApi(), "/bulk/close", { ids: [id] });
+    await post(createUndoApi(), "/");
+    runSnooze(id);
+    const redo = await post(createUndoApi(), "/?redo=1");
+
+    expect(await redo.json()).toMatchObject({ redone: false });
+    expect(state(id).status).toBe("snoozed");
+    // …and the CLI snooze itself is undoable.
+    await post(createUndoApi(), "/");
+    expect(state(id).status).toBe("open");
   });
 
   test("rejects oversized id lists with 400 instead of a SQLite error", async () => {
