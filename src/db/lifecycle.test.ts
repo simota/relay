@@ -328,6 +328,28 @@ describe("timestamp comparisons", () => {
   });
 });
 
+describe("unsnoozing today", () => {
+  // Snooze dates are stored as local midnight; east of UTC that instant
+  // falls on the previous UTC calendar date. Pin such a zone for the test.
+  test("a snooze ending at the next local midnight does not unsnooze today", () => {
+    const prevTz = process.env.TZ;
+    process.env.TZ = "Asia/Karachi"; // UTC+5, no DST
+    try {
+      const now = new Date();
+      const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).toISOString();
+      insert(input({ repo: "present-repo", status: "snoozed", due_at: tomorrow }));
+      insert(input({ repo: "present-repo", status: "snoozed", due_at: new Date(now.getTime() - 3_600_000).toISOString() }));
+      const db = new RelayDB();
+      const counts = db.smartInboxCounts();
+      db.close();
+      expect(counts.unsnoozing_today).toBe(1);
+    } finally {
+      if (prevTz === undefined) delete process.env.TZ;
+      else process.env.TZ = prevTz;
+    }
+  });
+});
+
 describe("tracked repos outside scan.roots", () => {
   test("the Web auto-prune keeps tasks of a tracked repo that exists", () => {
     const original = readFileSync(CONFIG_PATH, "utf8");
