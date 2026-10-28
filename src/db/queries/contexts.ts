@@ -92,8 +92,17 @@ export function insertContext(
   const now = new Date().toISOString();
   db
     .prepare(
-      `INSERT OR REPLACE INTO contexts (hash, repo, branch, head_sha, dirty_files, summary, session_id, session_type, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      // Session contexts reuse a deterministic hash on every re-parse. REPLACE
+      // would delete the row, dropping an LLM / edited summary (and its
+      // generated_at / model_name) and resetting created_at; refresh only
+      // the git snapshot fields instead.
+      `INSERT INTO contexts (hash, repo, branch, head_sha, dirty_files, summary, session_id, session_type, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(hash) DO UPDATE SET
+         branch = excluded.branch,
+         dirty_files = excluded.dirty_files,
+         session_id = COALESCE(excluded.session_id, contexts.session_id),
+         session_type = COALESCE(excluded.session_type, contexts.session_type)`,
     )
     .run(
       input.hash,

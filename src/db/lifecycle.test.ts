@@ -448,3 +448,30 @@ describe("calendar-date due_at from adapters", () => {
     db.close();
   });
 });
+
+describe("context re-insert", () => {
+  test("a re-synced session context keeps its LLM summary and created_at", () => {
+    const db = new RelayDB();
+    const ctx = {
+      hash: `ctx-${Date.now()}`,
+      repo: "present-repo",
+      branch: "main",
+      headSha: "abc123",
+      dirtyFiles: [],
+      summary: "Codex session s1\nstatus: idle",
+      sessionId: "s1",
+      sessionType: "codex" as const,
+    };
+    db.insertContext(ctx);
+    const createdAt = db.getContext(ctx.hash)!.createdAt;
+    db.updateContextSummary({ hash: ctx.hash, summary: "LLM summary", generatedAt: "2026-10-28T00:00:00Z", modelName: "m" });
+    db.insertContext({ ...ctx, branch: "feature", dirtyFiles: ["a.ts"] });
+    const after = db.getContext(ctx.hash)!;
+    db.close();
+    expect(after.summary).toBe("LLM summary");
+    expect(after.generatedAt).toBe("2026-10-28T00:00:00Z");
+    expect(after.modelName).toBe("m");
+    expect(after.createdAt).toBe(createdAt);
+    expect(after.branch).toBe("feature");
+  });
+});
