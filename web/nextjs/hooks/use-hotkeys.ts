@@ -61,6 +61,8 @@ function onKey(e: KeyboardEvent) {
   const inInput =
     document.activeElement instanceof HTMLInputElement ||
     document.activeElement instanceof HTMLTextAreaElement ||
+    // A focused <select> jumps to options by typed letter (e.g. "c" → codex).
+    document.activeElement instanceof HTMLSelectElement ||
     (document.activeElement instanceof HTMLElement && document.activeElement.isContentEditable);
 
   // Escape always cancels a pending leader.

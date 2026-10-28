@@ -113,7 +113,7 @@ export function CommandMenu({ externalOpen, onNewTask }: CommandMenuProps) {
       label: r.task.title,
       hint: `${r.task.repo} · #${r.task.id}`,
       icon: <ArrowRight className="w-3.5 h-3.5" />,
-      run: () => router.push(`/tasks?status=${r.task.status}`),
+      run: () => router.push(`/tasks?status=${r.task.status}&selected=${r.task.id}`),
       task: r.task,
       titleIndices: r.titleIndices,
     }));
