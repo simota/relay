@@ -152,7 +152,7 @@ export async function runRun(id: number, options: RunRunOptions = {}): Promise<v
     // Status stays 'in_progress' — next `relay sync` reconciles from source state.
     db2.close();
     maybeClearFocusAfterRun(task.id, keepFocus);
-    process.exit(result.exitCode ?? 0);
+    process.exit(result.exitCode);
   } catch (e) {
     const db2 = new RelayDB();
     db2.finishRun(runId, "failed", e instanceof Error ? e.message : String(e));
