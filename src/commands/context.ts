@@ -245,7 +245,8 @@ function makeHash(repo: string, sha: string, summary: string, ts: number): strin
 function readStdinJson<T>(): Promise<T | null> {
   return new Promise((resolve) => {
     let data = "";
-    process.stdin.on("data", (c) => (data += c.toString("utf8")));
+    process.stdin.setEncoding("utf8"); // multi-byte chars may straddle chunks
+    process.stdin.on("data", (c: string) => (data += c));
     process.stdin.on("end", () => {
       const trimmed = data.trim();
       if (!trimmed) return resolve(null);

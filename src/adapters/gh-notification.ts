@@ -197,11 +197,13 @@ function ghApiJson(args: string[]): Promise<NotificationRow[]> {
     const proc = spawn("gh", args);
     let stdout = "";
     let stderr = "";
-    proc.stdout.on("data", (c: Buffer) => {
-      stdout += c.toString("utf8");
+    proc.stdout.setEncoding("utf8"); // multi-byte chars may straddle chunks
+    proc.stdout.on("data", (c: string) => {
+      stdout += c;
     });
-    proc.stderr.on("data", (c: Buffer) => {
-      stderr += c.toString("utf8");
+    proc.stderr.setEncoding("utf8"); // multi-byte chars may straddle chunks
+    proc.stderr.on("data", (c: string) => {
+      stderr += c;
     });
     proc.on("error", reject);
     proc.on("close", (code) => {

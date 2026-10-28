@@ -417,8 +417,9 @@ function runGit(
         finish(null);
       }, timeoutMs);
     }
-    proc.stdout.on("data", (c: Buffer) => {
-      stdout += c.toString("utf8");
+    proc.stdout.setEncoding("utf8"); // multi-byte chars may straddle chunks
+    proc.stdout.on("data", (c: string) => {
+      stdout += c;
     });
     proc.on("error", () => {
       if (timer) clearTimeout(timer);
