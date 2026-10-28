@@ -7,12 +7,16 @@ import type { Adapter, AdapterContext, TaskInput } from "../types.js";
 const TODO_PATTERN =
   String.raw`(TODO|FIXME|HACK|XXX)(\([^)]*\))?:?\s+(.+)$`;
 
+// rg's JSON "arbitrary data": `text` when the value is valid UTF-8,
+// otherwise base64 `bytes` (e.g. a Latin-1 byte on the matched line).
+type RgData = { text: string; bytes?: undefined } | { text?: undefined; bytes: string };
+
 interface RgMatch {
   type: "match";
   data: {
-    path: { text: string };
+    path: RgData;
     line_number: number;
-    lines: { text: string };
+    lines: RgData;
     submatches: Array<{ start: number; end: number; match: { text: string } }>;
   };
 }
@@ -50,10 +54,15 @@ export const codeTodoAdapter: Adapter = {
     const tasks: TaskInput[] = [];
     for (const { root, matches } of perRoot) {
       for (const m of matches) {
-        const parsed = parseTodoLine(m.data.lines.text);
+        // A non-UTF-8 path can't be opened or linked reliably; skip it. A
+        // non-UTF-8 line is decoded lossily so one stray byte doesn't drop
+        // the TODO (or, unguarded, throw and fail the whole adapter).
+        const filePath = m.data.path.text;
+        if (filePath === undefined) continue;
+        const lineText = m.data.lines.text ?? Buffer.from(m.data.lines.bytes, "base64").toString("utf8");
+        const parsed = parseTodoLine(lineText);
         if (!parsed) continue;
 
-        const filePath = m.data.path.text;
         const repo = resolveRepoForCwd(filePath, ctx.roots) ?? inferRepoName(filePath, root);
         if (!repo) continue;
 
@@ -107,8 +116,11 @@ function runRipgrep(
     let buf = "";
     const matches: RgMatch[] = [];
 
-    proc.stdout.on("data", (chunk: Buffer) => {
-      buf += chunk.toString("utf8");
+    // Decode as a stream: a multi-byte character split across two chunks
+    // would otherwise become U+FFFD, changing the title and its source_id.
+    proc.stdout.setEncoding("utf8");
+    proc.stdout.on("data", (chunk: string) => {
+      buf += chunk;
       const lines = buf.split("\n");
       buf = lines.pop() ?? "";
       for (const line of lines) {

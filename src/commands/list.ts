@@ -1,5 +1,5 @@
 import chalk from "chalk";
-import { loadConfig, resolveScanRoots } from "../config.js";
+import { loadConfig } from "../config.js";
 import { RelayDB } from "../db/client.js";
 import {
   daysBetween,
@@ -61,7 +61,7 @@ export function runToday(opts: { limit?: number } = {}): void {
   }
 
   const repoNames = db.repoStats().map((r) => r.name);
-  const missing = findMissingRepos(repoNames, resolveScanRoots(cfg));
+  const missing = findMissingRepos(repoNames, cfg);
   const tasks = db.today(limit, missing, cfg.ui.priority_decay_days);
   const brief = cfg.features.daily_resume_brief
     ? buildResumeBrief(db, {

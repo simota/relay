@@ -101,7 +101,11 @@ export function countForViewFilter(db: Database, filter: ViewFilter): number {
   return row.n ?? 0;
 }
 
-export function smartInboxCounts(db: Database): Record<string, number> {
+export function smartInboxCounts(db: Database, now = new Date()): Record<string, number> {
+  // Snooze-until dates are stored as local midnight in UTC form (see
+  // parseDueInput), so "unsnoozes today" means "before the next local
+  // midnight" — comparing UTC calendar dates miscounts east of UTC.
+  const nextLocalMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).toISOString();
   const row = db
     .prepare(
       `SELECT
@@ -113,11 +117,11 @@ export function smartInboxCounts(db: Database): Record<string, number> {
                   THEN 1 ELSE 0 END) AS old_code_todos,
          SUM(CASE WHEN status = 'snoozed'
                    AND due_at IS NOT NULL
-                   AND date(due_at) <= date('now')
+                   AND due_at < ?
                   THEN 1 ELSE 0 END) AS unsnoozing_today
        FROM tasks`,
     )
-    .get() as {
+    .get(nextLocalMidnight) as {
     github_pr_review: number | null;
     old_code_todos: number | null;
     unsnoozing_today: number | null;

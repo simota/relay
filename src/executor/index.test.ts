@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { Task } from "../types.js";
-import { resolveCommand, resolveReviewUrl } from "./index.js";
+import { resolveCommand, resolveReviewUrl, runResultFromExit, runTask } from "./index.js";
 
 function task(overrides: Partial<Task>): Task {
   return {
@@ -58,5 +61,28 @@ describe("human-review launch", () => {
     const t = task({ source_type: "manual", source_id: "manual:1:abc", body: "-a Terminal file:///etc/passwd" });
     expect(resolveReviewUrl(t)).toBeNull();
     expect(() => resolveCommand(t, { task: t, repoRoot: "/tmp" })).toThrow(/no http\(s\) URL/);
+  });
+});
+
+describe("run exit mapping", () => {
+  test("a signal-killed agent is interrupted with a non-zero exit code", () => {
+    expect(runResultFromExit(null, "SIGTERM")).toEqual({ status: "interrupted", exitCode: 143 });
+    expect(runResultFromExit(null, "SIGINT")).toEqual({ status: "interrupted", exitCode: 130 });
+    expect(runResultFromExit(null, null)).toEqual({ status: "interrupted", exitCode: 1 });
+  });
+
+  test("normal exits keep their code", () => {
+    expect(runResultFromExit(0, null)).toEqual({ status: "success", exitCode: 0 });
+    expect(runResultFromExit(2, null)).toEqual({ status: "failed", exitCode: 2 });
+  });
+
+  test("runTask reports a self-terminated child as interrupted", async () => {
+    // `claude <prompt>` with claudeBin=/bin/sh runs the prompt as a script
+    // in the repo root; the script kills itself the way a crashed agent dies.
+    const repoRoot = mkdtempSync(join(tmpdir(), "relay-exec-"));
+    writeFileSync(join(repoRoot, "die.sh"), "kill -TERM $$\n");
+    const t = task({ assignee: "claude-code", prompt: "die.sh" });
+    const result = await runTask({ task: t, repoRoot, claudeBin: "/bin/sh" });
+    expect(result).toEqual({ status: "interrupted", exitCode: 143 });
   });
 });

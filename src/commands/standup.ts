@@ -1,6 +1,6 @@
 import chalk from "chalk";
 import { displayWidth, padEndDisplay } from "../lib/text-width.js";
-import { loadConfig, resolveScanRoots } from "../config.js";
+import { loadConfig } from "../config.js";
 import { RelayDB } from "../db/client.js";
 import { findMissingRepos } from "../repo-metadata.js";
 import type { Task } from "../types.js";
@@ -56,7 +56,7 @@ export function buildStandupReport(
   const sinceIso = new Date(now.getTime() - sinceHours * 60 * 60 * 1000).toISOString();
 
   const repoNames = db.repoStats().map((r) => r.name);
-  const missing = findMissingRepos(repoNames, resolveScanRoots(cfg));
+  const missing = findMissingRepos(repoNames, cfg);
 
   // Yesterday is closed_at-based, so we don't filter by missing repos here —
   // the user closed it, the achievement should still be visible even if the

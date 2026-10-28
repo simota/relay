@@ -43,7 +43,8 @@ export const ghUnresolvedThreadAdapter: Adapter = {
   },
 
   async fetchResolved(ctx: AdapterContext): Promise<ResolvedSource[]> {
-    if (!ctx.knownOpenSourceIds) return [];
+    // No user → scanCurrent finds nothing live; that is not "all resolved".
+    if (!ctx.knownOpenSourceIds || !ctx.githubUser) return [];
     const { liveSourceIds } = await scanCurrent(ctx);
     const live = new Set(liveSourceIds);
     return ctx
@@ -188,11 +189,13 @@ function runGh(args: string[]): Promise<string> {
     const proc = spawn("gh", args);
     let stdout = "";
     let stderr = "";
-    proc.stdout.on("data", (chunk: Buffer) => {
-      stdout += chunk.toString("utf8");
+    proc.stdout.setEncoding("utf8"); // multi-byte chars may straddle chunks
+    proc.stdout.on("data", (chunk: string) => {
+      stdout += chunk;
     });
-    proc.stderr.on("data", (chunk: Buffer) => {
-      stderr += chunk.toString("utf8");
+    proc.stderr.setEncoding("utf8"); // multi-byte chars may straddle chunks
+    proc.stderr.on("data", (chunk: string) => {
+      stderr += chunk;
     });
     proc.on("error", reject);
     proc.on("close", (code) => {

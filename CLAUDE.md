@@ -116,8 +116,13 @@ also be added to the `SourceType` zod enum in `src/types.ts`.
 
 `resolveRepoPath()` (`src/repo-resolver.ts`) joins each `scan.roots` entry
 with the bare `repo` name. The default root is `~/repos/github.com`, so a
-task with `repo: "luna-sns"` resolves to `~/repos/github.com/luna-sns`. If
-you need multi-root behavior changes, this is the only place to touch.
+task with `repo: "luna-sns"` resolves to `~/repos/github.com/luna-sns`.
+When no root matches, a `scan.tracked_repos` entry whose basename equals
+`repo` resolves to that exact path (sync ingests tracked repos under their
+basename). If you need multi-root behavior changes, this is the only place
+to touch. "Does this repo still exist?" is `repoExistsOnDisk()`
+(`src/config.ts`), which `findMissingRepos()` and the sync/prune sweeps all
+share — don't re-derive it from `scan.roots` alone.
 
 ### Hotkeys
 

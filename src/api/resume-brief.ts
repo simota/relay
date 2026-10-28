@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { loadConfig, resolveScanRoots } from "../config.js";
+import { loadConfig } from "../config.js";
 import { RelayDB } from "../db/client.js";
 import { buildResumeBrief } from "../lib/resume-brief.js";
 import { findMissingRepos } from "../repo-metadata.js";
@@ -20,9 +20,8 @@ export function createResumeBriefApi() {
 
     const db = new RelayDB();
     try {
-      const roots = resolveScanRoots(cfg);
       const repoNames = db.repoStats().map((r) => r.name);
-      const missing = findMissingRepos(repoNames, roots);
+      const missing = findMissingRepos(repoNames, cfg);
       const tasks = db.today(30, missing, cfg.ui.priority_decay_days);
       const brief = buildResumeBrief(db, { candidates: tasks });
       return c.json({ flag_enabled, ...brief });

@@ -132,8 +132,9 @@ function git(cwd: string, args: string[]): Promise<string | null> {
     const proc = spawn("git", args, { cwd });
     let stdout = "";
     const timer = setTimeout(() => proc.kill("SIGKILL"), STATUS_TIMEOUT_MS);
-    proc.stdout.on("data", (chunk: Buffer) => {
-      stdout += chunk.toString("utf8");
+    proc.stdout.setEncoding("utf8"); // multi-byte chars may straddle chunks
+    proc.stdout.on("data", (chunk: string) => {
+      stdout += chunk;
     });
     proc.on("close", (code) => {
       clearTimeout(timer);

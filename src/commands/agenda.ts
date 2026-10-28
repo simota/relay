@@ -101,7 +101,7 @@ export async function buildAgendaReport(
 ): Promise<AgendaReport> {
   const cfg = loadConfig();
   const repoNames = db.repoStats().map((r) => r.name);
-  const missing = findMissingRepos(repoNames, resolveScanRoots(cfg));
+  const missing = findMissingRepos(repoNames, cfg);
 
   const days = normalizeDays(opts.days);
   const now = new Date();

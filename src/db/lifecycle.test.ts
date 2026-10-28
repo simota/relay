@@ -7,6 +7,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createTasksApi } from "../api/tasks.js";
 import { createUndoApi } from "../api/undo.js";
+import { runSnooze } from "../commands/mutate.js";
 import { pruneMissingRepos } from "../commands/prune.js";
 import { runSync } from "../commands/sync.js";
 import { CONFIG_PATH, DB_PATH, RELAY_HOME } from "../paths.js";
@@ -146,6 +147,20 @@ describe("Web bulk actions", () => {
 
     expect(await redo.json()).toMatchObject({ redone: false });
     expect(state(id)).toMatchObject({ status: "snoozed", due_at: SNOOZE_UNTIL });
+  });
+
+  test("a CLI status change after a Web undo discards the stale redo entry", async () => {
+    const id = insert(input({ repo: "present-repo" }));
+    await post(createTasksApi(), "/bulk/close", { ids: [id] });
+    await post(createUndoApi(), "/");
+    runSnooze(id);
+    const redo = await post(createUndoApi(), "/?redo=1");
+
+    expect(await redo.json()).toMatchObject({ redone: false });
+    expect(state(id).status).toBe("snoozed");
+    // …and the CLI snooze itself is undoable.
+    await post(createUndoApi(), "/");
+    expect(state(id).status).toBe("open");
   });
 
   test("rejects oversized id lists with 400 instead of a SQLite error", async () => {
@@ -328,6 +343,28 @@ describe("timestamp comparisons", () => {
   });
 });
 
+describe("unsnoozing today", () => {
+  // Snooze dates are stored as local midnight; east of UTC that instant
+  // falls on the previous UTC calendar date. Pin such a zone for the test.
+  test("a snooze ending at the next local midnight does not unsnooze today", () => {
+    const prevTz = process.env.TZ;
+    process.env.TZ = "Asia/Karachi"; // UTC+5, no DST
+    try {
+      const now = new Date();
+      const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).toISOString();
+      insert(input({ repo: "present-repo", status: "snoozed", due_at: tomorrow }));
+      insert(input({ repo: "present-repo", status: "snoozed", due_at: new Date(now.getTime() - 3_600_000).toISOString() }));
+      const db = new RelayDB();
+      const counts = db.smartInboxCounts();
+      db.close();
+      expect(counts.unsnoozing_today).toBe(1);
+    } finally {
+      if (prevTz === undefined) delete process.env.TZ;
+      else process.env.TZ = prevTz;
+    }
+  });
+});
+
 describe("tracked repos outside scan.roots", () => {
   test("the Web auto-prune keeps tasks of a tracked repo that exists", () => {
     const original = readFileSync(CONFIG_PATH, "utf8");
@@ -424,5 +461,48 @@ describe("calendar-date due_at from adapters", () => {
     expect(db.classifyTasks([task]).unchanged).toBe(1);
     expect(db.upsertTasks([task]).unchanged).toBe(1);
     db.close();
+  });
+});
+
+describe("context re-insert", () => {
+  test("a re-synced session context keeps its LLM summary and created_at", () => {
+    const db = new RelayDB();
+    const ctx = {
+      hash: `ctx-${Date.now()}`,
+      repo: "present-repo",
+      branch: "main",
+      headSha: "abc123",
+      dirtyFiles: [],
+      summary: "Codex session s1\nstatus: idle",
+      sessionId: "s1",
+      sessionType: "codex" as const,
+    };
+    db.insertContext(ctx);
+    const createdAt = db.getContext(ctx.hash)!.createdAt;
+    db.updateContextSummary({ hash: ctx.hash, summary: "LLM summary", generatedAt: "2026-10-28T00:00:00Z", modelName: "m" });
+    db.insertContext({ ...ctx, branch: "feature", dirtyFiles: ["a.ts"] });
+    const after = db.getContext(ctx.hash)!;
+    db.close();
+    expect(after.summary).toBe("LLM summary");
+    expect(after.generatedAt).toBe("2026-10-28T00:00:00Z");
+    expect(after.modelName).toBe("m");
+    expect(after.createdAt).toBe(createdAt);
+    expect(after.branch).toBe("feature");
+  });
+});
+
+describe("resolved-remote sweep", () => {
+  test("a skipped adapter does not close its open tasks", async () => {
+    // The test config has no github.user, so gh_review_request's precheck
+    // skips it; an empty live set must not read as "all resolved".
+    const id = insert(
+      input({
+        source_type: "gh_review_request",
+        source_id: "https://github.com/acme/web/pull/7",
+        repo: "present-repo",
+      }),
+    );
+    await runSync({ source: "gh_review_request", silent: true });
+    expect(state(id).status).toBe("open");
   });
 });

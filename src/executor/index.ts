@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
+import { constants } from "node:os";
 import type { Task } from "../types.js";
 
 export interface RunOptions {
@@ -20,7 +21,7 @@ export interface RunOptions {
 
 export interface RunResult {
   status: "success" | "failed" | "interrupted";
-  exitCode: number | null;
+  exitCode: number;
 }
 
 export async function runTask(opts: RunOptions): Promise<RunResult> {
@@ -33,13 +34,24 @@ export async function runTask(opts: RunOptions): Promise<RunResult> {
   return new Promise((resolve, reject) => {
     const proc = spawn(bin, args, { cwd: repoRoot, stdio: "inherit" });
     proc.on("error", reject);
-    proc.on("close", (code) => {
-      resolve({
-        status: code === 0 ? "success" : "failed",
-        exitCode: code,
-      });
-    });
+    proc.on("close", (code, signal) => resolve(runResultFromExit(code, signal)));
   });
+}
+
+/**
+ * Map a child's exit to a run result. A signal-terminated child reports
+ * `code === null`; keep that from reading as success (`process.exit(null)`
+ * exits 0) by using the shell convention 128 + signal number.
+ */
+export function runResultFromExit(
+  code: number | null,
+  signal: NodeJS.Signals | null,
+): RunResult {
+  if (code === null) {
+    const signo = signal ? constants.signals[signal] : undefined;
+    return { status: "interrupted", exitCode: signo ? 128 + signo : 1 };
+  }
+  return { status: code === 0 ? "success" : "failed", exitCode: code };
 }
 
 export function resolveCommand(

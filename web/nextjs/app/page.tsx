@@ -96,10 +96,25 @@ export default function TodayPage() {
     () => [...selfRows.slice(0, 20), ...waitingRows.slice(0, 20)],
     [selfRows, waitingRows],
   );
-  const selected = useMemo(
-    () => tasks.find((t) => t.id === selectedId) ?? navRows[0]?.task ?? null,
-    [tasks, selectedId, navRows],
+  // Standup items (yesterday's closes, blockers) are usually not in the
+  // Today list; fetch the picked one instead of silently falling back to
+  // row 0, which would make `c` / `s` act on a task the user never picked.
+  // Only standup picks do this: a list task that leaves the list (closed,
+  // snoozed) still falls back to the first row as before.
+  const [standupPickId, setStandupPickId] = useState<number | null>(null);
+  const { data: standupPick } = useSWR<Task>(
+    standupPickId !== null ? `/api/tasks/${standupPickId}` : null,
+    () => api.task(standupPickId as number),
   );
+  const selected = useMemo(() => {
+    const inList = tasks.find((t) => t.id === selectedId);
+    if (inList) return inList;
+    // While the pick loads, select nothing rather than row 0.
+    if (standupPickId !== null && standupPickId === selectedId) {
+      return standupPick?.id === standupPickId ? standupPick : null;
+    }
+    return navRows[0]?.task ?? null;
+  }, [tasks, selectedId, standupPickId, standupPick, navRows]);
 
   const { mutate: swrMutate } = useSWRConfig();
   const { pushUndo, pushError } = useUndoToast();
@@ -113,6 +128,11 @@ export default function TodayPage() {
     const anchorId = selectedIds[0] ?? selected?.id ?? id;
     setSelectedIds(rangeIds(navRows, anchorId, id));
   }, [navRows, selected?.id, selectedIds]);
+
+  const selectStandupTask = useCallback((id: number) => {
+    setStandupPickId(id);
+    selectTask(id);
+  }, [selectTask]);
 
   const toggleSelectedTask = useCallback((id: number) => {
     setSelectedIds((current) =>
@@ -271,7 +291,7 @@ export default function TodayPage() {
         </div>
 
         {/* Standup — auto-hides when all three sections are empty. */}
-        <StandupPanel onSelectTask={selectTask} />
+        <StandupPanel onSelectTask={selectStandupTask} />
 
         {/* Bento grid — 12 col integer layout.
             Row 1: Today(6) + Open(3) + Snoozed(3)

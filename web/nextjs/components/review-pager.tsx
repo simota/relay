@@ -141,14 +141,23 @@ export function ReviewPager({ initialWeek }: { initialWeek: string }) {
     }
   }, [allIds.size, complete, data, decisions, mutate, nextWeekUntil, refresh, submitting]);
 
+  // Enter / Space on a focused button or link must activate it (Finish
+  // review, week pager, pane tabs) instead of marking the row "keep".
+  const keepUnlessControlFocused = (event: KeyboardEvent) => {
+    const active = document.activeElement;
+    if (active instanceof HTMLButtonElement || active instanceof HTMLAnchorElement) return;
+    event.preventDefault();
+    markSelected("keep");
+  };
+
   useHotkeys([
     { key: "j", handler: (event) => { event.preventDefault(); moveRow(1); } },
     { key: "k", handler: (event) => { event.preventDefault(); moveRow(-1); } },
     { key: "Shift+j", handler: (event) => { event.preventDefault(); selectPaneByOffset(1); } },
     { key: "s", handler: (event) => { event.preventDefault(); markSelected("snooze"); }, enabled: !submitting },
     { key: "c", handler: (event) => { event.preventDefault(); markSelected("close"); }, enabled: !submitting },
-    { key: "Enter", handler: (event) => { event.preventDefault(); markSelected("keep"); }, enabled: !submitting },
-    { key: " ", handler: (event) => { event.preventDefault(); markSelected("keep"); }, enabled: !submitting },
+    { key: "Enter", handler: (event) => keepUnlessControlFocused(event), enabled: !submitting },
+    { key: " ", handler: (event) => keepUnlessControlFocused(event), enabled: !submitting },
   ]);
 
   return (

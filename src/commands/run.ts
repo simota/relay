@@ -44,7 +44,7 @@ export async function runRun(id: number, options: RunRunOptions = {}): Promise<v
   const cfg = loadConfig();
   const repoRoot = resolveRepoPath(task.repo, cfg);
   if (!repoRoot) {
-    console.log(chalk.red(`repo '${task.repo}' not found under configured scan.roots`));
+    console.log(chalk.red(`repo '${task.repo}' not found under scan.roots or scan.tracked_repos`));
     db.close();
     process.exit(1);
   }
@@ -152,7 +152,7 @@ export async function runRun(id: number, options: RunRunOptions = {}): Promise<v
     // Status stays 'in_progress' — next `relay sync` reconciles from source state.
     db2.close();
     maybeClearFocusAfterRun(task.id, keepFocus);
-    process.exit(result.exitCode ?? 0);
+    process.exit(result.exitCode);
   } catch (e) {
     const db2 = new RelayDB();
     db2.finishRun(runId, "failed", e instanceof Error ? e.message : String(e));
