@@ -490,3 +490,19 @@ describe("context re-insert", () => {
     expect(after.branch).toBe("feature");
   });
 });
+
+describe("resolved-remote sweep", () => {
+  test("a skipped adapter does not close its open tasks", async () => {
+    // The test config has no github.user, so gh_review_request's precheck
+    // skips it; an empty live set must not read as "all resolved".
+    const id = insert(
+      input({
+        source_type: "gh_review_request",
+        source_id: "https://github.com/acme/web/pull/7",
+        repo: "present-repo",
+      }),
+    );
+    await runSync({ source: "gh_review_request", silent: true });
+    expect(state(id).status).toBe("open");
+  });
+});

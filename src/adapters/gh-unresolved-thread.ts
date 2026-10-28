@@ -43,7 +43,8 @@ export const ghUnresolvedThreadAdapter: Adapter = {
   },
 
   async fetchResolved(ctx: AdapterContext): Promise<ResolvedSource[]> {
-    if (!ctx.knownOpenSourceIds) return [];
+    // No user → scanCurrent finds nothing live; that is not "all resolved".
+    if (!ctx.knownOpenSourceIds || !ctx.githubUser) return [];
     const { liveSourceIds } = await scanCurrent(ctx);
     const live = new Set(liveSourceIds);
     return ctx

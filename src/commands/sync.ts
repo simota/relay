@@ -182,6 +182,12 @@ export async function runSync(opts: SyncOptions = {}): Promise<SyncReport> {
   // Each adapter is its own async closure so events fire as that adapter
   // finishes — not after every adapter completes. bun:sqlite is synchronous
   // so concurrent upsertSafely calls don't actually overlap at SQL level.
+  // Adapters whose open sweep completed in this run. Only these may run
+  // the resolved sweep: a skipped or failed fetch says nothing about which
+  // remote items are still live, and diff-based sweeps ("known open minus
+  // live") would read that silence as "everything resolved".
+  const completed = new Set<string>();
+
   const work = adapters.map(async (adapter) => {
     const start = Date.now();
     // Shallow-clone ctx so per-adapter fields (lastSyncCursor) don't bleed
@@ -240,6 +246,7 @@ export async function runSync(opts: SyncOptions = {}): Promise<SyncReport> {
         upserted = upsertSafely(db, tasks, report);
       }
       const elapsedMs = Date.now() - start;
+      completed.add(adapter.name);
       if (!opts.dryRun) {
         db.recordSyncHistory({
           started_at: new Date(start).toISOString(),
@@ -288,7 +295,12 @@ export async function runSync(opts: SyncOptions = {}): Promise<SyncReport> {
 
   if (!opts.dryRun) {
     autoCloseMissingRepoTasks(db, cfg, baseRoots, log);
-    await autoCloseResolvedRemoteTasks(adapters, ctx, db, log);
+    await autoCloseResolvedRemoteTasks(
+      adapters.filter((a) => completed.has(a.name)),
+      ctx,
+      db,
+      log,
+    );
     // Trim old undo_log rows so bulk-operation snapshots don't bloat the
     // SQLite file indefinitely. 7 days is well past the practical undo
     // window — the only consumer is the Web undo (POST /api/undo), which always operates
