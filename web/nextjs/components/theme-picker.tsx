@@ -66,8 +66,8 @@ export const THEMES: ThemeMeta[] = [
     dots: [
       "oklch(0.96 0.02 70)",
       "oklch(0.25 0.04 50)",
-      "oklch(0.72 0.20 35)",
-      "oklch(0.78 0.15 80)",
+      "oklch(0.58 0.2 35)",
+      "oklch(0.64 0.15 80)",
     ],
   },
   {
@@ -100,7 +100,7 @@ export const THEMES: ThemeMeta[] = [
       "oklch(0.94 0.04 90)",
       "oklch(0.22 0.04 270)",
       "oklch(0.56 0.21 25)",
-      "oklch(0.78 0.16 90)",
+      "oklch(0.62 0.16 90)",
     ],
   },
   {
@@ -122,7 +122,7 @@ export const THEMES: ThemeMeta[] = [
       "oklch(0.92 0.04 80)",
       "oklch(0.18 0.02 60)",
       "oklch(0.55 0.18 25)",
-      "oklch(0.65 0.14 75)",
+      "oklch(0.61 0.14 75)",
     ],
   },
   {
@@ -132,7 +132,7 @@ export const THEMES: ThemeMeta[] = [
     dots: [
       "oklch(0.985 0.003 0)",
       "oklch(0.20 0.005 0)",
-      "oklch(0.62 0.21 20)",
+      "oklch(0.585 0.21 20)",
       "oklch(0.62 0.16 150)",
     ],
   },
@@ -165,8 +165,8 @@ export const THEMES: ThemeMeta[] = [
     dots: [
       "oklch(0.96 0.025 90)",
       "oklch(0.40 0.025 220)",
-      "oklch(0.60 0.13 195)",
-      "oklch(0.68 0.14 65)",
+      "oklch(0.53 0.13 195)",
+      "oklch(0.645 0.14 65)",
     ],
   },
   {
@@ -198,8 +198,8 @@ export const THEMES: ThemeMeta[] = [
     dots: [
       "oklch(0.97 0.012 15)",
       "oklch(0.30 0.040 25)",
-      "oklch(0.62 0.16 150)",
-      "oklch(0.72 0.14 20)",
+      "oklch(0.535 0.16 150)",
+      "oklch(0.66 0.14 20)",
     ],
   },
   {
@@ -221,7 +221,7 @@ export const THEMES: ThemeMeta[] = [
       "oklch(0 0 0)",
       "oklch(1 0 0)",
       "oklch(0.90 0.22 105)",
-      "oklch(0.78 0.20 220)",
+      "oklch(0.82 0.20 60)",
     ],
   },
   {
