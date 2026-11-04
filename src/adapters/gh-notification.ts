@@ -1,5 +1,6 @@
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import type { Adapter, AdapterContext, ResolvedSource, TaskInput } from "../types.js";
+import { ghAuthenticated } from "./gh-auth.js";
 
 // GitHub notifications has many `reason` values (subscribed, comment, author,
 // team_mention, ...). We only ingest the five the user explicitly asked for
@@ -49,8 +50,7 @@ export const ghNotificationAdapter: Adapter = {
     // second secret. We accept the same "user is logged in" signal that
     // `gh search` would, so a working `relay sync github` implies this
     // adapter can also run.
-    const res = spawnSync("gh", ["auth", "status"], { encoding: "utf8" });
-    if (res.error || res.status !== 0) {
+    if (!ghAuthenticated()) {
       return { skip: true, reason: "gh CLI not authenticated" };
     }
     return null;

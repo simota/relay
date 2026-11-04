@@ -1,5 +1,6 @@
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import type { Adapter, AdapterContext, ResolvedSource, TaskInput } from "../types.js";
+import { ghAuthStatus } from "./gh-auth.js";
 
 /**
  * Ingest GitHub Project v2 (the boards under `https://github.com/users/<u>/projects/<n>`
@@ -72,7 +73,7 @@ export const ghProjectCardAdapter: Adapter = {
 
   precheck(_ctx: AdapterContext): { skip: true; reason: string } | null {
     // 1. gh authenticated? Same probe as every other gh adapter.
-    const authProbe = spawnSync("gh", ["auth", "status"], { encoding: "utf8" });
+    const authProbe = ghAuthStatus();
     if (authProbe.error || authProbe.status !== 0) {
       return { skip: true, reason: "gh CLI not authenticated" };
     }
@@ -116,10 +117,10 @@ export const ghProjectCardAdapter: Adapter = {
     // regardless of whether precheck skipped, so a user who enables
     // the adapter without the `project` scope would otherwise see a
     // noisy "graphql ... INSUFFICIENT_SCOPES" log on every sync. The
-    // precheck path is cheap (`gh auth status` runs once already in
-    // fetch's pre-step) so the second invocation is a few-ms cost
-    // for the cleaner UX of "skipped means skipped".
-    const auth = spawnSync("gh", ["auth", "status"], { encoding: "utf8" });
+    // precheck path is cheap: ghAuthStatus() reuses the precheck's probe
+    // when it is only seconds old and re-probes otherwise, so this costs
+    // little for the cleaner UX of "skipped means skipped".
+    const auth = ghAuthStatus();
     if (auth.error || auth.status !== 0) return [];
     const combined = `${auth.stdout ?? ""}\n${auth.stderr ?? ""}`;
     if (!hasProjectScope(combined)) return [];

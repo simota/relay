@@ -3,6 +3,7 @@ import { readdir } from "node:fs/promises";
 import { spawn, spawnSync } from "node:child_process";
 import { basename, join } from "node:path";
 import type { Adapter, AdapterContext, ResolvedSource, TaskInput } from "../types.js";
+import { ghAuthenticated } from "./gh-auth.js";
 
 /**
  * Sweep every repo under `scan.roots` (+ `tracked_repos`) for *orphan*
@@ -121,8 +122,7 @@ export const orphanBranchAdapter: Adapter = {
     // 2. gh authenticated? The whole PR-mapping half depends on it; we
     //    cannot reliably classify orphan vs PR-backed without the
     //    `gh search prs` call.
-    const ghProbe = spawnSync("gh", ["auth", "status"], { encoding: "utf8" });
-    if (ghProbe.error || ghProbe.status !== 0) {
+    if (!ghAuthenticated()) {
       return { skip: true, reason: "gh CLI not authenticated" };
     }
     // 3. At least one git repo under scan.roots or tracked_repos.
