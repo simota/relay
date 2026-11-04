@@ -264,7 +264,7 @@ function OverdueCard({ tasks }: { tasks: Task[] }) {
   // top". We use a critical-tinted background + border so the block stands
   // out of the calendar grid even at a glance.
   return (
-    <Card className="border-[var(--color-critical)]/40 bg-[var(--color-critical)]/10">
+    <Card className="border-[var(--color-critical)]/40 bg-[var(--color-critical)]/5">
       <CardHeader className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <AlertTriangle className="h-4 w-4 text-[var(--color-critical)]" />
@@ -272,7 +272,7 @@ function OverdueCard({ tasks }: { tasks: Task[] }) {
             {c("agenda.overdue")} · {formatNumber(tasks.length)}
           </CardTitle>
         </div>
-        <span className="text-[10.5px] uppercase tracking-wider text-[var(--color-critical)]/80">
+        <span className="text-[10.5px] uppercase tracking-wider text-[var(--color-critical)]">
           {c("agenda.overdue.hint")}
         </span>
       </CardHeader>

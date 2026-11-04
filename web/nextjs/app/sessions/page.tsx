@@ -333,6 +333,7 @@ export default function SessionsPage() {
               subagents
             </label>
             <Input
+              aria-label={c("sessions.filter")}
               placeholder={c("sessions.filter")}
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
@@ -466,6 +467,7 @@ function SessionRow({
           // (the file is fresh AND a tool_use is pending), but the user
           // needs to act on this one, so we surface the warmer signal.
           <span
+            role="img"
             className="relay-attention inline-block w-2 h-2 rounded-full"
             title="waiting for user input (permission prompt or unanswered tool_use)"
             aria-label="waiting for user input"
@@ -475,18 +477,21 @@ function SessionRow({
           // current poll window. Uses the strong-pulse keyframe so it
           // visibly out-pulses the static "active" dot.
           <span
+            role="img"
             className="relay-pulse-strong inline-block w-2 h-2 rounded-full bg-[var(--color-accent)]"
             title={`streaming now (+${streamingDelta} since last poll)`}
             aria-label="streaming now"
           />
         ) : serverActive ? (
           <span
+            role="img"
             className="inline-block w-2 h-2 rounded-full bg-[var(--color-accent)] animate-pulse"
             title="active (writes within 5 s)"
             aria-label="active"
           />
         ) : active ? (
           <span
+            role="img"
             className="inline-block w-2 h-2 rounded-full bg-[var(--color-accent)]/70"
             title="recently active (writes within 2 min)"
             aria-label="recently active"
@@ -495,6 +500,7 @@ function SessionRow({
           // Distinct from blank: tells the user the conversation finished
           // cleanly (assistant end_turn) rather than just having no signal.
           <span
+            role="img"
             className="inline-block w-2 text-[10px] leading-none text-[var(--color-fg-dim)] text-center"
             title="ended (assistant turn finished cleanly)"
             aria-label="ended"
@@ -523,7 +529,7 @@ function SessionRow({
             {s.title}
           </Link>
           {!isSubagent && (s.subagent_count ?? 0) > 0 && (
-            <span className="ml-2 text-[10px] font-mono text-[var(--color-fg-dim)] opacity-70">
+            <span className="ml-2 text-[10px] font-mono text-[var(--color-fg-dim)]">
               +{s.subagent_count} sub
             </span>
           )}

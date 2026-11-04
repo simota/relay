@@ -173,6 +173,7 @@ export default function ReposPage() {
               ))}
             </div>
             <Input
+              aria-label={c("repos.filter")}
               placeholder={c("repos.filter")}
               value={filter}
               onChange={(e) => setFilter(e.target.value)}

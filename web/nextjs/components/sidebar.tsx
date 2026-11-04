@@ -227,8 +227,9 @@ function NavLink({
   return (
     <Link
       href={href}
+      aria-current={active ? "page" : undefined}
       className={cn(
-        "group flex items-center gap-2 px-2 h-7 rounded-[var(--radius)] text-[12.5px] transition-colors",
+        "group flex items-center gap-2 px-2 h-7 rounded-[var(--radius)] text-[12.5px] transition-colors ring-focus",
         active
           ? "bg-[var(--color-bg-elev-2)] text-[var(--color-fg)]"
           : "text-[var(--color-fg-muted)] hover:bg-[var(--color-bg-elev)] hover:text-[var(--color-fg)]",

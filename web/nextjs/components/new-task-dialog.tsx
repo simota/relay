@@ -105,6 +105,7 @@ export function NewTaskDialog({ open, onClose }: NewTaskDialogProps) {
   return (
     <dialog
       ref={dialogRef}
+      aria-labelledby="new-task-dialog-title"
       onClose={onClose}
       onCancel={(e) => { e.preventDefault(); onClose(); }}
       onClick={(e) => {
@@ -132,7 +133,7 @@ export function NewTaskDialog({ open, onClose }: NewTaskDialogProps) {
         <header className="flex items-center justify-between px-5 h-12 border-b border-[var(--color-border)]">
           <div className="flex items-center gap-2">
             <Plus className="w-3.5 h-3.5 text-[var(--color-accent)]" />
-            <span className="text-[14px] font-medium">New task</span>
+            <h2 id="new-task-dialog-title" className="text-[14px] font-medium">New task</h2>
           </div>
           <button
             type="button"

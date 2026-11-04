@@ -547,6 +547,7 @@ export function SessionTileView({
             type="search"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
+            aria-label="Filter"
             placeholder="filter…"
             className={cn(
               "shrink-0 font-mono text-[12px] px-2 rounded-[var(--radius)] border border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-fg)] focus:outline-none focus:border-[var(--color-accent)]",
