@@ -315,6 +315,8 @@ const messages = {
   "toast.action.many": "actions",
   "toast.dismiss": "Dismiss toast",
   "toast.viewSnoozed": "View snoozed →",
+  "toast.undoFailed": "Undo failed: {reason}",
+  "toast.redoFailed": "Redo failed: {reason}",
   "toast.actionFailed": "{action} failed",
   "page.tasks.emptyTitle": "No match for the current filter",
   "page.tasks.emptyHint": "No match for the current filter. Press / to refine.",

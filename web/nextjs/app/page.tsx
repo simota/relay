@@ -8,7 +8,8 @@ import { StatCard } from "@/components/stat-card";
 import { TaskList } from "@/components/task-list";
 import { TaskDetail } from "@/components/task-detail";
 import { SourceMix } from "@/components/source-mix";
-import { StandupPanel } from "@/components/standup-panel";
+import { StandupPanel, standupKey } from "@/components/standup-panel";
+import { SkeletonBlock, SkeletonScreen } from "@/components/skeleton";
 import { SyncButton } from "@/components/sync-button";
 import { TrackReposDialog } from "@/components/track-repos-dialog";
 import { NewTaskDialog } from "@/components/new-task-dialog";
@@ -16,7 +17,7 @@ import { Button } from "@/components/ui/button";
 import { useUndoToast } from "@/components/toast";
 import { fuzzyFilter, type Filtered } from "@/lib/fuzzy";
 import { sessionHrefForTask } from "@/lib/session-link";
-import type { Counts, Task } from "@/lib/types";
+import type { Counts, StandupReport, Task } from "@/lib/types";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
 import { ArrowUpRight, Check, ChevronRight, Pause, X } from "lucide-react";
 import Link from "next/link";
@@ -25,11 +26,23 @@ import { c, formatNumber } from "@/lib/copy";
 
 export default function TodayPage() {
   const { data: counts } = useSWR<Counts>("/api/counts", () => api.counts());
-  const { data: tasks = [], mutate: refresh } = useSWR<Task[]>(
+  const { data: tasksData, error: tasksError, mutate: refresh } = useSWR<Task[]>(
     "/api/today?limit=20",
     () => api.today(20),
     { refreshInterval: 60_000 },
   );
+  const tasks = useMemo(() => tasksData ?? [], [tasksData]);
+  // Same key/fetcher as <StandupPanel>, so SWR dedupes this into one request.
+  // Read here only to gate the first paint: the panel renders above the
+  // stat grid, and painting the grid first made it jump ~350px (CLS) and
+  // briefly showed "nothing today" before the queue had loaded.
+  const { data: standupData, error: standupError } = useSWR<StandupReport>(
+    standupKey("24h"),
+    () => api.standup("24h"),
+  );
+  const initialLoading =
+    (tasksData === undefined && tasksError === undefined) ||
+    (standupData === undefined && standupError === undefined);
   // Focus is a singleton across CLI / TUI / Web — driven by the same
   // ~/.relay/state.json file the `relay focus` command writes. We poll once
   // a minute (cheap, file-backed) so a CLI-side change becomes visible
@@ -290,6 +303,10 @@ export default function TodayPage() {
           </div>
         </div>
 
+        {initialLoading ? (
+          <TodayLoadingSkeleton />
+        ) : (
+        <>
         {/* Standup — auto-hides when all three sections are empty. */}
         <StandupPanel onSelectTask={selectStandupTask} />
 
@@ -504,8 +521,25 @@ export default function TodayPage() {
             <SourceMix counts={counts} />
           </CardBody>
         </Card>
+        </>
+        )}
       </div>
     </div>
+  );
+}
+
+/** Mirrors the Standup + stat-grid + queue blocks so first data paints in place. */
+function TodayLoadingSkeleton() {
+  return (
+    <SkeletonScreen className="h-auto space-y-6">
+      <SkeletonBlock className="h-[180px] rounded-[var(--radius-lg)]" />
+      <div className="grid grid-cols-12 gap-3">
+        <SkeletonBlock className="col-span-12 md:col-span-6 h-[156px] rounded-[var(--radius-lg)]" />
+        <SkeletonBlock className="col-span-6 md:col-span-3 h-[156px] rounded-[var(--radius-lg)]" />
+        <SkeletonBlock className="col-span-6 md:col-span-3 h-[156px] rounded-[var(--radius-lg)]" />
+      </div>
+      <SkeletonBlock className="h-[480px] rounded-[var(--radius-lg)]" />
+    </SkeletonScreen>
   );
 }
 

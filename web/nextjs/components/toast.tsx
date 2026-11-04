@@ -75,22 +75,6 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     );
   }, [mutate]);
 
-  const undoToast = useCallback(async (toast: UndoToast) => {
-    dismiss(toast.id);
-    try {
-      await Promise.all(toast.taskIds.map((taskId) => api.reopen(taskId)));
-      await refreshTaskData();
-    } catch (error) {
-      console.warn("undo failed", error);
-    }
-  }, [dismiss, refreshTaskData]);
-
-  const undoLatest = useCallback(async () => {
-    const latest = toasts.at(-1);
-    if (!latest) return;
-    await undoToast(latest);
-  }, [toasts, undoToast]);
-
   const pushUndo = useCallback(
     (action: UndoAction, task: Task) => {
       const id = nextIdRef.current;
@@ -171,6 +155,23 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     [dismissError],
   );
 
+  const undoToast = useCallback(async (toast: UndoToast) => {
+    dismiss(toast.id);
+    try {
+      await Promise.all(toast.taskIds.map((taskId) => api.reopen(taskId)));
+      await refreshTaskData();
+    } catch (error) {
+      console.warn("undo failed", error);
+      pushError(c("toast.undoFailed", { reason: errorMessage(error) }));
+    }
+  }, [dismiss, refreshTaskData, pushError]);
+
+  const undoLatest = useCallback(async () => {
+    const latest = toasts.at(-1);
+    if (!latest) return;
+    await undoToast(latest);
+  }, [toasts, undoToast]);
+
   useHotkeys([
     { key: "u", handler: (event) => { event.preventDefault(); void undoLatest(); }, enabled: toasts.length > 0 },
   ]);
@@ -237,10 +238,15 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
                 ) : null}
                 <span> · </span>
                 <span className="font-mono">⌘Z</span>
-                <span> {c("common.toUndo")} · </span>
-                <Link href="/tasks?status=snoozed" className="text-[var(--color-accent)] hover:text-[var(--color-fg)]">
-                  {c("toast.viewSnoozed")}
-                </Link>
+                <span> {c("common.toUndo")}</span>
+                {toast.action === "snooze" ? (
+                  <>
+                    <span> · </span>
+                    <Link href="/tasks?status=snoozed" className="text-[var(--color-accent)] hover:text-[var(--color-fg)]">
+                      {c("toast.viewSnoozed")}
+                    </Link>
+                  </>
+                ) : null}
               </span>
               <button
                 type="button"
@@ -315,4 +321,8 @@ function formatSnoozeLabel(task: Task): string {
 function formatCollapsedLabel(action: UndoAction, count: number): string {
   const verb = action === "snooze" ? c("toast.snoozed") : c("toast.closed");
   return `${verb} ${c("common.actions", { count: formatNumber(count) })}`;
+}
+
+export function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
