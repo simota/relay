@@ -266,7 +266,10 @@ export function contextGraph(
         `SELECT id, title, repo, context_hash
            FROM tasks
           WHERE context_hash IN (${placeholders})
-          ORDER BY updated_at DESC`,
+          -- id breaks updated_at ties the way the old full-scan plan
+          -- (rowid order) did, so node/edge order stays stable now that
+          -- idx_tasks_context_hash drives this lookup.
+          ORDER BY updated_at DESC, id ASC`,
       )
       .all(...hashes) as Array<{
       id: number;
