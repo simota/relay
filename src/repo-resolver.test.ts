@@ -4,7 +4,7 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { loadConfig } from "./config.js";
 import { RELAY_HOME } from "./paths.js";
-import { findMissingRepos } from "./repo-metadata.js";
+import { createRepoPathLookup, findMissingRepos } from "./repo-metadata.js";
 import { resolveRepoPath } from "./repo-resolver.js";
 
 const root = join(RELAY_HOME, "resolver-root", "github.com");
@@ -46,5 +46,22 @@ describe("findMissingRepos", () => {
   test("reports nothing missing when no location is configured", () => {
     const empty = { ...cfg, scan: { ...cfg.scan, roots: [], tracked_repos: [] } };
     expect(findMissingRepos(["demo", "gone"], empty)).toEqual([]);
+  });
+});
+
+describe("createRepoPathLookup", () => {
+  test("prefers a tracked pin over a same-named directory under a scan root", () => {
+    const shadow = join(RELAY_HOME, "resolver-shadow", "demo");
+    mkdirSync(shadow, { recursive: true });
+    const lookup = createRepoPathLookup({ ...cfg, scan: { ...cfg.scan, tracked_repos: [tracked, shadow] } });
+    expect(lookup("demo")).toBe(shadow);
+    expect(lookup("pinned")).toBe(tracked);
+  });
+
+  test("falls back to resolveRepoPath for untracked names", () => {
+    const lookup = createRepoPathLookup(cfg);
+    expect(lookup("demo")).toBe(join(root, "demo"));
+    expect(lookup("sibling")).toBeNull();
+    expect(lookup("..")).toBeNull();
   });
 });

@@ -34,6 +34,7 @@ import { parseDueInput } from "../lib/due-date.js";
 import { resolveRepoPath } from "../repo-resolver.js";
 import { Assignee } from "../types.js";
 import {
+  createRepoPathLookup,
   deriveGithubUrlFromSourceId,
   findMissingRepos,
   readRepoMetadata,
@@ -159,18 +160,13 @@ export function buildApp(opts: BuildAppOptions = {}) {
     // Counts exclude missing-repo tasks so the headline numbers match what
     // the queue actually shows.
     const views = db.viewCounts(missing);
-    // Repo count must agree with /repos which filters by `exists !== false`.
-    // Mirror the same enrichment logic here: a repo is "present" when it
-    // resolves to a real directory either via scan.roots or via the user's
-    // tracked_repos allowlist. Tracked-only repos that exist also count.
-    const trackedByName = new Map<string, string>();
-    for (const p of cfg.scan.tracked_repos) {
-      trackedByName.set(basename(p), p);
-    }
+    // Repo count must agree with /repos which filters by `exists !== false`:
+    // both resolve paths through createRepoPathLookup(). Tracked-only repos
+    // that exist also count.
+    const repoPathOf = createRepoPathLookup(cfg);
     let presentCount = 0;
     for (const name of repoNames) {
-      const trackedPath = trackedByName.get(name);
-      const path = trackedPath ?? resolveRepoPath(name, cfg);
+      const path = repoPathOf(name);
       if (path !== null && existsSync(path)) presentCount += 1;
     }
     const repoNameSet = new Set(repoNames);
@@ -335,14 +331,10 @@ export function buildApp(opts: BuildAppOptions = {}) {
     const myOpenPrs = db.myOpenPrCountPerRepo();
     const cfg = loadConfig();
 
-    // Map of repo name → absolute path the user explicitly tracked. Lets the
-    // enrichment step look up out-of-tree (scan.roots-外) paths whose repo
-    // metadata resolveRepoPath() would otherwise miss, and lets us surface
-    // tracked repos that have zero tasks yet as "added but empty" entries.
-    const trackedByName = new Map<string, string>();
-    for (const p of cfg.scan.tracked_repos) {
-      trackedByName.set(basename(p), p);
-    }
+    // Tracked pins win over scan.roots (createRepoPathLookup), so out-of-tree
+    // (scan.roots-外) repos get their metadata, and tracked repos with zero
+    // tasks are surfaced below as "added but empty" entries.
+    const repoPathOf = createRepoPathLookup(cfg);
 
     // Synthesize zero-stats rows for tracked repos that haven't produced any
     // tasks yet — `relay sync` may still find none (no TODOs, no .agents/*.md,
@@ -368,8 +360,7 @@ export function buildApp(opts: BuildAppOptions = {}) {
     // derive a GitHub URL from any github_issue/pr task's source_id so the
     // info survives even after the local directory is deleted.
     const enriched = allStats.map((r) => {
-      const trackedPath = trackedByName.get(r.name);
-      const path = trackedPath ?? resolveRepoPath(r.name, cfg);
+      const path = repoPathOf(r.name);
       const meta = readRepoMetadata(path);
       const githubUrl =
         meta.githubUrl ??
