@@ -152,7 +152,7 @@ export function buildApp(opts: BuildAppOptions = {}) {
 
   // --- Counts ----------------------------------------------------------
   app.get("/api/counts", (c) => {
-    const db = new RelayDB();
+    using db = new RelayDB();
     const cfg = loadConfig();
     const repoNames = db.repoNames();
     const missing = findMissingRepos(repoNames, cfg);
@@ -181,7 +181,6 @@ export function buildApp(opts: BuildAppOptions = {}) {
     const contexts = db.contextCount();
     const sources = db.sourceCounts();
     const source_delta_7d = db.sourceDelta7d();
-    db.close();
     return c.json({ ...views, repos, contexts, sources, source_delta_7d });
   });
 
@@ -202,7 +201,7 @@ export function buildApp(opts: BuildAppOptions = {}) {
     // input so a malformed query can't reach the SQL LIMIT binding.
     const limitQ = Number(c.req.query("limit") ?? "");
     const limit = Number.isFinite(limitQ) && limitQ > 0 ? Math.min(500, Math.round(limitQ)) : 50;
-    const db = new RelayDB();
+    using db = new RelayDB();
     // Filter out tasks from repos whose directory no longer exists. The
     // rows stay in the DB (so re-clone can restore them), they just don't
     // pollute Today's queue.
@@ -210,7 +209,6 @@ export function buildApp(opts: BuildAppOptions = {}) {
     const repoNames = db.repoNames();
     const missing = findMissingRepos(repoNames, cfg);
     const tasks = db.today(limit, missing, cfg.ui.priority_decay_days);
-    db.close();
     return c.json(tasks);
   });
 
@@ -225,12 +223,11 @@ export function buildApp(opts: BuildAppOptions = {}) {
     const limitQ = Number(c.req.query("limit") ?? "");
     const limit = Number.isFinite(limitQ) && limitQ > 0 ? Math.min(2000, Math.round(limitQ)) : 500;
 
-    const db = new RelayDB();
+    using db = new RelayDB();
     const hasFilter = Boolean(status || repo || source || assignee || context || session || age);
     const tasks = hasFilter
       ? db.listTasks({ status, repo, source, assignee, context, session, age, limit })
       : db.listTasks({ limit });
-    db.close();
     return c.json(tasks);
   });
 
@@ -277,10 +274,9 @@ export function buildApp(opts: BuildAppOptions = {}) {
       wait_on: "self" as const,
     };
 
-    const db = new RelayDB();
+    using db = new RelayDB();
     db.upsertTasks([task]);
     const found = db.getTaskBySourceId("manual", task.source_id);
-    db.close();
     if (!found) return c.json({ error: "insert failed" }, 500);
     return c.json(found, 201);
   });
@@ -288,9 +284,8 @@ export function buildApp(opts: BuildAppOptions = {}) {
   app.get("/api/tasks/:id", (c) => {
     const id = Number(c.req.param("id"));
     if (!Number.isFinite(id)) return c.json({ error: "bad id" }, 400);
-    const db = new RelayDB();
+    using db = new RelayDB();
     const task = db.getTask(id);
-    db.close();
     if (!task) return c.json({ error: "not found" }, 404);
     return c.json(task);
   });
@@ -334,11 +329,10 @@ export function buildApp(opts: BuildAppOptions = {}) {
 
   // --- Repos / Contexts ------------------------------------------------
   app.get("/api/repos", (c) => {
-    const db = new RelayDB();
+    using db = new RelayDB();
     const stats = db.repoStats();
     const githubSourceIds = db.firstGithubSourceIdPerRepo();
     const myOpenPrs = db.myOpenPrCountPerRepo();
-    db.close();
     const cfg = loadConfig();
 
     // Map of repo name → absolute path the user explicitly tracked. Lets the
@@ -429,9 +423,8 @@ export function buildApp(opts: BuildAppOptions = {}) {
     if (typeof body.id !== "number" || !Number.isFinite(body.id)) {
       return c.json({ error: "`id` must be a finite number or null" }, 400);
     }
-    const db = new RelayDB();
+    using db = new RelayDB();
     const task = db.getTask(body.id);
-    db.close();
     if (!task) return c.json({ error: "task not found" }, 404);
     setFocus(body.id);
     return c.json({ focus_task_id: body.id });
@@ -566,16 +559,14 @@ function originHost(origin: string): string | null {
 function transitionStatus(c: Context, status: string) {
   const id = Number(c.req.param("id"));
   if (!Number.isFinite(id)) return c.json({ error: "bad id" }, 400);
-  const db = new RelayDB();
+  using db = new RelayDB();
   const task = db.getTask(id);
   if (!task) {
-    db.close();
     return c.json({ error: "not found" }, 404);
   }
   // Same-status transitions change nothing: don't re-stamp closed_at or push
   // a no-op entry that the next undo would silently consume.
   if (task.status === status) {
-    db.close();
     return c.json(task);
   }
   db.setStatus(id, status);
@@ -587,7 +578,6 @@ function transitionStatus(c: Context, status: string) {
       inverse: { tasks: [snapshotTask(task)] },
     });
   }
-  db.close();
   return c.json(updated);
 }
 
@@ -607,14 +597,12 @@ async function reassign(c: Context) {
   if (!assignee || !ASSIGNEES.has(assignee)) {
     return c.json({ error: "invalid assignee", allowed: [...ASSIGNEES] }, 400);
   }
-  const db = new RelayDB();
+  using db = new RelayDB();
   const before = db.getTask(id);
   if (!before) {
-    db.close();
     return c.json({ error: "not found" }, 404);
   }
   if (before.assignee === assignee) {
-    db.close();
     return c.json(before);
   }
   db.setAssignee(id, assignee);
@@ -626,7 +614,6 @@ async function reassign(c: Context) {
       inverse: { tasks: [{ id, assignee: before.assignee }] },
     });
   }
-  db.close();
   return c.json(after);
 }
 

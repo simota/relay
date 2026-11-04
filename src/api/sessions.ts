@@ -312,13 +312,12 @@ export function createSessionsApi() {
       return c.json({ error: "invalid session id" }, 400);
     }
 
-    const db = new RelayDB();
+    using db = new RelayDB();
     // session_id alone is enough — `tasks.session_id` is unique per
     // ingest (the per-adapter source_id namespacing keeps tasks distinct
     // across runs). Filtering by source_type would double-encode the
     // same information and force the caller to map type → source_type.
     const tasks = db.listTasks({ session: id, limit: 100 });
-    db.close();
 
     return c.json({
       count: tasks.length,

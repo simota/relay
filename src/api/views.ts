@@ -15,9 +15,8 @@ export function createViewsApi() {
   const app = new Hono();
 
   app.get("/", (c) => {
-    const db = new RelayDB();
+    using db = new RelayDB();
     const views = db.listViews();
-    db.close();
     return c.json(views);
   });
 
@@ -29,9 +28,8 @@ export function createViewsApi() {
     const filter = parseFilter(body?.filter);
     if (!filter) return c.json({ error: "filter must be an object" }, 400);
 
-    const db = new RelayDB();
+    using db = new RelayDB();
     const view = db.createView({ name, filter, pinned: body?.pinned !== false });
-    db.close();
     return c.json(view, 201);
   });
 
@@ -40,9 +38,8 @@ export function createViewsApi() {
     const id = Number(c.req.query("id") ?? body?.id);
     if (!Number.isInteger(id) || id <= 0) return c.json({ error: "id must be a positive integer" }, 400);
 
-    const db = new RelayDB();
+    using db = new RelayDB();
     const deleted = db.deleteView(id);
-    db.close();
     if (!deleted) return c.json({ error: "not found" }, 404);
     return c.json({ ok: true });
   });

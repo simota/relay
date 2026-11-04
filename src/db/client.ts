@@ -166,8 +166,15 @@ export type {
 // `new RelayDB()` (the server opens+closes a connection per request).
 const SCHEMA_APPLIED = new Set<string>();
 
+/**
+ * One SQLite connection. Request handlers open one per request; declare it
+ * with `using db = new RelayDB()` so the connection is closed on every exit
+ * path (early return or a thrown query error), not only the happy path.
+ * `close()` is idempotent, so an explicit early close stays safe.
+ */
 export class RelayDB {
   private db: Database;
+  private closed = false;
 
   constructor(path: string = DB_PATH) {
     // bun:sqlite creates the file but not its parent dir — ensure RELAY_HOME
@@ -195,7 +202,13 @@ export class RelayDB {
   }
 
   close(): void {
+    if (this.closed) return;
+    this.closed = true;
     this.db.close();
+  }
+
+  [Symbol.dispose](): void {
+    this.close();
   }
 
   /**

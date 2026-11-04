@@ -12,9 +12,8 @@ export function createReviewApi() {
     const range = parseIsoWeek(week);
     if (!range) return c.json({ error: "week must be YYYY-WW" }, 400);
 
-    const db = new RelayDB();
+    using db = new RelayDB();
     const review = db.reviewTasks(range);
-    db.close();
     return c.json(review);
   });
 

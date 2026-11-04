@@ -10,9 +10,8 @@ export function createSyncApi() {
     const adapter = c.req.query("adapter")?.trim();
 
     try {
-      const db = new RelayDB();
+      using db = new RelayDB();
       const rows = db.listSyncHistory({ adapter: adapter || undefined, limit });
-      db.close();
       return c.json(rows);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

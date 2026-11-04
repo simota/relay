@@ -20,7 +20,7 @@ export function createTasksApi() {
       return c.json({ error: "until must be YYYY-MM-DD or an ISO datetime" }, 400);
     }
 
-    const db = new RelayDB();
+    using db = new RelayDB();
     // bulkSnooze skips done rows and rows already snoozed until `until`;
     // snapshot exactly the rows it changes.
     const tasks = db
@@ -34,7 +34,6 @@ export function createTasksApi() {
         inverse: { tasks: tasks.map(snapshotTask) },
       });
     }
-    db.close();
     return c.json({ ok: true, count });
   });
 
@@ -43,7 +42,7 @@ export function createTasksApi() {
     const ids = parseIds(body?.ids);
     if (!ids) return c.json({ error: "ids must be positive integers" }, 400);
 
-    const db = new RelayDB();
+    using db = new RelayDB();
     // bulkClose skips already-done rows; snapshot exactly the rows it changes.
     const tasks = db.getTasksByIds(ids).filter((task) => task.status !== "done");
     const count = db.bulkClose(ids);
@@ -55,7 +54,6 @@ export function createTasksApi() {
         inverse: { tasks: tasks.map(snapshotTask) },
       });
     }
-    db.close();
     return c.json({ ok: true, count });
   });
 
