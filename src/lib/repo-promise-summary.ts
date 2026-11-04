@@ -21,7 +21,7 @@
 //     with N unfinished sessions still shows one card in the lane; the
 //     `total_unfinished_sessions` field surfaces the multiplicity.
 
-import { RelayDB } from "../db/client.js";
+import type { RelayDB } from "../db/client.js";
 import { getSession } from "../sessions/index.js";
 import type { SessionType } from "../sessions/types.js";
 import { extractPromiseLedger } from "./promise-ledger.js";
