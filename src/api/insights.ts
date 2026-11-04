@@ -218,12 +218,17 @@ export interface SessionsByTypeResponse {
 // --- 60s in-memory cache --------------------------------------------------
 
 const CACHE_TTL_MS = 60_000;
+// The key includes the raw query string, so arbitrary params (e.g. a
+// `?_=<timestamp>` cache-buster) each get a slot. Bound the map and sweep
+// expired entries so a long-running `relay web` cannot grow it forever.
+export const INSIGHTS_CACHE_MAX_ENTRIES = 256;
 const cache = new Map<string, { value: unknown; expiresAt: number }>();
 
 function cacheKey(c: Context): string {
-  // `c.req.url` includes the querystring, so the same path with different
-  // query values gets its own cache slot.
-  return new URL(c.req.url).pathname + "?" + new URL(c.req.url).search;
+  // pathname + search (search already starts with "?" when present), so the
+  // same path with different query values gets its own cache slot.
+  const url = new URL(c.req.url);
+  return url.pathname + url.search;
 }
 
 function withCache<T>(c: Context, compute: () => T): T {
@@ -234,8 +239,23 @@ function withCache<T>(c: Context, compute: () => T): T {
     return hit.value as T;
   }
   const value = compute();
+  if (!hit && cache.size >= INSIGHTS_CACHE_MAX_ENTRIES) {
+    for (const [k, entry] of cache) {
+      if (entry.expiresAt <= now) cache.delete(k);
+    }
+    // Still full of live entries: drop the oldest insertion (Map order).
+    if (cache.size >= INSIGHTS_CACHE_MAX_ENTRIES) {
+      const oldest = cache.keys().next().value;
+      if (oldest !== undefined) cache.delete(oldest);
+    }
+  }
   cache.set(key, { value, expiresAt: now + CACHE_TTL_MS });
   return value;
+}
+
+/** Test hook: current number of cached insight responses. */
+export function insightsCacheSize(): number {
+  return cache.size;
 }
 
 // --- API ------------------------------------------------------------------
