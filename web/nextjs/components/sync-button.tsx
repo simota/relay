@@ -107,6 +107,19 @@ export function SyncButton({ hotkey = false }: { hotkey?: boolean } = {}) {
         pruneTimerRef.current = null;
       }, 6000);
     });
+    // Server-side failure of the whole run (not a single adapter).
+    es.addEventListener("sync_error", (e) => {
+      let message = "sync failed";
+      try {
+        message = `sync failed: ${(JSON.parse((e as MessageEvent).data) as { message?: string }).message ?? "unknown error"}`;
+      } catch {
+        // keep the generic message
+      }
+      setLast(message);
+      es.close();
+      esRef.current = null;
+      setSyncing(false);
+    });
     es.onerror = () => {
       setLast("connection error");
       es.close();

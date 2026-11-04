@@ -2,7 +2,10 @@
 // preload is skipped (e.g. `bun test` started from a subdirectory).
 import "../test-setup.js";
 import { beforeAll, describe, expect, test } from "bun:test";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { CONFIG_PATH } from "../paths.js";
 import { RelayDB } from "../db/client.js";
+import { INSIGHTS_CACHE_MAX_ENTRIES, insightsCacheSize } from "../api/insights.js";
 import { buildApp } from "./server.js";
 
 let app: ReturnType<typeof buildApp>;
@@ -219,5 +222,38 @@ describe("query parameter lookups", () => {
     expect(huge.status).toBe(400);
     const year = await app.request("http://127.0.0.1:7340/api/insights/heatmap?from=2026-01-01&to=2026-12-31");
     expect(year.status).toBe(200);
+  });
+});
+
+describe("insights response cache", () => {
+  test("stays bounded when every request carries a unique query string", async () => {
+    for (let i = 0; i < INSIGHTS_CACHE_MAX_ENTRIES + 40; i++) {
+      const res = await app.request(`http://127.0.0.1:7340/api/insights/throughput?window=7d&_=${i}`);
+      expect(res.status).toBe(200);
+    }
+    expect(insightsCacheSize()).toBeLessThanOrEqual(INSIGHTS_CACHE_MAX_ENTRIES);
+  });
+
+  test("still serves repeated identical requests", async () => {
+    const a = await (await app.request("http://127.0.0.1:7340/api/insights/throughput?window=30d")).json();
+    const b = await (await app.request("http://127.0.0.1:7340/api/insights/throughput?window=30d")).json();
+    expect(b).toEqual(a);
+  });
+});
+
+describe("sync SSE streams", () => {
+  test("a failure of the whole run is reported as a sync_error event", async () => {
+    const original = existsSync(CONFIG_PATH) ? readFileSync(CONFIG_PATH, "utf8") : null;
+    writeFileSync(CONFIG_PATH, "[scan\nroots = ");
+    try {
+      const res = await app.request("http://127.0.0.1:7340/api/sync/preview");
+      expect(res.status).toBe(200);
+      const body = await res.text();
+      expect(body).toContain("event: sync_error");
+      expect(body).toContain("message");
+    } finally {
+      if (original === null) rmSync(CONFIG_PATH, { force: true });
+      else writeFileSync(CONFIG_PATH, original);
+    }
   });
 });

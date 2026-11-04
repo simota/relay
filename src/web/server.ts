@@ -433,23 +433,25 @@ export function buildApp(opts: BuildAppOptions = {}) {
   app.get("/api/sync/preview", (c) => {
     const source = c.req.query("adapter") ?? c.req.query("source");
     return streamSSE(c, async (stream) => {
-      await runSync({
-        source: source ?? undefined,
-        dryRun: true,
-        onEvent: async (event) => {
-          await stream.writeSSE({
-            event: event.type,
-            data: JSON.stringify(event),
-          });
-        },
-      });
+      await runSyncReportingErrors(stream, () =>
+        runSync({
+          source: source ?? undefined,
+          dryRun: true,
+          onEvent: async (event) => {
+            await stream.writeSSE({
+              event: event.type,
+              data: JSON.stringify(event),
+            });
+          },
+        }),
+      );
     });
   });
 
   app.get("/api/sync/stream", (c) => {
     const source = c.req.query("adapter") ?? c.req.query("source");
     return streamSSE(c, async (stream) => {
-      await runSync({
+      await runSyncReportingErrors(stream, () => runSync({
         source: source ?? undefined,
         onEvent: async (event) => {
           if (event.type === "done") {
@@ -492,7 +494,7 @@ export function buildApp(opts: BuildAppOptions = {}) {
             data: JSON.stringify(event),
           });
         },
-      });
+      }));
     });
   });
 
@@ -500,6 +502,25 @@ export function buildApp(opts: BuildAppOptions = {}) {
   app.get("*", (c) => serveStatic(c.req.path));
 
   return app;
+}
+
+/**
+ * Run a sync inside an SSE stream. Per-adapter failures already arrive as
+ * `adapter_error` events; this covers a failure of the run itself (config
+ * parse error, DB locked), which otherwise just dropped the connection and
+ * left the browser with a generic "connection error".
+ */
+async function runSyncReportingErrors(
+  stream: { writeSSE(message: { event: string; data: string }): Promise<void> },
+  run: () => Promise<unknown>,
+): Promise<void> {
+  try {
+    await run();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[relay] sync stream failed: ${message}`);
+    await stream.writeSSE({ event: "sync_error", data: JSON.stringify({ message }) });
+  }
 }
 
 const LOCAL_ORIGIN_RE = /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/;
