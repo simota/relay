@@ -74,8 +74,11 @@ export function viewCounts(
 export function sourceCounts(db: Database): Record<string, number> {
   const rows = db
     .prepare(
+      // NOT INDEXED: a sequential scan beats walking the (source_type,
+      // source_id) index row by row; groups still come out in source_type
+      // order, so the returned object's key order is unchanged.
       `SELECT source_type, COUNT(*) AS n
-         FROM tasks
+         FROM tasks NOT INDEXED
          WHERE status != 'done'
          GROUP BY source_type`,
     )
@@ -105,6 +108,12 @@ export function repoStats(db: Database): Array<{
   lastTouched: string;
   dailyEventCounts: number[];
 }> {
+  // `NOT INDEXED` (here and in the event rollup below): these aggregate
+  // over every task, and letting the planner walk idx_tasks_repo to save
+  // the GROUP BY sort turns the scan into one random table lookup per row.
+  // Once the table outgrows SQLite's page cache that is 2-4x slower than a
+  // sequential scan plus a small sort. Group order is still repo order, so
+  // the output is unchanged.
   const rows = db
     .prepare(
       `SELECT
@@ -113,7 +122,7 @@ export function repoStats(db: Database): Array<{
          SUM(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END) AS in_progress_c,
          SUM(CASE WHEN status = 'snoozed' THEN 1 ELSE 0 END) AS snoozed_c,
          MAX(updated_at) AS last_touched
-       FROM tasks
+       FROM tasks NOT INDEXED
        GROUP BY repo
        ORDER BY last_touched DESC`,
     )
@@ -131,18 +140,18 @@ export function repoStats(db: Database): Array<{
       `SELECT repo, day, SUM(n) AS n
          FROM (
            SELECT repo, date(created_at) AS day, COUNT(*) AS n
-             FROM tasks
+             FROM tasks NOT INDEXED
             WHERE created_at >= ?
             GROUP BY repo, day
            UNION ALL
            SELECT repo, date(closed_at) AS day, COUNT(*) AS n
-             FROM tasks
+             FROM tasks NOT INDEXED
             WHERE closed_at IS NOT NULL
               AND closed_at >= ?
             GROUP BY repo, day
            UNION ALL
            SELECT repo, date(updated_at) AS day, COUNT(*) AS n
-             FROM tasks
+             FROM tasks NOT INDEXED
             WHERE status = 'snoozed'
               AND updated_at >= ?
             GROUP BY repo, day
