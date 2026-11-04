@@ -112,3 +112,19 @@ describe("schema v10 task indexes", () => {
     expect(nullCount.n).toBe(2);
   });
 });
+
+describe("repoNames", () => {
+  test("returns exactly the repoStats name set, sorted", () => {
+    relay.upsertTasks([
+      task(100, { repo: "zeta" }),
+      task(101, { repo: "alpha", status: "done" }),
+      task(102, { repo: "Mid" }),
+      task(103, { repo: "alpha" }),
+    ]);
+    const fromStats = relay.repoStats().map((r) => r.name);
+    const names = relay.repoNames();
+    expect(names).toEqual([...fromStats].sort());
+    expect(new Set(names).size).toBe(names.length);
+    expect(names).toContain("alpha");
+  });
+});

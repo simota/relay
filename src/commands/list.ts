@@ -60,7 +60,7 @@ export function runToday(opts: { limit?: number } = {}): void {
     return;
   }
 
-  const repoNames = db.repoStats().map((r) => r.name);
+  const repoNames = db.repoNames();
   const missing = findMissingRepos(repoNames, cfg);
   const tasks = db.today(limit, missing, cfg.ui.priority_decay_days);
   const brief = cfg.features.daily_resume_brief

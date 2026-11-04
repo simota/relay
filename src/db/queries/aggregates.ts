@@ -100,6 +100,13 @@ export function sourceDelta7d(db: Database): number {
   return row.n ?? 0;
 }
 
+export function repoNames(db: Database): string[] {
+  const rows = db
+    .prepare(`SELECT DISTINCT repo FROM tasks ORDER BY repo`)
+    .values() as Array<[string]>;
+  return rows.map((r) => r[0]);
+}
+
 export function repoStats(db: Database): Array<{
   name: string;
   open: number;

@@ -20,7 +20,7 @@ export function createResumeBriefApi() {
 
     const db = new RelayDB();
     try {
-      const repoNames = db.repoStats().map((r) => r.name);
+      const repoNames = db.repoNames();
       const missing = findMissingRepos(repoNames, cfg);
       const tasks = db.today(30, missing, cfg.ui.priority_decay_days);
       const brief = buildResumeBrief(db, { candidates: tasks });
