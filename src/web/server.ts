@@ -154,7 +154,7 @@ export function buildApp(opts: BuildAppOptions = {}) {
   app.get("/api/counts", (c) => {
     const db = new RelayDB();
     const cfg = loadConfig();
-    const repoNames = db.repoStats().map((r) => r.name);
+    const repoNames = db.repoNames();
     const missing = findMissingRepos(repoNames, cfg);
     // Counts exclude missing-repo tasks so the headline numbers match what
     // the queue actually shows.
@@ -207,7 +207,7 @@ export function buildApp(opts: BuildAppOptions = {}) {
     // rows stay in the DB (so re-clone can restore them), they just don't
     // pollute Today's queue.
     const cfg = loadConfig();
-    const repoNames = db.repoStats().map((r) => r.name);
+    const repoNames = db.repoNames();
     const missing = findMissingRepos(repoNames, cfg);
     const tasks = db.today(limit, missing, cfg.ui.priority_decay_days);
     db.close();

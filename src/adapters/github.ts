@@ -1,5 +1,6 @@
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import type { Adapter, AdapterContext, ResolvedSource, TaskInput, WaitOn } from "../types.js";
+import { ghAuthenticated } from "./gh-auth.js";
 
 /**
  * Safety window subtracted from the last-sync cursor before passing it to
@@ -47,8 +48,7 @@ export const githubAdapter: Adapter = {
     // makes `gh search --json` return non-JSON garbage to ghJson(). Mirror
     // the same check used by gh_notification / gh_run_failure so all
     // gh-backed adapters behave consistently when auth is broken.
-    const res = spawnSync("gh", ["auth", "status"], { encoding: "utf8" });
-    if (res.error || res.status !== 0) {
+    if (!ghAuthenticated()) {
       return { skip: true, reason: "gh CLI not authenticated" };
     }
     return null;

@@ -11,7 +11,6 @@ import { runDigest } from "./commands/digest.js";
 import { runAgenda } from "./commands/agenda.js";
 import { runRun } from "./commands/run.js";
 import { runFocus } from "./commands/focus.js";
-import { runWeb } from "./commands/web.js";
 import { runAdd } from "./commands/add.js";
 import { runBackfill } from "./commands/backfill.js";
 import { runExport } from "./commands/export.js";
@@ -208,6 +207,10 @@ program
   .option("--no-open", "do not open browser")
   .description("Start the local Web UI server.")
   .action(async (opts) => {
+    // Loaded on demand: the Hono server and every /api module are the
+    // heaviest part of the import graph and only `relay web` needs them,
+    // so every other subcommand starts faster without them.
+    const { runWeb } = await import("./commands/web.js");
     await runWeb({
       port: opts.port ? Number(opts.port) : undefined,
       host: opts.host,

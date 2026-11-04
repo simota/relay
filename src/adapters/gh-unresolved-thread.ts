@@ -1,5 +1,6 @@
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import type { Adapter, AdapterContext, ResolvedSource, TaskInput } from "../types.js";
+import { ghAuthenticated } from "./gh-auth.js";
 
 const PR_LIMIT = "80";
 const THREAD_LIMIT = 50;
@@ -32,8 +33,7 @@ export const ghUnresolvedThreadAdapter: Adapter = {
 
   precheck(ctx: AdapterContext): { skip: true; reason: string } | null {
     if (!ctx.githubUser) return { skip: true, reason: "github.user not configured in ~/.relay/config.toml" };
-    const res = spawnSync("gh", ["auth", "status"], { encoding: "utf8" });
-    if (res.error || res.status !== 0) return { skip: true, reason: "gh CLI not authenticated" };
+    if (!ghAuthenticated()) return { skip: true, reason: "gh CLI not authenticated" };
     return null;
   },
 

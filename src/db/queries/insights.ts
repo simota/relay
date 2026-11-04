@@ -30,8 +30,11 @@ export function insightsWfr(
     closed_n: number;
     opened_n: number;
   }> = [];
+  // NOT INDEXED: without it the planner walks idx_tasks_repo for the
+  // DISTINCT and fetches every row out of order (several times slower on a
+  // DB larger than the page cache). A count is order-independent.
   const activeStmt = db.prepare(
-    `SELECT COUNT(DISTINCT repo) AS n FROM tasks
+    `SELECT COUNT(DISTINCT repo) AS n FROM tasks NOT INDEXED
       WHERE updated_at >= ? AND updated_at < ?`,
   );
   const openReposStmt = db.prepare(
@@ -117,8 +120,11 @@ export function insightsTouched(
 ): { active: number; total: number } {
   const row = db
     .prepare(
+      // NOT INDEXED on the first count only: same reasoning as activeStmt
+      // in insightsWfr. The total count is answered from idx_tasks_repo
+      // alone (covering), so it keeps the index.
       `SELECT
-         (SELECT COUNT(DISTINCT repo) FROM tasks
+         (SELECT COUNT(DISTINCT repo) FROM tasks NOT INDEXED
             WHERE updated_at >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?)
                OR id IN (
                  SELECT task_id FROM runs

@@ -1,4 +1,4 @@
--- relay storage schema v9
+-- relay storage schema v10
 
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
@@ -38,6 +38,16 @@ CREATE INDEX IF NOT EXISTS idx_tasks_repo     ON tasks (repo);
 CREATE INDEX IF NOT EXISTS idx_tasks_assignee ON tasks (assignee);
 CREATE INDEX IF NOT EXISTS idx_tasks_due      ON tasks (due_at);
 CREATE INDEX IF NOT EXISTS idx_tasks_priority ON tasks (priority DESC);
+-- schema_version 10: partial indexes for the context/session joins. Most
+-- rows leave these columns NULL, so indexing only the non-NULL rows keeps
+-- the index (and its write cost on ingest) small while context_hash = ?
+-- (listContexts' linked-task count, contextGraph, the contexts backfill)
+-- and session_id = ? (session task panels, /api/tasks?session_id=) stop
+-- full-scanning tasks.
+CREATE INDEX IF NOT EXISTS idx_tasks_context_hash ON tasks (context_hash)
+  WHERE context_hash IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_tasks_session ON tasks (session_id)
+  WHERE session_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS queue_items (
   id        INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -183,3 +193,5 @@ INSERT OR IGNORE INTO schema_version (version, applied_at)
   VALUES (8, datetime('now'));
 INSERT OR IGNORE INTO schema_version (version, applied_at)
   VALUES (9, datetime('now'));
+INSERT OR IGNORE INTO schema_version (version, applied_at)
+  VALUES (10, datetime('now'));

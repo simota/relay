@@ -55,7 +55,7 @@ export function buildStandupReport(
   const now = new Date();
   const sinceIso = new Date(now.getTime() - sinceHours * 60 * 60 * 1000).toISOString();
 
-  const repoNames = db.repoStats().map((r) => r.name);
+  const repoNames = db.repoNames();
   const missing = findMissingRepos(repoNames, cfg);
 
   // Yesterday is closed_at-based, so we don't filter by missing repos here —

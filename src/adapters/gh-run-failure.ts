@@ -1,5 +1,6 @@
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import type { Adapter, AdapterContext, ResolvedSource, TaskInput } from "../types.js";
+import { ghAuthenticated } from "./gh-auth.js";
 
 // Repo-list and run-list limits. The combined fetch budget for a sync is
 // roughly `repos × 2` gh calls (one failure sweep + one success sweep in
@@ -61,8 +62,7 @@ export const ghRunFailureAdapter: Adapter = {
     // Re-use the existing gh login the rest of the GitHub-side adapters
     // already depend on. If `gh auth status` is failing the user has bigger
     // problems than missing CI failures, so skip rather than throw.
-    const res = spawnSync("gh", ["auth", "status"], { encoding: "utf8" });
-    if (res.error || res.status !== 0) {
+    if (!ghAuthenticated()) {
       return { skip: true, reason: "gh CLI not authenticated" };
     }
     // Need at least one owner scope. Without `github.user` or `github.orgs`

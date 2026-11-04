@@ -97,6 +97,7 @@ import {
   closedTasksSince as _closedTasksSince,
   heatmap as _heatmap,
   overdueTasks as _overdueTasks,
+  repoNames as _repoNames,
   repoStats as _repoStats,
   reviewTasks as _reviewTasks,
   scheduledNoDate as _scheduledNoDate,
@@ -405,6 +406,16 @@ export class RelayDB {
 
   sourceDelta7d(): number {
     return _sourceDelta7d(this.db);
+  }
+
+  /**
+   * Every distinct task repo — the same set as `repoStats().map(r => r.name)`
+   * but answered from idx_tasks_repo alone (no row reads, no rollups), in
+   * repo order rather than last-touched order. For callers that only need
+   * the names, e.g. to feed findMissingRepos() into a NOT IN filter.
+   */
+  repoNames(): string[] {
+    return _repoNames(this.db);
   }
 
   repoStats(): Array<{
