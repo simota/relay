@@ -65,15 +65,18 @@ function readThemes(): Map<string, Record<string, string>> {
 
 // [foreground token, background token, minimum ratio]
 // Text tokens use the 4.5:1 body-text threshold because they render
-// 10–13px labels; accent / warm are used for large numerals, icons and
+// 10–13px labels on every surface (bg, bg-elev cards, bg-elev-2 selected /
+// hovered rows); accent / warm are used for large numerals, icons and
 // borders, so they use the 3:1 non-text threshold.
 const PAIRS: Array<[string, string, number]> = [
   ["color-fg", "color-bg", 4.5],
   ["color-fg", "color-bg-elev", 4.5],
   ["color-fg-muted", "color-bg", 4.5],
   ["color-fg-muted", "color-bg-elev", 4.5],
+  ["color-fg-muted", "color-bg-elev-2", 4.5],
   ["color-fg-dim", "color-bg", 4.5],
   ["color-fg-dim", "color-bg-elev", 4.5],
+  ["color-fg-dim", "color-bg-elev-2", 4.5],
   ["color-accent-fg", "color-accent", 4.5],
   ["color-critical", "color-bg", 4.5],
   ["color-cool", "color-bg", 4.5],
