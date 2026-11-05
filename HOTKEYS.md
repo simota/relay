@@ -52,7 +52,9 @@ names; on Contexts it matches across repo, branch, hash, and summary.
 | Key | Action |
 |---|---|
 | `r` | copy `relay run N` to clipboard |
-| `s` | snooze |
+| `s` | snooze (indefinitely; the detail panel's ▾ menu picks a wake date) |
+| `Shift+S` | snooze until tomorrow — reopens on its own |
+| `e` | edit the task inline (title / priority / due / wait on / prompt / files / body). `⌘↵` saves, `Esc` cancels. Edited fields stay across sync |
 | `c` | close (mark done) |
 | `o` | reopen |
 | `a` | add selected task to the run queue |
@@ -78,6 +80,7 @@ one click.
 |---|---|
 | `R` | sync (re-fetch sources) — also `↻ sync` in header |
 | `u` | undo the most recent snooze/close toast |
+| `⌘Z` / `⇧⌘Z` | undo / redo via the server undo log (covers edits too) — CLI: `relay undo [--redo]` |
 | `⌘Z` / `Ctrl+Z` | undo last operation |
 | `⌘⇧Z` / `Ctrl+Shift+Z` | redo |
 | `⌘K` | command palette |

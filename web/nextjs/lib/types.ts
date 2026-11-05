@@ -57,6 +57,39 @@ export interface Task {
   created_at: string;
   updated_at: string;
   closed_at: string | null;
+  /** Fields edited by hand; adapter re-syncs keep these values. */
+  user_overrides?: EditableField[];
+}
+
+export type EditableField =
+  | "title"
+  | "body"
+  | "priority"
+  | "prompt"
+  | "files"
+  | "due_at"
+  | "wait_on"
+  | "repo";
+
+export interface TaskEditInput {
+  title?: string;
+  body?: string;
+  priority?: number;
+  prompt?: string | null;
+  files?: string[];
+  due_at?: string | null;
+  wait_on?: WaitOn;
+  repo?: string;
+  reset?: EditableField[];
+}
+
+export interface TaskRun {
+  id: number;
+  agent: string;
+  started_at: string;
+  ended_at: string | null;
+  status: string;
+  output_summary: string | null;
 }
 
 export interface ResumeBriefReason {

@@ -44,6 +44,18 @@ export function CommandMenu({ externalOpen, onNewTask }: CommandMenuProps) {
     open ? "/api/tasks?limit=500" : null,
     () => api.tasks({ limit: 500 }),
   );
+  // Server-side search across every status (snoozed / done included) and
+  // past the 500-row client list, debounced so typing doesn't spam the API.
+  const [debouncedQ, setDebouncedQ] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQ(q.trim()), 180);
+    return () => clearTimeout(t);
+  }, [q]);
+  const { data: remoteMatches = [] } = useSWR<Task[]>(
+    open && debouncedQ.length >= 2 ? `/api/tasks?status=all&q=${encodeURIComponent(debouncedQ)}` : null,
+    () => api.searchTasks(debouncedQ, 20),
+    { keepPreviousData: true },
+  );
   const { data: views = [] } = useSWR<SavedView[]>(
     open ? "/api/views" : null,
     () => api.views.list(),
@@ -117,8 +129,20 @@ export function CommandMenu({ externalOpen, onNewTask }: CommandMenuProps) {
       task: r.task,
       titleIndices: r.titleIndices,
     }));
-    return [...navMatches, ...viewMatches, ...taskMatches];
-  }, [q, baseActions, views, tasks, router]);
+    const seen = new Set(taskMatches.map((m) => m.task?.id));
+    const archiveMatches = remoteMatches
+      .filter((t) => !seen.has(t.id))
+      .slice(0, 12)
+      .map<MenuAction>((t) => ({
+        type: "task",
+        label: t.title,
+        hint: `${t.status === "open" ? "" : `${t.status} · `}${t.repo} · #${t.id}`,
+        icon: <ArrowRight className="w-3.5 h-3.5" />,
+        run: () => router.push(`/tasks?status=${t.status}&selected=${t.id}`),
+        task: t,
+      }));
+    return [...navMatches, ...viewMatches, ...taskMatches, ...archiveMatches];
+  }, [q, baseActions, views, tasks, remoteMatches, router]);
 
   useHotkeys([
     {
