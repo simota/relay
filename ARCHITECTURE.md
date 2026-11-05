@@ -82,7 +82,7 @@ relay/
 │   │   ├── agents-note.ts      # <repo>/.agents/*.md checkbox lines
 │   │   └── manual.ts           # `relay add` entries
 │   ├── api/                    # Hono sub-apps mounted by buildApp()
-│   │   ├── tasks.ts            # /api/tasks*, /api/today
+│   │   ├── tasks.ts            # /api/tasks/bulk/*, PATCH /api/tasks/:id, /:id/snooze, /:id/runs
 │   │   ├── queue.ts            # /api/queue
 │   │   ├── views.ts            # /api/views (saved filters)
 │   │   ├── sessions.ts         # /api/sessions/* + SSE stream
@@ -107,6 +107,7 @@ relay/
 │   │   ├── internal.ts         # shared low-level helpers
 │   │   └── queries/            # topic-grouped query modules
 │   │       ├── tasks.ts
+│   │       ├── edits.ts        # user edits + overrides, snooze/wake, run history
 │   │       ├── ingest.ts       # idempotent UPSERT keyed by (source_type, source_id)
 │   │       ├── views.ts
 │   │       ├── insights.ts

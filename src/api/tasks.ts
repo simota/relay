@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { RelayDB } from "../db/client.js";
-import { parseDueInput } from "../lib/due-date.js";
+import { parseWhenInput, WHEN_INPUT_HINT } from "../lib/due-date.js";
+import { parseTaskEdit } from "../lib/task-edit.js";
 import type { Task } from "../types.js";
 
 interface BulkBody {
@@ -14,10 +15,10 @@ export function createTasksApi() {
   app.post("/bulk/snooze", async (c) => {
     const body = (await c.req.json().catch(() => null)) as BulkBody | null;
     const ids = parseIds(body?.ids);
-    const until = typeof body?.until === "string" ? parseDueInput(body.until) : null;
+    const until = typeof body?.until === "string" ? parseWhenInput(body.until) : null;
     if (!ids) return c.json({ error: "ids must be positive integers" }, 400);
     if (!until) {
-      return c.json({ error: "until must be YYYY-MM-DD or an ISO datetime" }, 400);
+      return c.json({ error: `until must be ${WHEN_INPUT_HINT}` }, 400);
     }
 
     using db = new RelayDB();
@@ -57,7 +58,74 @@ export function createTasksApi() {
     return c.json({ ok: true, count });
   });
 
+  // --- Edit ------------------------------------------------------------
+  // Partial update of the user-editable fields. Edited fields are recorded
+  // in tasks.user_overrides so the next adapter sync keeps the user's value;
+  // `reset: ["title"]` drops a lock so upstream wins again on the next sync.
+  app.patch("/:id", async (c) => {
+    const id = parseId(c.req.param("id"));
+    if (!id) return c.json({ error: "bad id" }, 400);
+    const body = (await c.req.json().catch(() => null)) as unknown;
+    using db = new RelayDB();
+    const task = db.getTask(id);
+    if (!task) return c.json({ error: "not found" }, 404);
+    const parsed = parseTaskEdit(body, task);
+    if (!parsed.ok) return c.json({ error: parsed.error }, 400);
+
+    const result = db.editTask(id, parsed.patch, { unlock: parsed.reset });
+    if (!result) return c.json({ error: "not found" }, 404);
+    if (result.changed.length > 0 || result.overridesChanged) {
+      db.recordUndo({ op_kind: "edit", payload: { tasks: [result.after] }, inverse: { tasks: [result.before] } });
+    }
+    return c.json({ task: db.getTask(id), changed: result.changed, reset: parsed.reset });
+  });
+
+  // --- Snooze (optionally until a date) ---------------------------------
+  // `{ "until": "tomorrow" }` snoozes until that local day; the task wakes
+  // back to open on its own once until passes. No body = indefinite.
+  app.post("/:id/snooze", async (c) => {
+    const id = parseId(c.req.param("id"));
+    if (!id) return c.json({ error: "bad id" }, 400);
+    const body = (await c.req.json().catch(() => null)) as { until?: unknown } | null;
+    let until: string | null = null;
+    if (body && body.until != null && body.until !== "") {
+      until = typeof body.until === "string" ? parseWhenInput(body.until) : null;
+      if (!until) return c.json({ error: `until must be ${WHEN_INPUT_HINT}` }, 400);
+      if (Date.parse(until) <= Date.now()) return c.json({ error: "until must be in the future" }, 400);
+    }
+    using db = new RelayDB();
+    const task = db.getTask(id);
+    if (!task) return c.json({ error: "not found" }, 404);
+    if (task.status === "snoozed" && (until === null || task.due_at === until)) return c.json(task);
+    db.snoozeTask(id, until);
+    const updated = db.getTask(id);
+    if (updated) {
+      db.recordUndo({
+        op_kind: "snooze",
+        payload: { tasks: [snapshotTask(updated)] },
+        inverse: { tasks: [snapshotTask(task)] },
+      });
+    }
+    return c.json(updated);
+  });
+
+  // --- Run history ------------------------------------------------------
+  app.get("/:id/runs", (c) => {
+    const id = parseId(c.req.param("id"));
+    if (!id) return c.json({ error: "bad id" }, 400);
+    const limitQ = Number(c.req.query("limit") ?? "");
+    const limit = Number.isFinite(limitQ) && limitQ > 0 ? Math.min(200, Math.round(limitQ)) : 20;
+    using db = new RelayDB();
+    if (!db.getTask(id)) return c.json({ error: "not found" }, 404);
+    return c.json(db.listRunsForTask(id, limit));
+  });
+
   return app;
+}
+
+function parseId(raw: string): number | null {
+  const id = Number(raw);
+  return Number.isInteger(id) && id > 0 ? id : null;
 }
 
 function snapshotTask(task: Task) {

@@ -112,8 +112,24 @@ $ relay run 42
 | `created_at` | TEXT | ISO8601 |
 | `updated_at` | TEXT | ISO8601 |
 | `closed_at` | TEXT NULL | ISO8601 |
+| `user_overrides` | TEXT NULL | JSON array。ユーザーが `relay edit` / `PATCH /api/tasks/:id` で編集したフィールド名 (`title` / `body` / `priority` / `prompt` / `files` / `due_at` / `wait_on` / `repo`)。adapter 再 ingest はこれらのフィールドを上書きしない。schema_version 11 で追加 |
 
 UNIQUE: `(source_type, source_id)` で adapter 再 ingest を冪等化。
+
+### ユーザー編集と再 sync (schema_version 11)
+
+- 編集したフィールドは `user_overrides` に記録され、以後の adapter ingest (`upsertTasks` / `classifyTasks`) はそのフィールドだけ既存値を保持する。未編集フィールドは従来どおり upstream に追従する。
+- `reset` (`relay edit --reset title,priority` / `PATCH {"reset": [...]}`) でロックを外すと、次回 sync で upstream の値に戻る。
+- `repo` の編集は `manual` タスクのみ (adapter タスクの repo は source の所在から決まる)。`status` / `assignee` は専用エンドポイントを使う。
+- 編集は undo_log に `op_kind = 'edit'` (変更フィールドの before/after と override 集合) として記録され、⌘Z / `relay undo` で戻せる。
+- snapshot export / import は `user_overrides` も運ぶ。
+
+### snooze と自動復帰
+
+- snoozed タスクの `due_at` は「起床日時」。`relay snooze --until <when>` / `POST /api/tasks/:id/snooze {"until": ...}` / bulk snooze で設定する。
+- `due_at <= now` になった snoozed タスクは自動で `open` に戻る (`wakeSnoozed`)。実行タイミング: `relay sync` 開始時、CLI の `today` / `ls` / `show` / `agenda` / `standup`、Web の `GET /api/today|tasks|counts|agenda|standup|resume-brief` の直前。
+- `until` なしの snooze は無期限。過去の `due_at` を持つタスクを無期限 snooze した場合は、即時復帰を避けるため `due_at` をクリアする (undo で復元可能)。
+- `<when>` 書式: `YYYY-MM-DD` (ローカル 0:00) / ISO datetime / `today` / `tomorrow` / `next-week` (次の月曜) / `mon`..`sun` (次に来るその曜日、当日は翌週) / `+3d` / `+2w` / `+4h`。
 
 `wait_on` 値の意味:
 
@@ -122,7 +138,7 @@ UNIQUE: `(source_type, source_id)` で adapter 再 ingest を冪等化。
 | `self` | 次の行動は自分 (default) | 自分 assignee の issue、code TODO、claude session todo |
 | `reviewer` | コードレビュー待ち | 自分が書いた open PR、レビュー依頼を投げた状態 |
 | `external` | 外部関係者待ち | 他者 assignee の issue、サードパーティ問い合わせ中 |
-| `scheduled` | 日時/イベント待ち | future #TODO: snoozed タスクで due_at が立っているもの (Web UI からの自動推論は未実装) |
+| `scheduled` | 日時/イベント待ち | 日付・イベントを待っているもの。`relay edit --wait-on scheduled` / Web の編集フォームで設定 (自動推論は未実装) |
 
 Today 画面は `wait_on='self'` を上段に常に展開、それ以外を下段の折り畳みに表示する。
 
@@ -736,17 +752,19 @@ merged/closed PR は `--state open` フィルタで外れるため、上記の�
 | `relay agenda [--days 7\|14\|30]` | 期日 / scheduled カレンダー + Overdue |
 | `relay standup [--since 24h\|48h\|7d\|14d\|30d]` | 昨日の close + 今日の自走 + ブロッカー |
 | `relay digest [--since 7d] [--out PATH] [--format md\|json]` | 区間サマリ |
-| `relay ls [--repo X] [--source Y] [--status Z] [--agent W] [-n N]` | フィルタ一覧 |
-| `relay show <id>` | タスク詳細 |
+| `relay ls [--repo X] [--source Y] [--status Z\|all] [--agent W] [-q TEXT] [-n N]` | フィルタ一覧。`-q` は title / body / prompt / repo / source_id の AND 全文検索 (`GET /api/tasks?q=`) |
+| `relay show <id>` | タスク詳細 (prompt / wait_on / 編集済みフィールド / 直近 5 件の run 履歴) |
 | `relay watch <repo> [--interval 5s\|10s\|30s\|1m]` | repo の更新を tail |
 
 ### Lifecycle
 
 | Command | 説明 |
 |---|---|
-| `relay add [--repo X --title ... --assignee A --prompt ... --files a,b --due YYYY-MM-DD --priority N --body ...]` | 手動追加 (引数省略で interactive) |
+| `relay add [--repo X --title ... --assignee A --prompt ... --files a,b --due <when> --wait-on W --priority N --body ...]` | 手動追加 (引数省略で interactive) |
 | `relay assign <id> <agent>` | 担当変更 (`claude-code` / `codex` / `antigravity` / `self` / `human-review`) |
-| `relay close <id>` / `relay snooze <id>` / `relay reopen <id>` | 状態遷移 |
+| `relay close <id>` / `relay snooze <id> [--until <when>]` / `relay reopen <id>` | 状態遷移 (`--until` 付き snooze は自動復帰) |
+| `relay edit <id> [--title --body --priority --prompt --files --due --wait-on --repo --clear-due --clear-prompt --reset F]` | フィールド編集 (`PATCH /api/tasks/:id`)。編集フィールドは sync で保持 |
+| `relay undo [--redo] [--list]` | undo_log の取り消し / やり直し (`POST /api/undo`) |
 | `relay focus [id] [--clear]` | フォーカス set/show/clear |
 | `relay forget <sessionId> [--source claude_session_todo] [--yes]` | セッション由来タスクの物理削除 |
 | `relay prune [--missing-repos] [--source T] [--all-sources] [--include-done] [--yes]` | 消えた repo のタスク整理 (取り消し可) |

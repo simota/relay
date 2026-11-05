@@ -106,6 +106,7 @@ export function buildStandupReport(
 
 export function runStandup(opts: { since?: string; silent?: boolean } = {}): StandupReport {
   const db = new RelayDB();
+  db.wakeSnoozed();
   try {
     const report = buildStandupReport(db, opts);
     if (!opts.silent) printStandup(report);

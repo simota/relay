@@ -33,6 +33,11 @@ CREATE TABLE IF NOT EXISTS tasks (
   created_at    TEXT    NOT NULL,
   updated_at    TEXT    NOT NULL,
   closed_at     TEXT,
+  -- user_overrides: schema v11 JSON array of field names the user edited
+  -- (title, body, priority, prompt, files, due_at, wait_on, repo). Adapter
+  -- re-syncs keep the user's value for these fields instead of overwriting.
+  -- ALTERed onto pre-v11 DBs in runColumnMigrations().
+  user_overrides TEXT,
   UNIQUE (source_type, source_id)
 );
 
@@ -190,6 +195,8 @@ INSERT OR IGNORE INTO schema_version (version, applied_at)
   VALUES (9, datetime('now'));
 INSERT OR IGNORE INTO schema_version (version, applied_at)
   VALUES (10, datetime('now'));
+INSERT OR IGNORE INTO schema_version (version, applied_at)
+  VALUES (11, datetime('now'));
 `;
 
 export interface UndoLogRow {

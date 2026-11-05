@@ -57,6 +57,11 @@ export function runColumnMigrations(db: Database): void {
   if (!taskCols.some((c) => c.name === "wait_on")) {
     db.exec(`ALTER TABLE tasks ADD COLUMN wait_on TEXT NOT NULL DEFAULT 'self'`);
   }
+  // schema_version 11: tasks.user_overrides. Nullable JSON array of fields
+  // the user edited; NULL (= no overrides) for every pre-v11 row.
+  if (!taskCols.some((c) => c.name === "user_overrides")) {
+    db.exec(`ALTER TABLE tasks ADD COLUMN user_overrides TEXT`);
+  }
 
   // schema_version 4: sessions.status. Pre-v4 DBs already have the sessions
   // table from v3 but no status column; backfill defaults all existing rows

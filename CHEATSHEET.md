@@ -3,6 +3,7 @@
 CLI と Web UI の早見表。インストールは `INSTALL.md`、Web UI 詳細は `HOTKEYS.md` を参照。
 
 凡例: `<id>` 必須, `[id]` 任意, `--flag` フラグ, `*` 破壊的 / 確認推奨。
+`<when>` = `YYYY-MM-DD` / ISO datetime / `today` / `tomorrow` / `next-week` / `mon`..`sun` / `+3d` / `+2w` / `+4h`。
 
 ## Setup / Diagnostics
 
@@ -34,20 +35,22 @@ CLI と Web UI の早見表。インストールは `INSTALL.md`、Web UI 詳細
 | `relay agenda [--days 7\|14\|30]` | due_at / scheduled タスクのカレンダー + Overdue。 |
 | `relay standup [--since 24h\|48h\|7d\|14d\|30d]` | 昨日のクローズ・今日の自走・ブロッカー。 |
 | `relay digest [--since 7d] [--out <path>] [--format md\|json]` | 区間サマリを Markdown / JSON で。 |
-| `relay ls [--repo X] [--source S] [--status open\|done\|snoozed] [--agent A] [-n N]` | フィルタ付き一覧。 |
-| `relay show <id>` | タスク詳細 (prompt / files / session 紐付け含む)。 |
+| `relay ls [--repo X] [--source S] [--status open\|done\|snoozed\|all] [--agent A] [-q text] [-n N]` | フィルタ付き一覧。`-q/--grep` は title / body / prompt / repo / source_id の全文検索 (指定時は全 status 対象)。 |
+| `relay show <id>` | タスク詳細 (prompt / files / wait_on / 編集済みフィールド / 直近の agent run 履歴 / session 紐付け)。 |
 | `relay watch <repo> [--interval 5s\|10s\|30s\|1m]` | repo のタスク変動をリアルタイム tail。 |
 
 ## Lifecycle
 
 | Command | 用途 |
 |---|---|
-| `relay add [--repo X --title "..." --assignee A --prompt "..." --files a,b --due YYYY-MM-DD --priority 0-100 --body "..."]` | 手動追加。引数なしで対話モード。 |
+| `relay add [--repo X --title "..." --assignee A --prompt "..." --files a,b --due <when> --wait-on W --priority 0-100 --body "..."]` | 手動追加。引数なしで対話モード。 |
+| `relay edit <id> [--title --body --priority --prompt --files --due <when> --wait-on W --repo] [--clear-due] [--clear-prompt] [--reset f1,f2]` | タスクを編集。編集したフィールドは `relay sync` で上書きされない (`--reset` で adapter に返す)。`--repo` は manual のみ。 |
 | `relay assign <id> <agent>` | 担当変更 (`claude-code` / `codex` / `antigravity` / `self` / `human-review`)。 |
 | `relay close <id>` | done に。 |
-| `relay snooze <id>` | snooze に。 |
+| `relay snooze <id> [--until <when>]` | snooze に。`--until` 指定時はその日時を過ぎると自動で open に戻る。 |
 | `relay reopen <id>` | snooze / done → open に戻す。 |
 | `relay focus [id] [--clear]` | 今フォーカス中のタスクを set / show / clear。 |
+| `relay undo [--redo] [--list]` | 直前の変更 (close / snooze / reopen / assign / edit / bulk / prune) を取り消し。Web の ⌘Z と同じ undo log。 |
 | `relay forget <sessionId> [--source claude_session_todo] [--yes]` * | 特定セッションから入ったタスクを物理削除。 |
 | `relay prune [--missing-repos] [--source T] [--all-sources] [--include-done] [--yes]` * | repo が消えたタスクを整理。`--yes` で無対話。 |
 
@@ -95,7 +98,8 @@ Web UI のキーバインドは `HOTKEYS.md`。最頻出だけ抜粋:
 | `g r` / `g c` / `g n` / `g v` | Repos / Contexts / New task / View session |
 | `j` / `k` | 次/前タスク |
 | `/` | filter focus |
-| `r` / `s` / `c` / `o` / `a` | run コピー / snooze / close / reopen / assignee |
+| `r` / `s` / `c` / `o` / `a` | run コピー / snooze / close / reopen / queue 追加 |
+| `e` / `⇧S` | 選択タスクを編集 / 明日まで snooze |
 | `R` | sync |
 | `⌘K` / `Ctrl+K` | command palette |
 

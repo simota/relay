@@ -18,7 +18,8 @@ import { runForget } from "./commands/forget.js";
 import { runImport, type ImportKind } from "./commands/import.js";
 import { runPrune } from "./commands/prune.js";
 import { runMaintain } from "./commands/maintain.js";
-import { runAssign, runClose, runSnooze, runReopen } from "./commands/mutate.js";
+import { runAssign, runClose, runReopen } from "./commands/mutate.js";
+import { runEdit, runSnoozeUntil, runUndo } from "./commands/edit.js";
 import {
   runContextEdit,
   runContextList,
@@ -150,10 +151,12 @@ program
   .option("--source <name>")
   .option("--status <name>")
   .option("--agent <name>")
+  .option("-q, --grep <text>", "search title / body / prompt / repo / source id (all statuses unless --status)")
   .option("-n, --limit <n>")
   .description("List tasks with filters.")
   .action((opts) => {
     runList({
+      q: opts.grep,
       repo: opts.repo,
       source: opts.source,
       status: opts.status,
@@ -226,7 +229,8 @@ program
   .option("--assignee <name>", "claude-code | codex | antigravity | self | human-review")
   .option("--prompt <text>")
   .option("--files <list>", "comma-separated paths")
-  .option("--due <date>", "YYYY-MM-DD or ISO datetime")
+  .option("--due <date>", "YYYY-MM-DD, ISO datetime, tomorrow, next-week, mon..sun, +3d")
+  .option("--wait-on <who>", "self | reviewer | external | scheduled")
   .option("--priority <n>", "0-100", "50")
   .description("Add a manual task (interactive when flags are missing).")
   .action(async (opts) => {
@@ -242,9 +246,38 @@ program
 
 program
   .command("snooze <id>")
-  .description("Snooze a task.")
-  .action((id) => {
-    runSnooze(Number(id));
+  .option("--until <when>", "wake date: YYYY-MM-DD, tomorrow, next-week, mon..sun, +3d, +4h")
+  .description("Snooze a task (indefinitely, or until a date — it reopens on its own).")
+  .action((id, opts) => {
+    runSnoozeUntil(Number(id), opts.until);
+  });
+
+program
+  .command("edit <id>")
+  .option("--title <text>")
+  .option("--body <text>")
+  .option("--priority <n>", "0-100")
+  .option("--prompt <text>", "prompt handed to the agent by `relay run`")
+  .option("--clear-prompt", "remove the prompt")
+  .option("--files <list>", "comma-separated paths (replaces the list; empty string clears)")
+  .option("--due <when>", "YYYY-MM-DD, ISO datetime, tomorrow, next-week, mon..sun, +3d")
+  .option("--clear-due", "remove the due date")
+  .option("--wait-on <who>", "self | reviewer | external | scheduled")
+  .option("--repo <name>", "move a manual task to another repo")
+  .option("--reset <fields>", "comma-separated fields to hand back to the adapter on next sync")
+  .description("Edit a task. Edited fields survive `relay sync`; undo with `relay undo`.")
+  .action((id, opts) => {
+    runEdit(Number(id), opts);
+  });
+
+program
+  .command("undo")
+  .option("--redo", "re-apply the most recently undone change")
+  .option("--list", "show the recent undo log")
+  .option("-n, --limit <n>", "rows for --list", "10")
+  .description("Undo the last task change (close / snooze / reopen / assign / edit / bulk / prune).")
+  .action(async (opts) => {
+    await runUndo({ redo: Boolean(opts.redo), list: Boolean(opts.list), limit: Number(opts.limit) || 10 });
   });
 
 program

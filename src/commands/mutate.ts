@@ -2,6 +2,7 @@ import chalk from "chalk";
 import { loadConfig } from "../config.js";
 import { RelayDB } from "../db/client.js";
 import { Assignee, type Task } from "../types.js";
+import { runSnoozeUntil } from "./edit.js";
 
 export function deriveCloseHint(
   task: Pick<Task, "source_type" | "source_id">,
@@ -55,22 +56,9 @@ export function runClose(id: number): void {
   }
 }
 
+/** Indefinite snooze; `relay snooze --until` goes through runSnoozeUntil. */
 export function runSnooze(id: number): void {
-  const db = new RelayDB();
-  const task = db.getTask(id);
-  if (!task) {
-    console.log(chalk.red(`task #${id} not found`));
-    db.close();
-    process.exit(1);
-  }
-  if (task.status === "snoozed") {
-    console.log(chalk.gray(`#${id} already snoozed`));
-    db.close();
-    return;
-  }
-  setStatusWithUndo(db, task, "snoozed", "snooze");
-  db.close();
-  console.log(chalk.yellow(`⏸ snoozed #${id}: ${task.title}`));
+  runSnoozeUntil(id, undefined);
 }
 
 export function runReopen(id: number): void {

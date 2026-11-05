@@ -73,6 +73,9 @@ relay run <task-id>                        # 該当 repo に agent を起動 (Cl
 - **コンテキスト** — repo snapshot save / restore、Stop hook での自動退避、JSON export/import
 - **Web UI** — `/insights` アナリティクスダッシュボード、18 種のテーマプリセット (paper / mist / midnight / solar / washi / blueprint / nord / sakura / amber / hc-dark / hc-light など)、compositor-safe アニメーション、セッション詳細での新着メッセージハイライト + GFM テーブル / Mermaid レンダリング
 - **UX** — g-leader キーマップ、fuzzy filter、wait_on による二段組 today view、SSE 同期進捗
+- **タスク編集** — `relay edit` / Web の `e` で title・priority・due・wait_on・prompt・files を編集。編集したフィールドは再 sync で上書きされず (`--reset` で upstream に返却)、⌘Z / `relay undo` で取り消し可能 (schema v11)
+- **Snooze until** — `relay snooze --until tomorrow|+3d|fri|YYYY-MM-DD` / Web の snooze メニュー・`⇧S`。期限が来ると自動で open に復帰
+- **検索と履歴** — `relay ls -q` と ⌘K パレットで done / snoozed を含む全タスクをサーバー側全文検索、`relay show` と Web 詳細にエージェント run 履歴
 
 ## Accessibility
 
