@@ -39,6 +39,9 @@ export interface QueueItem {
   repo: string;
   prompt: string | null;
   added_at: string;
+  title: string;
+  assignee: string;
+  status: string;
 }
 
 export interface ReviewTasks {

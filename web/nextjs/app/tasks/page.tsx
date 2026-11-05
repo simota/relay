@@ -11,7 +11,7 @@ import { TaskDetail } from "@/components/task-detail";
 import { ResumeBrief } from "@/components/resume-brief";
 import { useUndoToast } from "@/components/toast";
 import { fuzzyMatchMulti } from "@/lib/fuzzy";
-import type { SourceType, Status, Task } from "@/lib/types";
+import type { Assignee, SourceType, Status, Task } from "@/lib/types";
 import type { ViewFilter } from "@/lib/api";
 import type { Filtered } from "@/lib/fuzzy";
 import { parseFilterDsl, type FilterDslAst } from "@/lib/filter-dsl";
@@ -211,18 +211,27 @@ function TasksInner() {
   }, [selected]);
 
   const bulkMutate = useCallback(
-    async (action: "snooze" | "close", ids: number[]) => {
+    async (action: "snooze" | "close" | "queue" | "assign", ids: number[], assignee?: Assignee) => {
       if (!ids.length) return;
       try {
         if (action === "snooze") {
           await api.bulk({ action, ids, until: nextWeekUntil() });
+        } else if (action === "assign") {
+          if (!assignee) return;
+          await api.bulk({ action, ids, assignee });
         } else {
           await api.bulk({ action, ids });
         }
-        setSelectedIds([]);
+        if (action === "queue") {
+          // Queueing keeps the selection's tasks as they are; only the tray changes.
+          await swrMutate("/api/queue");
+          return;
+        }
+        if (action !== "assign") setSelectedIds([]);
         await Promise.all([
           refresh(),
           swrMutate((key) => typeof key === "string" && key.startsWith("/api/counts")),
+          swrMutate("/api/queue"),
         ]);
       } catch (e) {
         console.warn(`bulk ${action} failed`, e);
@@ -233,15 +242,16 @@ function TasksInner() {
   );
 
   const addSelectedToQueue = useCallback(async () => {
-    if (!selected) return;
+    const ids = selectedIds.length > 0 ? selectedIds : selected ? [selected.id] : [];
+    if (ids.length === 0) return;
     try {
-      await api.queue.add(selected.id);
+      await api.queue.addMany(ids);
       await swrMutate("/api/queue");
     } catch (e) {
       console.warn("add to queue failed", e);
       pushError(c("toast.actionFailed", { action: "add to queue" }));
     }
-  }, [pushError, selected, swrMutate]);
+  }, [pushError, selected, selectedIds, swrMutate]);
 
   const saveCurrentView = useCallback(async () => {
     const defaultName = viewDefaultName(taskFilter);
@@ -363,6 +373,8 @@ function TasksInner() {
               onRangeSelect={setSelectedIds}
               onBulkSnooze={(ids) => { void bulkMutate("snooze", ids); }}
               onBulkClose={(ids) => { void bulkMutate("close", ids); }}
+                        onBulkQueue={(ids) => { void bulkMutate("queue", ids); }}
+                        onBulkAssign={(ids, assignee) => { void bulkMutate("assign", ids, assignee); }}
               onBulkOpenChange={setBulkOpen}
             />
           )}

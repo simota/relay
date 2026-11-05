@@ -2,23 +2,14 @@ import { existsSync, readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import chalk from "chalk";
-import { loadConfig } from "../config.js";
+import { loadConfig, type Config as RelayConfig } from "../config.js";
 import { gitSnapshot } from "../context/git.js";
 import { RelayDB, type RelayContext } from "../db/client.js";
 import { buildPrompt, resolveReviewUrl, runTask } from "../executor/index.js";
+import { resolveHeadlessCommand, runTaskHeadless, supportsHeadless } from "../executor/headless.js";
 import { resolveRepoPath } from "../repo-resolver.js";
 import type { SessionType, Task } from "../types.js";
 import { clearFocus, getFocus } from "./focus.js";
-
-export interface RunRunOptions {
-  noTemplate?: boolean;
-  ask?: boolean;
-  dryRun?: boolean;
-  /** When true, leave the focus state intact after this run completes. */
-  keepFocus?: boolean;
-  /** When true, build a fresh prompt even if the task has a session_id. */
-  noResume?: boolean;
-}
 
 /**
  * Clear focus after a `relay run` invocation unless the user asked to keep it.
@@ -31,22 +22,43 @@ function maybeClearFocusAfterRun(taskId: number, keepFocus: boolean): void {
   if (getFocus() === taskId) clearFocus();
 }
 
-export async function runRun(id: number, options: RunRunOptions = {}): Promise<void> {
-  const db = new RelayDB();
-  const task = db.getTask(id);
+export interface RunRunOptions {
+  noTemplate?: boolean;
+  ask?: boolean;
+  dryRun?: boolean;
+  /** When true, leave the focus state intact after this run completes. */
+  keepFocus?: boolean;
+  /** When true, build a fresh prompt even if the task has a session_id. */
+  noResume?: boolean;
+  /** Run the agent non-interactively (`claude -p` / `codex exec`), logging output. */
+  headless?: boolean;
+  /** Headless only: wall-clock limit in minutes (overrides agents.headless_timeout_min). */
+  timeoutMin?: number;
+  /** Close the task when the agent exits successfully. */
+  closeOnSuccess?: boolean;
+}
 
-  if (!task) {
-    console.log(chalk.red(`task #${id} not found`));
-    db.close();
-    process.exit(1);
-  }
+/** Everything resolved before a launch: shared by `relay run` and `relay queue run`. */
+export interface PreparedRun {
+  task: Task;
+  repoRoot: string;
+  preamble?: string;
+  repoTemplate?: string;
+  context: RelayContext | null;
+  willResume: boolean;
+}
 
-  const cfg = loadConfig();
+export type PrepareResult = { ok: true; prepared: PreparedRun } | { ok: false; error: string };
+
+export function prepareRun(
+  db: RelayDB,
+  task: Task,
+  cfg: RelayConfig,
+  options: { noTemplate?: boolean; noResume?: boolean } = {},
+): PrepareResult {
   const repoRoot = resolveRepoPath(task.repo, cfg);
   if (!repoRoot) {
-    console.log(chalk.red(`repo '${task.repo}' not found under scan.roots or scan.tracked_repos`));
-    db.close();
-    process.exit(1);
+    return { ok: false, error: `repo '${task.repo}' not found under scan.roots or scan.tracked_repos` };
   }
 
   // Look up a context preamble. Skipped when an assignee will resume a
@@ -77,85 +89,246 @@ export async function runRun(id: number, options: RunRunOptions = {}): Promise<v
       if (body.length > 0) repoTemplate = body;
     }
   }
+  return { ok: true, prepared: { task, repoRoot, preamble, repoTemplate, context, willResume } };
+}
+
+/**
+ * Why a prepared task cannot be launched in the requested mode, or null
+ * when it can. Checked before a run row is inserted so a non-launch never
+ * shows up as a failed run.
+ */
+export function launchBlocker(task: Task, headless: boolean): string | null {
+  if (headless && !supportsHeadless(task.assignee)) {
+    return `assignee '${task.assignee}' has no headless mode (assign claude-code or codex)`;
+  }
+  if (task.assignee === "human-review" && !resolveReviewUrl(task)) {
+    return `#${task.id} has no http(s) URL to open (source_id or body)`;
+  }
+  return null;
+}
+
+export interface ExecuteOptions {
+  noResume?: boolean;
+  headless?: boolean;
+  timeoutMin?: number;
+  closeOnSuccess?: boolean;
+  /** Headless only: mirror agent output to this terminal (default true). */
+  echo?: boolean;
+}
+
+export interface ExecuteResult {
+  runId: number;
+  status: "success" | "failed" | "interrupted";
+  exitCode: number;
+  summary: string | null;
+  logPath: string | null;
+  closed: boolean;
+}
+
+/**
+ * Launch a prepared task, record the run and its outcome. Never exits the
+ * process: callers decide what a failure means (`relay run` exits with the
+ * agent's code, `relay queue run` moves on or stops).
+ */
+export async function executePrepared(
+  prepared: PreparedRun,
+  cfg: RelayConfig,
+  options: ExecuteOptions = {},
+): Promise<ExecuteResult> {
+  const { task, repoRoot } = prepared;
+  const headless = Boolean(options.headless);
+  const blocker = launchBlocker(task, headless);
+  if (blocker) throw new Error(blocker);
+
+  let runId: number;
+  let priorStatus: Task["status"] = task.status;
+  {
+    using db = new RelayDB();
+    priorStatus = db.getTask(task.id)?.status ?? task.status;
+    runId = db.insertRun(task.id, task.assignee);
+    db.setStatus(task.id, "in_progress");
+  }
+
+  const runOptions = {
+    task,
+    repoRoot,
+    claudeBin: cfg.agents.claude_bin,
+    codexBin: cfg.agents.codex_bin,
+    antigravityBin: cfg.agents.antigravity_bin,
+    contextPreamble: prepared.preamble,
+    repoTemplate: prepared.repoTemplate,
+    noResume: options.noResume,
+  };
+
+  let status: ExecuteResult["status"];
+  let exitCode: number;
+  let summary: string | null = null;
+  let logPath: string | null = null;
+  try {
+    if (headless) {
+      const timeoutMin = options.timeoutMin ?? cfg.agents.headless_timeout_min;
+      const result = await runTaskHeadless(
+        {
+          ...runOptions,
+          claudeHeadlessArgs: cfg.agents.claude_headless_args,
+          codexHeadlessArgs: cfg.agents.codex_headless_args,
+        },
+        { runId, timeoutMs: timeoutMin > 0 ? timeoutMin * 60_000 : undefined, echo: options.echo },
+      );
+      ({ status, exitCode, summary, logPath } = result);
+    } else {
+      ({ status, exitCode } = await runTask(runOptions));
+    }
+  } catch (e) {
+    status = "failed";
+    exitCode = 1;
+    summary = e instanceof Error ? e.message : String(e);
+  }
+  recordRunOutcome(runId, task, repoRoot, status, summary ?? undefined);
+
+  let closed = false;
+  if (status === "success" && options.closeOnSuccess) {
+    using db = new RelayDB();
+    const before = db.getTask(task.id);
+    if (before && before.status !== "done") {
+      db.setStatus(task.id, "done");
+      const after = db.getTask(task.id);
+      if (after) {
+        db.recordUndo({
+          op_kind: "close",
+          payload: { tasks: [statusSnapshot(after)] },
+          inverse: { tasks: [statusSnapshot(before)] },
+        });
+      }
+      closed = true;
+    }
+  }
+  if (status !== "success" && priorStatus !== "in_progress") {
+    // The agent didn't finish: put the task back where it was so it
+    // doesn't sit in 'in_progress' forever (manual tasks never re-sync).
+    using db = new RelayDB();
+    if (db.getTask(task.id)?.status === "in_progress") db.setStatus(task.id, priorStatus);
+  }
+  // After a success the status stays 'in_progress' — next `relay sync`
+  // reconciles from source state (or --close-on-success closed it above).
+  return { runId, status, exitCode, summary, logPath, closed };
+}
+
+function statusSnapshot(task: Task) {
+  return { id: task.id, status: task.status, due_at: task.due_at, closed_at: task.closed_at };
+}
+
+/** The exact prompt the agent receives (null = none / resume without a prompt). */
+export function previewPrompt(prepared: PreparedRun, headless: boolean, noResume = false): string | null {
+  const { task, willResume, preamble, repoTemplate } = prepared;
+  if (headless && supportsHeadless(task.assignee)) {
+    const { args } = resolveHeadlessCommand(task, {
+      task,
+      repoRoot: prepared.repoRoot,
+      contextPreamble: preamble,
+      repoTemplate,
+      noResume,
+    });
+    return args[args.length - 1] ?? null;
+  }
+  // When resuming, the preview reflects what actually launches: claude takes
+  // no prompt (its conversation history rehydrates), codex takes only
+  // task.prompt as a positional appendix (no preamble/template). Otherwise
+  // the full preamble + template + prompt sandwich is what the agent sees.
+  return willResume
+    ? task.assignee === "codex"
+      ? task.prompt
+      : null
+    : buildPrompt(task.prompt, preamble, repoTemplate);
+}
+
+export async function runRun(id: number, options: RunRunOptions = {}): Promise<void> {
+  const db = new RelayDB();
+  const task = db.getTask(id);
+
+  if (!task) {
+    console.log(chalk.red(`task #${id} not found`));
+    db.close();
+    process.exit(1);
+  }
+
+  const cfg = loadConfig();
+  const prep = prepareRun(db, task, cfg, options);
+  if (!prep.ok) {
+    console.log(chalk.red(prep.error));
+    db.close();
+    process.exit(1);
+  }
+  const prepared = prep.prepared;
+  const { repoRoot, preamble, repoTemplate, context, willResume } = prepared;
+  db.close();
 
   const dryRun = Boolean(options.dryRun);
   const ask = Boolean(options.ask);
+  const headless = Boolean(options.headless);
 
   if (dryRun || ask) {
-    // When resuming, the preview reflects what actually launches: claude takes
-    // no prompt (its conversation history rehydrates), codex takes only
-    // task.prompt as a positional appendix (no preamble/template). Otherwise
-    // the full preamble + template + prompt sandwich is what the agent sees.
-    const finalPrompt = willResume
-      ? task.assignee === "codex"
-        ? task.prompt
-        : null
-      : buildPrompt(task.prompt, preamble, repoTemplate);
     printPreview({
       task,
       repoRoot,
-      finalPrompt,
+      finalPrompt: previewPrompt(prepared, headless, options.noResume),
       repoTemplateApplied: !willResume && Boolean(repoTemplate),
       noTemplate: Boolean(options.noTemplate),
       context,
       willResume,
+      headless,
     });
 
     // dry-run wins over ask (lower side-effect surface).
-    if (dryRun) {
-      db.close();
-      process.exit(0);
-    }
+    if (dryRun) process.exit(0);
 
     const shouldLaunch = await confirmLaunch();
     if (!shouldLaunch) {
       console.log(chalk.yellow("✗ cancelled — agent not launched."));
-      db.close();
       process.exit(0);
     }
+  }
+
+  // Fail before marking the task in_progress: the launcher would throw anyway.
+  const blocker = launchBlocker(task, headless);
+  if (blocker) {
+    console.log(chalk.red(`✗ ${blocker}`));
+    process.exit(1);
   }
 
   console.log(
     chalk.cyan(`▶ #${task.id}`) +
       `  ${task.title}\n` +
-      chalk.gray(`   cd ${repoRoot}  (${task.assignee})`) +
+      chalk.gray(`   cd ${repoRoot}  (${task.assignee}${headless ? ", headless" : ""})`) +
       (repoTemplate ? chalk.gray("\n   + .agents/RELAY_PROMPT.md applied") : "") +
       (preamble ? chalk.gray("\n   + context preamble injected") : ""),
   );
 
-  // Fail before marking the task in_progress: the launcher would throw anyway.
-  if (task.assignee === "human-review" && !resolveReviewUrl(task)) {
-    console.log(chalk.red(`✗ #${task.id} has no http(s) URL to open (source_id or body)`));
-    db.close();
-    process.exit(1);
-  }
-
-  const runId = db.insertRun(task.id, task.assignee);
-  db.setStatus(task.id, "in_progress");
-  db.close();
-
   const keepFocus = Boolean(options.keepFocus);
-  try {
-    const result = await runTask({
-      task,
-      repoRoot,
-      claudeBin: cfg.agents.claude_bin,
-      codexBin: cfg.agents.codex_bin,
-      antigravityBin: cfg.agents.antigravity_bin,
-      contextPreamble: preamble,
-      repoTemplate,
-      noResume: options.noResume,
-    });
-    recordRunOutcome(runId, task, repoRoot, result.status);
-    // Status stays 'in_progress' — next `relay sync` reconciles from source state.
-    maybeClearFocusAfterRun(task.id, keepFocus);
-    process.exit(result.exitCode);
-  } catch (e) {
-    recordRunOutcome(runId, task, repoRoot, "failed", e instanceof Error ? e.message : String(e));
-    maybeClearFocusAfterRun(task.id, keepFocus);
-    console.log(chalk.red(`✗ ${e instanceof Error ? e.message : String(e)}`));
-    process.exit(1);
+  const result = await executePrepared(prepared, cfg, {
+    noResume: options.noResume,
+    headless,
+    timeoutMin: options.timeoutMin,
+    closeOnSuccess: options.closeOnSuccess,
+  });
+  maybeClearFocusAfterRun(task.id, keepFocus);
+  if (result.status !== "success" && result.summary && !headless) {
+    console.log(chalk.red(`✗ ${result.summary}`));
   }
+  if (headless) printHeadlessOutcome(result);
+  else if (result.closed) console.log(chalk.green(`✓ #${task.id} closed`));
+  process.exit(result.exitCode);
+}
+
+export function printHeadlessOutcome(result: ExecuteResult): void {
+  const mark =
+    result.status === "success" ? chalk.green("✓") : result.status === "interrupted" ? chalk.yellow("■") : chalk.red("✗");
+  console.log(
+    `\n${mark} run #${result.runId} ${result.status} (exit ${result.exitCode})` +
+      (result.closed ? chalk.green(" · task closed") : "") +
+      (result.logPath ? chalk.gray(`\n   log: ${result.logPath}  (relay runs --log ${result.runId})`) : "") +
+      (result.status !== "success" && result.summary ? chalk.red(`\n   ${result.summary.split("\n").pop()}`) : ""),
+  );
 }
 
 function agentSupportsContextPreamble(assignee: Task["assignee"]): boolean {
@@ -233,17 +406,18 @@ interface PreviewArgs {
   noTemplate: boolean;
   context: RelayContext | null;
   willResume: boolean;
+  headless?: boolean;
 }
 
 function printPreview(args: PreviewArgs): void {
-  const { task, repoRoot, finalPrompt, repoTemplateApplied, noTemplate, context, willResume } = args;
+  const { task, repoRoot, finalPrompt, repoTemplateApplied, noTemplate, context, willResume, headless } = args;
   const divider = chalk.gray("─".repeat(60));
 
   console.log(divider);
   console.log(chalk.cyan(`▶ preview #${task.id}`) + `  ${task.title}`);
   console.log(divider);
   console.log(`${chalk.bold("cwd    ")} ${repoRoot}`);
-  console.log(`${chalk.bold("agent  ")} ${task.assignee}`);
+  console.log(`${chalk.bold("agent  ")} ${task.assignee}${headless ? chalk.gray(" (headless)") : ""}`);
 
   let templateLabel: string;
   if (noTemplate) {

@@ -22,6 +22,10 @@ default = "claude-code"
 claude_bin = "claude"
 codex_bin = "codex"
 antigravity_bin = "agy"
+# Headless runs (relay run --headless, relay queue run --headless):
+# claude_headless_args = ["--permission-mode", "acceptEdits"]
+# codex_headless_args = ["--full-auto"]
+headless_timeout_min = 30
 
 [ui]
 default_view = "today"

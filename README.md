@@ -75,6 +75,7 @@ relay run <task-id>                        # 該当 repo に agent を起動 (Cl
 - **UX** — g-leader キーマップ、fuzzy filter、wait_on による二段組 today view、SSE 同期進捗
 - **タスク編集** — `relay edit` / Web の `e` で title・priority・due・wait_on・prompt・files を編集。編集したフィールドは再 sync で上書きされず (`--reset` で upstream に返却)、⌘Z / `relay undo` で取り消し可能 (schema v11)
 - **Snooze until** — `relay snooze --until tomorrow|+3d|fri|YYYY-MM-DD` / Web の snooze メニュー・`⇧S`。期限が来ると自動で open に復帰
+- **AI ジョブキュー** — `relay queue add/run` と Web の queue tray が同じキューを共有。`relay queue run --headless` で claude-code / codex タスクを無人で順次実行し、出力は run ごとにログ保存 (`relay runs --log`、Web 詳細で展開)。Web から一括 queue / 一括 assign、tray で並べ替え
 - **検索と履歴** — `relay ls -q` と ⌘K パレットで done / snoozed を含む全タスクをサーバー側全文検索、`relay show` と Web 詳細にエージェント run 履歴
 
 ## Accessibility

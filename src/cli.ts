@@ -11,6 +11,8 @@ import { runDigest } from "./commands/digest.js";
 import { runAgenda } from "./commands/agenda.js";
 import { runRun } from "./commands/run.js";
 import { runFocus } from "./commands/focus.js";
+import { runQueueAdd, runQueueClear, runQueueList, runQueueRemove, runQueueRun } from "./commands/queue.js";
+import { runRuns } from "./commands/runs.js";
 import { runAdd } from "./commands/add.js";
 import { runBackfill } from "./commands/backfill.js";
 import { runExport } from "./commands/export.js";
@@ -32,6 +34,26 @@ import { DOCTOR_STRICT_FLAG, runDoctor } from "./commands/doctor.js";
 import { parseInterval, runWatch } from "./commands/watch.js";
 
 const program = new Command();
+
+function parseIds(raw: string[]): number[] {
+  const ids = raw.flatMap((value) => value.split(",")).filter(Boolean).map((value) => Number(value.replace(/^#/, "")));
+  const bad = ids.find((id) => !Number.isInteger(id) || id <= 0);
+  if (bad !== undefined || ids.length === 0) {
+    console.error(chalk.red(`invalid task id(s): ${raw.join(" ")}`));
+    process.exit(1);
+  }
+  return ids;
+}
+
+function parseTimeout(raw: unknown): number | undefined {
+  if (raw === undefined) return undefined;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < 0) {
+    console.error(chalk.red(`invalid --timeout: ${String(raw)} (minutes, 0 = none)`));
+    process.exit(1);
+  }
+  return value;
+}
 
 program
   .name("relay")
@@ -180,6 +202,9 @@ program
   .option("--dry-run", "preview prompt without launching")
   .option("--keep-focus", "do not clear focus state after this run completes")
   .option("--no-resume", "build a fresh prompt instead of resuming the prior session")
+  .option("--headless", "run unattended (claude -p / codex exec); output is logged under ~/.relay/runs/")
+  .option("--timeout <min>", "headless: kill the agent after N minutes (default agents.headless_timeout_min)")
+  .option("--close-on-success", "close the task when the agent exits 0")
   .action(async (id, opts) => {
     await runRun(Number(id), {
       noTemplate: opts.template === false,
@@ -187,6 +212,87 @@ program
       dryRun: Boolean(opts.dryRun),
       keepFocus: Boolean(opts.keepFocus),
       noResume: opts.resume === false,
+      headless: Boolean(opts.headless),
+      timeoutMin: parseTimeout(opts.timeout),
+      closeOnSuccess: Boolean(opts.closeOnSuccess),
+    });
+  });
+
+const queue = program
+  .command("queue")
+  .description("AI job queue: line up tasks and run them in order (shared with the Web UI tray).")
+  .action(() => {
+    runQueueList();
+  });
+queue
+  .command("ls")
+  .description("List queued tasks in run order.")
+  .action(() => {
+    runQueueList();
+  });
+queue
+  .command("add <ids...>")
+  .option("--front", "put the tasks at the head of the queue")
+  .option("--assign <agent>", "also assign them (claude-code | codex | antigravity | self | human-review)")
+  .description("Queue tasks by id (re-adding a queued task does not duplicate it).")
+  .action((ids: string[], opts) => {
+    runQueueAdd(parseIds(ids), { front: Boolean(opts.front), assign: opts.assign });
+  });
+queue
+  .command("rm <ids...>")
+  .description("Remove tasks (by task id) from the queue.")
+  .action((ids: string[]) => {
+    runQueueRemove(parseIds(ids));
+  });
+queue
+  .command("clear")
+  .description("Empty the queue.")
+  .action(() => {
+    runQueueClear();
+  });
+queue
+  .command("run")
+  .option("--headless", "run each task unattended (claude -p / codex exec) and log its output")
+  .option("--dry-run", "show what would launch, in order, without launching")
+  .option("-n, --limit <n>", "launch at most N tasks")
+  .option("--continue-on-error", "keep going after a failed run (default: stop)")
+  .option("--keep", "leave tasks in the queue after a successful run")
+  .option("--close-on-success", "close each task whose agent exits 0")
+  .option("--timeout <min>", "headless: per-task limit in minutes (default agents.headless_timeout_min)")
+  .option("--no-template", "skip <repo>/.agents/RELAY_PROMPT.md")
+  .option("--no-resume", "build fresh prompts instead of resuming prior sessions")
+  .description("Run queued tasks in order; successful ones leave the queue.")
+  .action(async (opts) => {
+    await runQueueRun({
+      headless: Boolean(opts.headless),
+      dryRun: Boolean(opts.dryRun),
+      limit: opts.limit ? Number(opts.limit) : undefined,
+      continueOnError: Boolean(opts.continueOnError),
+      keep: Boolean(opts.keep),
+      closeOnSuccess: Boolean(opts.closeOnSuccess),
+      timeoutMin: parseTimeout(opts.timeout),
+      noTemplate: opts.template === false,
+      noResume: opts.resume === false,
+    });
+  });
+
+program
+  .command("runs")
+  .option("--task <id>", "only runs of this task")
+  .option("--status <s>", "running | success | failed | interrupted")
+  .option("--agent <name>")
+  .option("-n, --limit <n>", "rows (default 20)")
+  .option("--log <runId>", "print the captured output of a headless run")
+  .option("--json", "machine-readable output")
+  .description("Agent run history across tasks; --log shows a headless run's output.")
+  .action((opts) => {
+    runRuns({
+      task: opts.task ? parseIds([opts.task])[0] : undefined,
+      status: opts.status,
+      agent: opts.agent,
+      limit: opts.limit ? Number(opts.limit) : undefined,
+      log: opts.log ? parseIds([opts.log])[0] : undefined,
+      json: Boolean(opts.json),
     });
   });
 

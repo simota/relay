@@ -64,6 +64,25 @@ CLI と Web UI の早見表。インストールは `INSTALL.md`、Web UI 詳細
 | `relay run <id> --no-template` | `<repo>/.agents/RELAY_PROMPT.md` を使わず素プロンプト。 |
 | `relay run <id> --no-resume` | 直前セッションを再開せず新規プロンプト。 |
 | `relay run <id> --keep-focus` | 完了後に focus を解除しない。 |
+| `relay run <id> --headless [--timeout <min>]` | 非対話実行 (`claude -p` / `codex exec`)。出力は `~/.relay/runs/<run>.log`。 |
+| `relay run <id> --close-on-success` | agent が exit 0 なら task を close (⌘Z / `relay undo` 可)。 |
+
+## Queue (AI job queue)
+
+Web の queue tray (`a` / bulk `a`) と共有。
+
+| Command | 用途 |
+|---|---|
+| `relay queue` / `relay queue ls` | 実行順に一覧。 |
+| `relay queue add <ids...> [--front] [--assign codex]` | 追加 (重複なし)。`--front` で先頭、`--assign` で担当も一括変更。 |
+| `relay queue rm <ids...>` / `relay queue clear` | 除去 / 全消去。 |
+| `relay queue run` | 先頭から順に起動。成功分は queue から外れる。失敗で停止。 |
+| `relay queue run --headless [--continue-on-error] [--close-on-success] [-n N] [--timeout <min>]` | 無人で一括実行 (claude-code / codex)。 |
+| `relay queue run --dry-run` | 起動順と prompt だけ確認。 |
+| `relay runs [--task <id>] [--status failed] [-n N] [--json]` | run 履歴 (所要時間・出力末尾)。 |
+| `relay runs --log <run-id>` | headless run の出力ログ全体。 |
+
+headless の権限は `~/.relay/config.toml` の `[agents]` で: `claude_headless_args = ["--permission-mode", "acceptEdits"]`, `codex_headless_args = ["--full-auto"]`, `headless_timeout_min = 30`。
 
 ## Context (repo snapshot)
 

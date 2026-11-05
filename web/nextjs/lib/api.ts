@@ -58,7 +58,31 @@ export interface QueueItem {
   repo: string;
   prompt: string | null;
   added_at: string;
+  title: string;
+  assignee: string;
+  status: string;
 }
+
+/** A row of GET /api/runs: a run joined with its task. */
+export interface RunListItem extends TaskRun {
+  task_id: number;
+  task_title: string;
+  repo: string;
+  has_log: boolean;
+}
+
+export interface RunLog {
+  run: Omit<RunListItem, "has_log">;
+  text: string;
+  truncated: boolean;
+  bytes: number;
+}
+
+export type BulkInput =
+  | { action: "snooze"; ids: number[]; until: string }
+  | { action: "close"; ids: number[] }
+  | { action: "queue"; ids: number[] }
+  | { action: "assign"; ids: number[]; assignee: Assignee };
 
 export interface CreateTaskInput {
   repo: string;
@@ -459,10 +483,31 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ ids }),
     }),
-  bulk: (input: { action: "snooze"; ids: number[]; until: string } | { action: "close"; ids: number[] }) =>
-    input.action === "snooze"
-      ? api.bulkSnooze(input.ids, input.until)
-      : api.bulkClose(input.ids),
+  bulkAssign: (ids: number[], assignee: Assignee) =>
+    request<{ ok: true; count: number }>("/api/tasks/bulk/assign", {
+      method: "POST",
+      body: JSON.stringify({ ids, assignee }),
+    }),
+  bulk: (input: BulkInput): Promise<{ ok: true; count: number }> => {
+    switch (input.action) {
+      case "snooze":
+        return api.bulkSnooze(input.ids, input.until);
+      case "close":
+        return api.bulkClose(input.ids);
+      case "queue":
+        return api.queue.addMany(input.ids);
+      case "assign":
+        return api.bulkAssign(input.ids, input.assignee);
+    }
+  },
+  runs: (params: { status?: string; taskId?: number; limit?: number } = {}) => {
+    const q = new URLSearchParams();
+    if (params.status) q.set("status", params.status);
+    if (params.taskId) q.set("task_id", String(params.taskId));
+    q.set("limit", String(params.limit ?? 50));
+    return request<RunListItem[]>(`/api/runs?${q.toString()}`);
+  },
+  runLog: (runId: number) => request<RunLog>(`/api/runs/${runId}/log`),
   undo: (redo = false) =>
     request<{ ok: true; id?: number; op_kind?: string; count?: number; undone: boolean; redone: boolean }>(
       `/api/undo${redo ? "?redo=1" : ""}`,
@@ -475,6 +520,16 @@ export const api = {
       request<{ id: number }>("/api/queue/items", {
         method: "POST",
         body: JSON.stringify({ task_id: id }),
+      }),
+    addMany: (ids: number[], front = false) =>
+      request<{ ok: true; count: number; missing: number[] }>("/api/queue/items", {
+        method: "POST",
+        body: JSON.stringify({ task_ids: ids, front }),
+      }),
+    move: (id: number, direction: "up" | "down" | "front") =>
+      request<{ ok: true; moved: boolean }>(`/api/queue/items/${id}/move`, {
+        method: "POST",
+        body: JSON.stringify({ direction }),
       }),
     remove: (id: number) =>
       request<{ ok: true }>(`/api/queue/items/${id}`, { method: "DELETE" }),
