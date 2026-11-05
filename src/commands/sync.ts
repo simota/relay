@@ -62,6 +62,12 @@ export async function runSync(opts: SyncOptions = {}): Promise<SyncReport> {
   if (!opts.dryRun) migrateLegacyConfig();
   const cfg = loadConfig();
   const db = new RelayDB();
+  if (!opts.dryRun) {
+    // Wake expired snoozes first so the adapters below refresh their
+    // due_at from upstream like any other open task.
+    const woken = db.wakeSnoozed();
+    if (woken.length) log(`⏰ ${woken.length} snoozed task(s) reopened (wake date passed)`);
+  }
 
   let adapters: Adapter[] = opts.source
     ? [findAdapter(opts.source)].filter((a): a is Adapter => Boolean(a))

@@ -4,13 +4,45 @@
 import type { Database } from "bun:sqlite";
 import type { TaskInput } from "../../types.js";
 import type { SnapshotRow, UpsertResult } from "../types.js";
-import { serialize } from "../internal.js";
+import { parseOverrides, serialize } from "../internal.js";
 
 interface ExistingSyncFields {
   repo: string;
   prompt: string | null;
   due_at: string | null;
   status: string;
+  title: string;
+  body: string;
+  priority: number;
+  files: string | null;
+  wait_on: string;
+  user_overrides: string | null;
+}
+
+type SerializedRow = ReturnType<typeof serialize>;
+
+/**
+ * Keep the user's hand-edited values (tasks.user_overrides, schema v11) over
+ * whatever the adapter re-emits, so `relay edit` / PATCH survive the next
+ * sync. Fields without an override still track upstream.
+ */
+function applyOverrides(row: SerializedRow, existing: ExistingSyncFields): SerializedRow {
+  const locked = parseOverrides(existing.user_overrides);
+  if (locked.length === 0) return row;
+  const out = { ...row };
+  for (const field of locked) {
+    switch (field) {
+      case "title": out.title = existing.title; break;
+      case "body": out.body = existing.body; break;
+      case "priority": out.priority = existing.priority; break;
+      case "prompt": out.prompt = existing.prompt; break;
+      case "files": out.files = existing.files; break;
+      case "due_at": out.due_at = existing.due_at; break;
+      case "wait_on": out.wait_on = existing.wait_on as SerializedRow["wait_on"]; break;
+      case "repo": out.repo = existing.repo; break;
+    }
+  }
+  return out;
 }
 
 /**
@@ -37,26 +69,21 @@ export function classifyTasks(
   if (tasks.length === 0) return result;
   const findStmt = db.prepare(
     `SELECT title, body, priority, context_hash, session_id, files, wait_on,
-            repo, prompt, due_at, status
+            repo, prompt, due_at, status, user_overrides
        FROM tasks WHERE source_type = ? AND source_id = ?`,
   );
   const now = new Date().toISOString();
   for (const t of tasks) {
     const existing = findStmt.get(t.source_type, t.source_id) as
       | ({
-          title: string;
-          body: string;
-          priority: number;
           context_hash: string | null;
           session_id: string | null;
-          files: string | null;
-          wait_on: string;
         } & ExistingSyncFields)
       | undefined;
     if (!existing) {
       result.inserted++;
     } else {
-      const row = serialize(t, now);
+      const row = applyOverrides(serialize(t, now), existing);
       const changed =
         existing.title !== row.title ||
         existing.body !== row.body ||
@@ -84,7 +111,7 @@ export function upsertTasks(db: Database, tasks: TaskInput[]): UpsertResult {
 
   const findStmt = db.prepare(
     `SELECT id, title, body, priority, context_hash, session_id, files, wait_on,
-            repo, prompt, due_at, status
+            repo, prompt, due_at, status, user_overrides
        FROM tasks WHERE source_type = ? AND source_id = ?`,
   );
   const insertStmt = db.prepare(`
@@ -107,19 +134,15 @@ export function upsertTasks(db: Database, tasks: TaskInput[]): UpsertResult {
 
   const tx = db.transaction((batch: TaskInput[]) => {
     for (const t of batch) {
-      const row = serialize(t, now);
+      const fresh = serialize(t, now);
       const existing = findStmt.get(t.source_type, t.source_id) as
         | ({
             id: number;
-            title: string;
-            body: string;
-            priority: number;
             context_hash: string | null;
             session_id: string | null;
-            files: string | null;
-            wait_on: string;
           } & ExistingSyncFields)
         | undefined;
+      const row = existing ? applyOverrides(fresh, existing) : fresh;
 
       if (!existing) {
         insertStmt.run(
@@ -195,14 +218,14 @@ export function upsertSnapshot(
     INSERT INTO tasks (
       source_type, source_id, repo, title, body, status, assignee,
       priority, prompt, files, context_hash, session_id, due_at,
-      wait_on, created_at, updated_at, closed_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      wait_on, created_at, updated_at, closed_at, user_overrides
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const updateStmt = db.prepare(`
     UPDATE tasks SET
       repo = ?, title = ?, body = ?, status = ?, assignee = ?, priority = ?,
       prompt = ?, files = ?, session_id = ?, due_at = ?, wait_on = ?,
-      updated_at = ?, closed_at = ?
+      updated_at = ?, closed_at = ?, user_overrides = ?
     WHERE id = ?
   `);
 
@@ -230,6 +253,7 @@ export function upsertSnapshot(
           r.created_at,
           r.updated_at,
           r.closed_at,
+          overridesJson(r.user_overrides),
         );
         result.inserted++;
         continue;
@@ -249,6 +273,7 @@ export function upsertSnapshot(
           r.wait_on || "self",
           r.updated_at,
           r.closed_at,
+          overridesJson(r.user_overrides),
           existing.id,
         );
         result.updated++;
@@ -259,4 +284,8 @@ export function upsertSnapshot(
   });
   tx(rows);
   return result;
+}
+
+function overridesJson(fields: string[] | undefined): string | null {
+  return fields && fields.length > 0 ? JSON.stringify([...new Set(fields)]) : null;
 }

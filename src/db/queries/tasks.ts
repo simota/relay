@@ -76,11 +76,22 @@ export function listTasks(
     context?: string;
     session?: string;
     age?: string;
+    /** Free-text search: every whitespace-separated term must appear in
+     *  the title, body, prompt, repo, or source_id (case-insensitive). */
+    q?: string;
     limit?: number;
   },
 ): Task[] {
   const where: string[] = [];
   const args: Array<string | number> = [];
+  for (const term of searchTerms(filters.q)) {
+    where.push(
+      `(title LIKE ? ESCAPE '\\' OR body LIKE ? ESCAPE '\\' OR COALESCE(prompt, '') LIKE ? ESCAPE '\\'
+        OR repo LIKE ? ESCAPE '\\' OR source_id LIKE ? ESCAPE '\\')`,
+    );
+    const like = `%${term.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`;
+    args.push(like, like, like, like, like);
+  }
   if (filters.repo) {
     where.push("repo = ?");
     args.push(filters.repo);
@@ -89,7 +100,9 @@ export function listTasks(
     where.push("source_type = ?");
     args.push(filters.source);
   }
-  if (filters.status) {
+  if (filters.status === "all") {
+    // no status filter: search across open, snoozed, and done work
+  } else if (filters.status) {
     where.push("status = ?");
     args.push(filters.status);
   } else {
@@ -122,6 +135,12 @@ export function listTasks(
   const stmt = db.prepare(sql);
   const rows = stmt.all(...args) as Array<Record<string, unknown>>;
   return rows.map(hydrate);
+}
+
+/** Split a search query into at most 8 non-empty terms. */
+function searchTerms(q: string | undefined): string[] {
+  if (!q) return [];
+  return q.trim().split(/\s+/).filter(Boolean).slice(0, 8);
 }
 
 export function setStatus(db: Database, id: number, status: string): void {

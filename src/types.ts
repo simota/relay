@@ -154,6 +154,10 @@ export const Task = z.object({
   created_at: z.string(),
   updated_at: z.string(),
   closed_at: z.string().nullable().default(null),
+  // Fields the user edited by hand (schema v11). Adapter re-syncs keep the
+  // user's value for these instead of overwriting them. Always populated
+  // when read from the DB; optional so adapter/test literals can omit it.
+  user_overrides: z.array(z.string()).optional(),
 });
 export type Task = z.infer<typeof Task>;
 
@@ -162,7 +166,37 @@ export const TaskInput = Task.omit({
   created_at: true,
   updated_at: true,
   closed_at: true,
+  user_overrides: true,
 });
+
+/**
+ * Task fields a user may edit after ingest (`PATCH /api/tasks/:id`,
+ * `relay edit`). Status and assignee keep their dedicated transitions.
+ * `repo` is editable on manual tasks only — adapter tasks derive it from
+ * where the source lives.
+ */
+export const EDITABLE_FIELDS = [
+  "title",
+  "body",
+  "priority",
+  "prompt",
+  "files",
+  "due_at",
+  "wait_on",
+  "repo",
+] as const;
+export type EditableField = (typeof EDITABLE_FIELDS)[number];
+
+export interface TaskEdit {
+  title?: string;
+  body?: string;
+  priority?: number;
+  prompt?: string | null;
+  files?: string[];
+  due_at?: string | null;
+  wait_on?: WaitOn;
+  repo?: string;
+}
 export type TaskInput = z.infer<typeof TaskInput>;
 
 export interface ResolvedSource {

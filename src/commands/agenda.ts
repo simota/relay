@@ -174,6 +174,7 @@ export async function buildAgendaReport(
 
 export async function runAgenda(opts: AgendaOptions = {}): Promise<AgendaReport> {
   const db = new RelayDB();
+  db.wakeSnoozed();
   try {
     const report = await buildAgendaReport(db, opts);
     if (!opts.silent) printAgenda(report);

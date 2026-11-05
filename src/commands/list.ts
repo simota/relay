@@ -18,6 +18,8 @@ export interface ListFilters {
   source?: string;
   status?: string;
   agent?: string;
+  /** Free-text search; spans every status unless `status` is given. */
+  q?: string;
   limit?: number;
 }
 
@@ -25,6 +27,7 @@ export function runToday(opts: { limit?: number } = {}): void {
   const cfg = loadConfig();
   const limit = opts.limit ?? cfg.ui.today_limit;
   const db = new RelayDB();
+  reportWoken(db.wakeSnoozed());
 
   // Focus mode short-circuits the normal Today query: when the user has
   // pinned a task, we only ever render that one row regardless of priority
@@ -98,11 +101,14 @@ export function runToday(opts: { limit?: number } = {}): void {
 
 export function runList(filters: ListFilters): void {
   const db = new RelayDB();
+  reportWoken(db.wakeSnoozed());
+  const q = filters.q?.trim() || undefined;
   const tasks = db.listTasks({
     repo: filters.repo,
     source: filters.source,
-    status: filters.status,
+    status: filters.status ?? (q ? "all" : undefined),
     assignee: filters.agent,
+    q,
     limit: filters.limit,
   });
   db.close();
@@ -116,7 +122,9 @@ export function runList(filters: ListFilters): void {
 
 export function runShow(id: number): void {
   const db = new RelayDB();
+  db.wakeSnoozed();
   const task = db.getTask(id);
+  const runs = task ? db.listRunsForTask(id, 5) : [];
   db.close();
 
   if (!task) {
@@ -139,9 +147,28 @@ export function runShow(id: number): void {
   console.log(chalk.gray(`status:   ${task.status}`));
   console.log(chalk.gray(`assignee: ${task.assignee}`));
   console.log(chalk.gray(priorityLine));
-  if (task.due_at) console.log(chalk.gray(`due:      ${task.due_at}`));
+  if (task.wait_on !== "self") console.log(chalk.gray(`wait on:  ${task.wait_on}`));
+  if (task.due_at) {
+    const label = task.status === "snoozed" ? "wakes:   " : "due:     ";
+    console.log(chalk.gray(`${label} ${task.due_at}`));
+  }
   if (task.session_id) console.log(chalk.gray(`session:  ${task.session_id}`));
   if (task.files.length) console.log(chalk.gray(`files:    ${task.files.join(", ")}`));
+  if (task.prompt) console.log(chalk.gray(`prompt:   ${task.prompt.replace(/\s+/g, " ").slice(0, 120)}${task.prompt.length > 120 ? "…" : ""}`));
+  if (task.user_overrides?.length && task.source_type !== "manual") {
+    console.log(
+      chalk.gray(`edited:   ${task.user_overrides.join(", ")} (kept across sync; \`relay edit ${task.id} --reset <fields>\` to release)`),
+    );
+  }
+  if (runs.length) {
+    console.log("");
+    console.log(chalk.gray("runs:"));
+    for (const r of runs) {
+      const tone = r.status === "success" ? chalk.green : r.status === "running" ? chalk.cyan : chalk.red;
+      const summary = r.output_summary ? `  ${firstLine(r.output_summary).slice(0, 80)}` : "";
+      console.log(`  ${tone(r.status.padEnd(8))} ${chalk.gray(r.agent.padEnd(12))} ${chalk.gray(r.started_at)}${chalk.gray(summary)}`);
+    }
+  }
 
   if (effective !== task.priority && decayDays > 0) {
     const history = priorityHistory(task.priority, task.updated_at, decayDays);
@@ -306,4 +333,12 @@ function statusMarker(s: string): string {
 function truncate(s: string, max: number): string {
   if (s.length <= max) return s;
   return s.slice(0, max - 1) + "…";
+}
+
+function reportWoken(ids: number[]): void {
+  if (ids.length === 0) return;
+  console.log(
+    chalk.cyan(`⏰ ${ids.length} snoozed task(s) reached their wake date and are open again: `) +
+      chalk.gray(ids.map((id) => `#${id}`).join(" ")),
+  );
 }

@@ -3,7 +3,8 @@ import { stdin, stdout } from "node:process";
 import chalk from "chalk";
 import { RelayDB } from "../db/client.js";
 import { loadConfig } from "../config.js";
-import { parseDueInput } from "../lib/due-date.js";
+import { parseWhenInput, WHEN_INPUT_HINT } from "../lib/due-date.js";
+import { WaitOn } from "../types.js";
 import { resolveRepoPath } from "../repo-resolver.js";
 import type { Assignee, TaskInput } from "../types.js";
 
@@ -17,6 +18,7 @@ export interface AddOptions {
   prompt?: string;
   files?: string;
   due?: string;
+  waitOn?: string;
   priority?: string | number;
 }
 
@@ -71,6 +73,17 @@ export async function runAdd(opts: AddOptions): Promise<void> {
     process.exit(1);
   }
 
+  const dueAt = normalizeDue(due);
+  if (due && !dueAt) {
+    console.log(chalk.red(`invalid --due: ${due}`) + chalk.gray(`  (use ${WHEN_INPUT_HINT})`));
+    process.exit(1);
+  }
+  const waitOn = WaitOn.safeParse(opts.waitOn ?? "self");
+  if (!waitOn.success) {
+    console.log(chalk.red(`invalid --wait-on: ${opts.waitOn}. Use one of ${WaitOn.options.join(", ")}`));
+    process.exit(1);
+  }
+
   const repoPath = resolveRepoPath(repo, cfg);
   if (!repoPath) {
     console.log(chalk.yellow(`! warning: '${repo}' not found under scan.roots or scan.tracked_repos`));
@@ -89,8 +102,8 @@ export async function runAdd(opts: AddOptions): Promise<void> {
     files,
     context_hash: null,
     session_id: null,
-    due_at: normalizeDue(due),
-    wait_on: "self",
+    due_at: dueAt,
+    wait_on: waitOn.data,
   };
 
   const db = new RelayDB();
@@ -113,6 +126,7 @@ export async function runAdd(opts: AddOptions): Promise<void> {
 
 function normalizeDue(due: string | null | undefined): string | null {
   if (!due) return null;
-  // Accept "YYYY-MM-DD" (local midnight) or an ISO datetime.
-  return parseDueInput(due);
+  // Accept "YYYY-MM-DD" (local midnight), an ISO datetime, or a shorthand
+  // such as "tomorrow" / "+3d" / "fri".
+  return parseWhenInput(due);
 }

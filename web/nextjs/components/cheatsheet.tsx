@@ -33,6 +33,8 @@ const GROUPS = [
   {
     title: c("cheatsheet.action"),
     items: [
+      { keys: ["e"], label: "Edit selected task" },
+      { keys: ["⇧", "S"], label: "Snooze until tomorrow" },
       { keys: ["N"], label: c("cheatsheet.newTask") },
       { keys: ["g", "n"], label: c("cheatsheet.newTask") },
       { keys: ["⌘", "K"], label: c("command.menu") },

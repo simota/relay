@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Copy, Pause, Check, RotateCcw, ExternalLink, ChevronDown } from "lucide-react";
+import { Copy, Check, RotateCcw, ExternalLink, ChevronDown, Pencil, History } from "lucide-react";
 import useSWR from "swr";
 import { api } from "@/lib/api";
 import { c, formatNumber } from "@/lib/copy";
@@ -11,16 +11,62 @@ import { Button } from "@/components/ui/button";
 import { Badge, StatusDot } from "@/components/ui/badge";
 import { Kbd } from "@/components/ui/kbd";
 import { useUndoToast } from "@/components/toast";
+import { SnoozeMenu } from "@/components/snooze-menu";
+import { EditedChip, TaskEditForm } from "@/components/task-edit-form";
+import { useHotkeys } from "@/hooks/use-hotkeys";
 import { sourceTypeToSessionType, stripSessionIdPrefix } from "@/lib/session-link";
-import type { Task, SourceType } from "@/lib/types";
+import type { EditableField, Task, TaskRun, SourceType } from "@/lib/types";
 
 export function TaskDetail({ task, onChange }: { task: Task | null; onChange?: () => void }) {
   const [busy, setBusy] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [savedNote, setSavedNote] = useState<string | null>(null);
   const { pushUndo, pushError } = useUndoToast();
   const { data: contextRow } = useSWR(
     task?.context_hash ? `/api/contexts/${task.context_hash}` : null,
     () => task?.context_hash ? api.context(task.context_hash) : null,
   );
+  const { data: runs = [] } = useSWR<TaskRun[]>(
+    task ? `/api/tasks/${task.id}/runs` : null,
+    () => (task ? api.taskRuns(task.id, 5) : []),
+  );
+
+  // Leaving the task (j/k, list click) abandons an open edit.
+  const taskId = task?.id ?? null;
+  useEffect(() => {
+    setEditing(false);
+    setSavedNote(null);
+  }, [taskId]);
+
+  const snooze = async (until?: string) => {
+    if (!task) return;
+    setBusy("snooze");
+    try {
+      const updated = await api.snooze(task.id, until);
+      pushUndo("snooze", updated ?? task);
+      onChange?.();
+    } catch {
+      pushError(c("toast.actionFailed", { action: "snooze" }));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const resetOverrides = async (fields: EditableField[]) => {
+    if (!task || fields.length === 0) return;
+    try {
+      await api.updateTask(task.id, { reset: fields });
+      setSavedNote(`${fields.length} field(s) handed back to ${task.source_type}; next sync restores them`);
+      onChange?.();
+    } catch {
+      pushError(c("toast.actionFailed", { action: "reset" }));
+    }
+  };
+
+  useHotkeys([
+    { key: "e", handler: (e) => { e.preventDefault(); setEditing(true); }, enabled: Boolean(task) && !editing },
+    { key: "Shift+s", handler: (e) => { e.preventDefault(); void snooze("tomorrow"); }, enabled: Boolean(task) && !editing && task?.status !== "done" },
+  ]);
 
   if (!task) {
     return (
@@ -30,13 +76,9 @@ export function TaskDetail({ task, onChange }: { task: Task | null; onChange?: (
     );
   }
 
-  const handle = async (action: "snooze" | "close" | "reopen") => {
+  const handle = async (action: "close" | "reopen") => {
     setBusy(action);
     try {
-      if (action === "snooze") {
-        await api.snooze(task.id);
-        pushUndo("snooze", task);
-      }
       if (action === "close") {
         await api.close(task.id);
         pushUndo("close", task);
@@ -68,10 +110,38 @@ export function TaskDetail({ task, onChange }: { task: Task | null; onChange?: (
             <Badge source={task.source_type} />
             <span className="tabular ml-auto">#{task.id}</span>
           </div>
-          <h1 className="text-[20px] leading-snug font-semibold tracking-tight text-[var(--color-fg)]">
-            {task.title}
-          </h1>
+          {!editing && (
+            <div className="flex items-start gap-2">
+              <h1 className="flex-1 text-[20px] leading-snug font-semibold tracking-tight text-[var(--color-fg)]">
+                {task.title}
+                {isLocked(task, "title") && <span className="ml-2 align-middle"><EditedChip /></span>}
+              </h1>
+              <Button size="sm" variant="ghost" onClick={() => setEditing(true)} title="Edit task (e)" aria-label="Edit task">
+                <Pencil className="w-3 h-3" />
+                Edit
+                <Kbd className="ml-1">e</Kbd>
+              </Button>
+            </div>
+          )}
+          {savedNote && !editing && (
+            <p role="status" className="text-[11px] text-[var(--color-accent)] font-mono">{savedNote}</p>
+          )}
         </div>
+
+        {editing && (
+          <TaskEditForm
+            key={task.id}
+            task={task}
+            onCancel={() => setEditing(false)}
+            onDone={(updated) => {
+              setEditing(false);
+              setSavedNote(`saved #${updated.id} · ⌘Z to undo`);
+              onChange?.();
+            }}
+          />
+        )}
+
+        {!editing && (<>
 
         {/* why-now */}
         <div className="grid grid-cols-[80px_1fr] gap-y-2 gap-x-4 border-l-2 border-[var(--color-border)] pl-3 text-sm">
@@ -117,9 +187,23 @@ export function TaskDetail({ task, onChange }: { task: Task | null; onChange?: (
               }}
             />
           </MetaRow>
-          <MetaRow label={c("task.priority")} mono>{formatNumber(task.priority)}</MetaRow>
+          <MetaRow label={c("task.priority")} mono>
+            {formatNumber(task.priority)}
+            {isLocked(task, "priority") && <span className="ml-2"><EditedChip /></span>}
+          </MetaRow>
           <MetaRow label={c("task.updated")} mono>{timeAgo(task.updated_at)}</MetaRow>
-          {task.due_at && <MetaRow label={c("task.due")} mono>{formatDue(task.due_at)}</MetaRow>}
+          {task.due_at && (
+            <MetaRow label={task.status === "snoozed" ? "wakes" : c("task.due")} mono>
+              <span title={new Date(task.due_at).toLocaleString()}>{formatDue(task.due_at)}</span>
+              {isLocked(task, "due_at") && <span className="ml-2"><EditedChip /></span>}
+            </MetaRow>
+          )}
+          {task.wait_on !== "self" && (
+            <MetaRow label="wait on" mono>
+              {task.wait_on}
+              {isLocked(task, "wait_on") && <span className="ml-2"><EditedChip /></span>}
+            </MetaRow>
+          )}
           {task.session_id && (
             <MetaRow label={c("task.session")} mono>
               <SessionLink sessionId={task.session_id} sourceType={task.source_type} />
@@ -154,6 +238,29 @@ export function TaskDetail({ task, onChange }: { task: Task | null; onChange?: (
           </div>
         )}
 
+        {task.source_type !== "manual" && task.prompt?.trim() && (
+          <div className="rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-bg)]/50 p-3.5">
+            <DetailBlock label="prompt passed to agent" value={task.prompt.trim()} strong />
+          </div>
+        )}
+
+        {task.source_type !== "manual" && (task.user_overrides?.length ?? 0) > 0 && (
+          <div className="flex flex-wrap items-center gap-2 text-[11px] text-[var(--color-fg-dim)]">
+            <EditedChip />
+            <span>
+              {task.user_overrides!.map(fieldLabel).join(", ")} kept across sync
+            </span>
+            <button
+              type="button"
+              onClick={() => { void resetOverrides(task.user_overrides ?? []); }}
+              className="inline-flex items-center gap-1 text-[var(--color-cool)] hover:text-[var(--color-fg)] hover:underline"
+            >
+              <RotateCcw className="w-3 h-3" aria-hidden />
+              reset to source
+            </button>
+          </div>
+        )}
+
         {/* Context (if linked) */}
         {contextRow && (
           <div className="rounded-[var(--radius-md)] border border-[var(--color-accent)]/30 bg-[var(--color-accent)]/[0.04] p-3.5 space-y-2">
@@ -180,12 +287,8 @@ export function TaskDetail({ task, onChange }: { task: Task | null; onChange?: (
             <Copy className="w-3 h-3" />
             relay run {task.id}
           </Button>
-          {task.status !== "snoozed" && (
-            <Button onClick={() => handle("snooze")} disabled={busy !== null}>
-              <Pause className="w-3 h-3" />
-              {c("common.snooze")}
-              <Kbd className="ml-1">s</Kbd>
-            </Button>
+          {task.status !== "done" && (
+            <SnoozeMenu onSnooze={snooze} disabled={busy !== null} />
           )}
           {task.status !== "done" && (
             <Button onClick={() => handle("close")} disabled={busy !== null}>
@@ -201,8 +304,55 @@ export function TaskDetail({ task, onChange }: { task: Task | null; onChange?: (
             </Button>
           )}
         </div>
+
+        {runs.length > 0 && <RunHistory runs={runs} />}
+        </>)}
       </div>
     </div>
+  );
+}
+
+function isLocked(task: Task, field: EditableField): boolean {
+  return task.source_type !== "manual" && (task.user_overrides ?? []).includes(field);
+}
+
+function fieldLabel(field: EditableField): string {
+  return field === "due_at" ? "due" : field === "wait_on" ? "wait on" : field;
+}
+
+function RunHistory({ runs }: { runs: TaskRun[] }) {
+  return (
+    <section aria-label="Agent runs" className="space-y-1.5">
+      <div className="flex items-center gap-1.5 text-[10.5px] uppercase tracking-wider text-[var(--color-fg-dim)] font-medium">
+        <History className="w-3 h-3" aria-hidden />
+        agent runs
+      </div>
+      <ul className="space-y-1 text-[12px] font-mono">
+        {runs.map((run) => (
+          <li key={run.id} className="flex items-baseline gap-2 min-w-0">
+            <span
+              className={cn(
+                "shrink-0 w-[62px]",
+                run.status === "success"
+                  ? "text-[var(--color-accent)]"
+                  : run.status === "running"
+                    ? "text-[var(--color-cool)]"
+                    : "text-[var(--color-critical)]",
+              )}
+            >
+              {run.status}
+            </span>
+            <span className="shrink-0 text-[var(--color-fg-muted)]">{run.agent}</span>
+            <span className="shrink-0 text-[var(--color-fg-dim)]" title={run.started_at}>{timeAgo(run.started_at)} ago</span>
+            {run.output_summary && (
+              <span className="truncate text-[var(--color-fg-dim)]" title={run.output_summary}>
+                {run.output_summary.split("\n")[0]}
+              </span>
+            )}
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

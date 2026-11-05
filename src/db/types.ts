@@ -23,6 +23,8 @@ export interface SnapshotRow {
   created_at: string;
   updated_at: string;
   closed_at: string | null;
+  /** Hand-edited fields (schema v11); older snapshots omit it. */
+  user_overrides?: string[];
 }
 
 export interface UpsertResult {

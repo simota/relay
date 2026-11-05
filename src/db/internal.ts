@@ -95,7 +95,19 @@ export function hydrate(row: Record<string, unknown>): Task {
     created_at: row.created_at as string,
     updated_at: row.updated_at as string,
     closed_at: (row.closed_at as string | null) ?? null,
+    user_overrides: parseOverrides(row.user_overrides),
   };
+}
+
+/** Decode tasks.user_overrides (JSON array or NULL) defensively. */
+export function parseOverrides(value: unknown): string[] {
+  if (typeof value !== "string" || !value) return [];
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return Array.isArray(parsed) ? parsed.filter((f): f is string => typeof f === "string") : [];
+  } catch {
+    return [];
+  }
 }
 
 export function normalizeViewFilter(filter: ViewFilter): ViewFilter {

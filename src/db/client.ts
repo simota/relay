@@ -10,7 +10,7 @@ import { dirname } from "node:path";
 import { DB_PATH } from "../paths.js";
 import { SCHEMA_SQL } from "./schema.js";
 import type { UndoLogRow } from "./schema.js";
-import type { SessionRow, SessionType, SourceType, Task, TaskInput } from "../types.js";
+import type { EditableField, SessionRow, SessionType, SourceType, Task, TaskEdit, TaskInput } from "../types.js";
 import { runColumnMigrations } from "./migrations.js";
 import { smartViews } from "./internal.js";
 import {
@@ -48,6 +48,16 @@ import {
   upsertSession as _upsertSession,
 } from "./queries/tasks.js";
 import type { CloseSweepOptions } from "./queries/tasks.js";
+import {
+  editTask as _editTask,
+  listRunsForTask as _listRunsForTask,
+  restoreTaskEdit as _restoreTaskEdit,
+  snoozeTask as _snoozeTask,
+  wakeSnoozed as _wakeSnoozed,
+  type TaskEditSnapshot,
+  type TaskRunRow,
+} from "./queries/edits.js";
+export type { TaskEditSnapshot, TaskRunRow } from "./queries/edits.js";
 export { closedSnapshots } from "./queries/tasks.js";
 import {
   countForViewFilter as _countForViewFilter,
@@ -260,6 +270,31 @@ export class RelayDB {
     return _getTask(this.db, id);
   }
 
+  editTask(
+    id: number,
+    patch: TaskEdit,
+    opts: { lock?: boolean; unlock?: EditableField[] } = {},
+  ): ReturnType<typeof _editTask> {
+    return _editTask(this.db, id, patch, opts);
+  }
+
+  restoreTaskEdit(snapshot: TaskEditSnapshot): boolean {
+    return _restoreTaskEdit(this.db, snapshot);
+  }
+
+  /** Re-open snoozed tasks whose snooze-until has passed; returns their ids. */
+  wakeSnoozed(now?: Date): number[] {
+    return _wakeSnoozed(this.db, now);
+  }
+
+  snoozeTask(id: number, until: string | null, now?: Date): void {
+    _snoozeTask(this.db, id, until, now);
+  }
+
+  listRunsForTask(taskId: number, limit?: number): TaskRunRow[] {
+    return _listRunsForTask(this.db, taskId, limit);
+  }
+
   getTasksByIds(ids: number[]): Task[] {
     return _getTasksByIds(this.db, ids);
   }
@@ -272,6 +307,7 @@ export class RelayDB {
     context?: string;
     session?: string;
     age?: string;
+    q?: string;
     limit?: number;
   }): Task[] {
     return _listTasks(this.db, filters);

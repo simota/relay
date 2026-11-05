@@ -2,6 +2,9 @@ import type {
   AgendaReport,
   Assignee,
   Task,
+  TaskEditInput,
+  TaskRun,
+  EditableField,
   Counts,
   RepoStat,
   RelayContext,
@@ -426,7 +429,19 @@ export const api = {
     q.set("limit", String(params.limit ?? 200));
     return request<ContextGraphData>(`/api/contexts/graph?${q}`);
   },
-  snooze: (id: number) => request<Task>(`/api/tasks/${id}/snooze`, { method: "POST" }),
+  snooze: (id: number, until?: string) =>
+    request<Task>(`/api/tasks/${id}/snooze`, {
+      method: "POST",
+      ...(until ? { body: JSON.stringify({ until }) } : {}),
+    }),
+  updateTask: (id: number, input: TaskEditInput) =>
+    request<{ task: Task; changed: EditableField[]; reset: EditableField[] }>(`/api/tasks/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    }),
+  taskRuns: (id: number, limit = 10) => request<TaskRun[]>(`/api/tasks/${id}/runs?limit=${limit}`),
+  searchTasks: (q: string, limit = 20) =>
+    request<Task[]>(`/api/tasks?status=all&q=${encodeURIComponent(q)}&limit=${limit}`),
   close: (id: number) => request<Task>(`/api/tasks/${id}/close`, { method: "POST" }),
   reopen: (id: number) => request<Task>(`/api/tasks/${id}/reopen`, { method: "POST" }),
   reassign: (id: number, assignee: string) =>

@@ -30,15 +30,24 @@ import { clearFocus, getFocus, setFocus } from "../commands/focus.js";
 import { pruneMissingRepos } from "../commands/prune.js";
 import { runSync } from "../commands/sync.js";
 import { loadConfig, resolveScanRoots } from "../config.js";
-import { parseDueInput } from "../lib/due-date.js";
+import { parseWhenInput, WHEN_INPUT_HINT } from "../lib/due-date.js";
 import { resolveRepoPath } from "../repo-resolver.js";
-import { Assignee } from "../types.js";
+import { Assignee, WaitOn } from "../types.js";
 import {
   createRepoPathLookup,
   deriveGithubUrlFromSourceId,
   findMissingRepos,
   readRepoMetadata,
 } from "../repo-metadata.js";
+
+const WAKE_PATHS = new Set([
+  "/api/today",
+  "/api/tasks",
+  "/api/counts",
+  "/api/agenda",
+  "/api/standup",
+  "/api/resume-brief",
+]);
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -107,7 +116,7 @@ export function buildApp(opts: BuildAppOptions = {}) {
       if (LOCAL_ORIGIN_RE.test(origin)) return origin;
       return null;
     },
-    allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowHeaders: ["Content-Type", "Accept"],
   }));
 
@@ -122,6 +131,18 @@ export function buildApp(opts: BuildAppOptions = {}) {
   // clients get through (see isSameSiteRequest).
   app.use("/api/*", async (c, next) => {
     if (!isSameSiteRequest(c)) return c.json({ error: "cross-site request rejected" }, 403);
+    return next();
+  });
+
+  // --- Snooze auto-wake --------------------------------------------------
+  // A snooze with an until date (stored in due_at) ends on its own: before
+  // any read that ranks or counts open work, flip expired snoozes back to
+  // open so they reappear in Today / the sidebar counts without a sync.
+  app.use("/api/*", async (c, next) => {
+    if (c.req.method === "GET" && WAKE_PATHS.has(c.req.path)) {
+      using db = new RelayDB();
+      db.wakeSnoozed();
+    }
     return next();
   });
 
@@ -216,13 +237,14 @@ export function buildApp(opts: BuildAppOptions = {}) {
     const assignee = c.req.query("assignee");
     const context = c.req.query("context");
     const session = c.req.query("session_id");
+    const q = c.req.query("q")?.trim() || undefined;
     const limitQ = Number(c.req.query("limit") ?? "");
     const limit = Number.isFinite(limitQ) && limitQ > 0 ? Math.min(2000, Math.round(limitQ)) : 500;
 
     using db = new RelayDB();
-    const hasFilter = Boolean(status || repo || source || assignee || context || session || age);
+    const hasFilter = Boolean(status || repo || source || assignee || context || session || age || q);
     const tasks = hasFilter
-      ? db.listTasks({ status, repo, source, assignee, context, session, age, limit })
+      ? db.listTasks({ status, repo, source, assignee, context, session, age, q, limit })
       : db.listTasks({ limit });
     return c.json(tasks);
   });
@@ -244,8 +266,12 @@ export function buildApp(opts: BuildAppOptions = {}) {
 
     let dueAt: string | null = null;
     if (body.due_at != null && body.due_at !== "") {
-      dueAt = typeof body.due_at === "string" ? parseDueInput(body.due_at) : null;
-      if (!dueAt) return c.json({ error: "due_at must be YYYY-MM-DD or an ISO datetime" }, 400);
+      dueAt = typeof body.due_at === "string" ? parseWhenInput(body.due_at) : null;
+      if (!dueAt) return c.json({ error: `due_at must be ${WHEN_INPUT_HINT}` }, 400);
+    }
+    const waitOn = WaitOn.safeParse(body.wait_on ?? "self");
+    if (!waitOn.success) {
+      return c.json({ error: `wait_on must be one of: ${WaitOn.options.join(", ")}` }, 400);
     }
 
     const task = {
@@ -267,7 +293,7 @@ export function buildApp(opts: BuildAppOptions = {}) {
       context_hash: null,
       session_id: null,
       due_at: dueAt,
-      wait_on: "self" as const,
+      wait_on: waitOn.data,
     };
 
     using db = new RelayDB();
@@ -288,7 +314,7 @@ export function buildApp(opts: BuildAppOptions = {}) {
 
   // --- Mutations -------------------------------------------------------
   app.route("/api/tasks", createTasksApi());
-  app.post("/api/tasks/:id/snooze", (c) => transitionStatus(c, "snoozed"));
+  // POST /api/tasks/:id/snooze lives in createTasksApi (accepts `until`).
   app.post("/api/tasks/:id/close", (c) => transitionStatus(c, "done"));
   app.post("/api/tasks/:id/reopen", (c) => transitionStatus(c, "open"));
   app.post("/api/tasks/:id/assignee", async (c) => reassign(c));

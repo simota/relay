@@ -129,6 +129,9 @@ function runRelaySnapshotImport(raw: string, opts: ImportOptions): void {
     created_at: String(t.created_at ?? new Date().toISOString()),
     updated_at: String(t.updated_at ?? new Date().toISOString()),
     closed_at: (t.closed_at as string | null) ?? null,
+    user_overrides: Array.isArray(t.user_overrides)
+      ? (t.user_overrides as unknown[]).filter((f): f is string => typeof f === "string")
+      : [],
   }));
 
   if (opts.dryRun) {
