@@ -218,12 +218,17 @@ export interface SessionsByTypeResponse {
 // --- 60s in-memory cache --------------------------------------------------
 
 const CACHE_TTL_MS = 60_000;
+// The key includes the raw query string, so arbitrary params (e.g. a
+// `?_=<timestamp>` cache-buster) each get a slot. Bound the map and sweep
+// expired entries so a long-running `relay web` cannot grow it forever.
+export const INSIGHTS_CACHE_MAX_ENTRIES = 256;
 const cache = new Map<string, { value: unknown; expiresAt: number }>();
 
 function cacheKey(c: Context): string {
-  // `c.req.url` includes the querystring, so the same path with different
-  // query values gets its own cache slot.
-  return new URL(c.req.url).pathname + "?" + new URL(c.req.url).search;
+  // pathname + search (search already starts with "?" when present), so the
+  // same path with different query values gets its own cache slot.
+  const url = new URL(c.req.url);
+  return url.pathname + url.search;
 }
 
 function withCache<T>(c: Context, compute: () => T): T {
@@ -234,8 +239,23 @@ function withCache<T>(c: Context, compute: () => T): T {
     return hit.value as T;
   }
   const value = compute();
+  if (!hit && cache.size >= INSIGHTS_CACHE_MAX_ENTRIES) {
+    for (const [k, entry] of cache) {
+      if (entry.expiresAt <= now) cache.delete(k);
+    }
+    // Still full of live entries: drop the oldest insertion (Map order).
+    if (cache.size >= INSIGHTS_CACHE_MAX_ENTRIES) {
+      const oldest = cache.keys().next().value;
+      if (oldest !== undefined) cache.delete(oldest);
+    }
+  }
   cache.set(key, { value, expiresAt: now + CACHE_TTL_MS });
   return value;
+}
+
+/** Test hook: current number of cached insight responses. */
+export function insightsCacheSize(): number {
+  return cache.size;
 }
 
 // --- API ------------------------------------------------------------------
@@ -253,9 +273,8 @@ export function createInsightsApi() {
       return c.json({ error: "source must be a valid source type" }, 400);
     }
 
-    const db = new RelayDB();
+    using db = new RelayDB();
     const heatmap = db.heatmap(range, sources);
-    db.close();
     return c.json(heatmap);
   });
 
@@ -264,9 +283,8 @@ export function createInsightsApi() {
     const period = parseWfrPeriod(c.req.query("period"));
     if (!period) return c.json({ error: "period must be 8w or 12w" }, 400);
     const value = withCache<WfrResponse>(c, () => {
-      const db = new RelayDB();
+      using db = new RelayDB();
       const rows = db.insightsWfr(period === "8w" ? 8 : 12);
-      db.close();
       const weeks = rows.map((r) => {
         const denomA = r.closed_n + r.opened_n;
         const ratioA = denomA === 0 ? 0 : r.closed_n / denomA;
@@ -292,9 +310,8 @@ export function createInsightsApi() {
     const win = parseWindow(c.req.query("window"), "7d", ["7d", "30d"]);
     if (!win) return c.json({ error: "window must be 7d or 30d" }, 400);
     const value = withCache<ThroughputResponse>(c, () => {
-      const db = new RelayDB();
+      using db = new RelayDB();
       const { closed, opened } = db.insightsThroughput(win.days);
-      db.close();
       const denom = closed + opened;
       const ratio = denom === 0 ? 0 : Number((closed / denom).toFixed(4));
       return { window: win.label, closed, opened, ratio };
@@ -309,9 +326,8 @@ export function createInsightsApi() {
       return c.json({ error: "threshold must be 7, 14, or 30" }, 400);
     }
     const value = withCache<StaleResponse>(c, () => {
-      const db = new RelayDB();
+      using db = new RelayDB();
       const { stale, open_total } = db.insightsStale(threshold);
-      db.close();
       const ratio = open_total === 0 ? 0 : Number((stale / open_total).toFixed(4));
       return { threshold_days: threshold, stale, open_total, ratio };
     });
@@ -323,9 +339,8 @@ export function createInsightsApi() {
     const win = parseWindow(c.req.query("window"), "7d", ["7d", "30d"]);
     if (!win) return c.json({ error: "window must be 7d or 30d" }, 400);
     const value = withCache<TouchedResponse>(c, () => {
-      const db = new RelayDB();
+      using db = new RelayDB();
       const { active, total } = db.insightsTouched(win.days);
-      db.close();
       return { window: win.label, active, total };
     });
     return c.json(value);
@@ -334,9 +349,8 @@ export function createInsightsApi() {
   // 5. wait_age -------------------------------------------------------
   app.get("/wait_age", (c) => {
     const value = withCache<WaitAgeResponse>(c, () => {
-      const db = new RelayDB();
+      using db = new RelayDB();
       const ages = db.insightsWaitAgeRaw();
-      db.close();
       if (ages.length === 0) return { median_days: 0, sample_n: 0 };
       const sorted = ages; // already ORDER BY age_d ASC
       const mid = sorted.length >>> 1;
@@ -359,9 +373,8 @@ export function createInsightsApi() {
       return c.json({ error: "limit must be an integer between 1 and 20" }, 400);
     }
     const value = withCache<StaleReposResponse>(c, () => {
-      const db = new RelayDB();
+      using db = new RelayDB();
       const repos = db.insightsStaleRepos(limit);
-      db.close();
       return { repos };
     });
     return c.json(value);
@@ -372,9 +385,8 @@ export function createInsightsApi() {
     const win = parseWindow(c.req.query("window"), "14d", ["7d", "14d"]);
     if (!win) return c.json({ error: "window must be 7d or 14d" }, 400);
     const value = withCache<NewlyActiveResponse>(c, () => {
-      const db = new RelayDB();
+      using db = new RelayDB();
       const repos = db.insightsNewlyActive(win.days);
-      db.close();
       return { window: win.label, repos };
     });
     return c.json(value);
@@ -387,9 +399,8 @@ export function createInsightsApi() {
       return c.json({ error: "days must be 14, 30, or 90" }, 400);
     }
     const value = withCache<FlowTimeseriesResponse>(c, () => {
-      const db = new RelayDB();
+      using db = new RelayDB();
       const series = db.insightsFlowTimeseries(days);
-      db.close();
       return { days: series };
     });
     return c.json(value);
@@ -398,9 +409,8 @@ export function createInsightsApi() {
   // 9. wait_mix -------------------------------------------------------
   app.get("/wait_mix", (c) => {
     const value = withCache<WaitMixResponse>(c, () => {
-      const db = new RelayDB();
+      using db = new RelayDB();
       const rows = db.insightsWaitMix();
-      db.close();
       const mix: WaitMixResponse["mix"] = [];
       let total = 0;
       for (const r of rows) {
@@ -417,9 +427,8 @@ export function createInsightsApi() {
   // 10. age_histogram -------------------------------------------------
   app.get("/age_histogram", (c) => {
     const value = withCache<AgeHistogramResponse>(c, () => {
-      const db = new RelayDB();
+      using db = new RelayDB();
       const rows = db.insightsAgeHistogram();
-      db.close();
       // Force canonical bucket ordering even when SQL returns sparse rows.
       const order: AgeBucket[] = ["0-1d", "1-3d", "3-7d", "7-14d", "14-30d", "30d+"];
       const counts = new Map<string, number>();
@@ -438,9 +447,8 @@ export function createInsightsApi() {
     const win = parseWindow(c.req.query("window"), "7d", ["7d", "30d"]);
     if (!win) return c.json({ error: "window must be 7d or 30d" }, 400);
     const value = withCache<SourceInflowResponse>(c, () => {
-      const db = new RelayDB();
+      using db = new RelayDB();
       const rows = db.insightsSourceInflow(win.days);
-      db.close();
       return { window: win.label, rows };
     });
     return c.json(value);
@@ -453,9 +461,8 @@ export function createInsightsApi() {
       return c.json({ error: "days must be 14, 30, or 90" }, 400);
     }
     const value = withCache<RunsByAgentResponse>(c, () => {
-      const db = new RelayDB();
+      using db = new RelayDB();
       const raw = db.insightsRunsByAgent(days);
-      db.close();
       const rows = raw.map((r) => ({
         agent: r.agent,
         total: r.total,
@@ -475,9 +482,8 @@ export function createInsightsApi() {
       return c.json({ error: "days must be 7 or 14" }, 400);
     }
     const value = withCache<SyncReliabilityResponse>(c, () => {
-      const db = new RelayDB();
+      using db = new RelayDB();
       const raw = db.insightsSyncReliabilityRaw(days);
-      db.close();
       const dayLabels = lastNDayLabels(days);
       const byAdapter = new Map<string, Map<string, { status: SyncReliabilityStatus; count: number }>>();
       for (const row of raw) {
@@ -511,9 +517,8 @@ export function createInsightsApi() {
       return c.json({ error: "limit must be an integer between 1 and 100" }, 400);
     }
     const value = withCache<ContextFreshnessResponse>(c, () => {
-      const db = new RelayDB();
+      using db = new RelayDB();
       const repos = db.insightsContextFreshness(limit);
-      db.close();
       return { repos };
     });
     return c.json(value);
@@ -530,9 +535,8 @@ export function createInsightsApi() {
       return c.json({ error: "limit must be an integer between 1 and 100" }, 400);
     }
     const value = withCache<OrphansResponse>(c, () => {
-      const db = new RelayDB();
+      using db = new RelayDB();
       const rows = db.insightsOrphans(age, limit);
-      db.close();
       return { age_days: age, rows };
     });
     return c.json(value);
@@ -545,9 +549,8 @@ export function createInsightsApi() {
       return c.json({ error: "days must be between 7 and 90" }, 400);
     }
     const value = withCache<BurndownResponse>(c, () => {
-      const db = new RelayDB();
+      using db = new RelayDB();
       const rows = db.insightsBurndown(days);
-      db.close();
       return { days, rows };
     });
     return c.json(value);
@@ -560,9 +563,8 @@ export function createInsightsApi() {
       return c.json({ error: "weeks must be between 1 and 52" }, 400);
     }
     const value = withCache<VelocityResponse>(c, () => {
-      const db = new RelayDB();
+      using db = new RelayDB();
       const rows = db.insightsVelocity(weeks);
-      db.close();
       return { weeks, rows };
     });
     return c.json(value);
@@ -571,9 +573,8 @@ export function createInsightsApi() {
   // 18. duplicate detection ------------------------------------------
   app.get("/duplicates", (c) => {
     const value = withCache<DuplicatesResponse>(c, () => {
-      const db = new RelayDB();
+      using db = new RelayDB();
       const clusters = db.insightsDuplicates();
-      db.close();
       return { clusters };
     });
     return c.json(value);
@@ -628,9 +629,8 @@ export function createInsightsApi() {
     if (threshold === null) {
       return c.json({ error: "threshold must be between 1 and 365" }, 400);
     }
-    const db = new RelayDB();
+    using db = new RelayDB();
     const result = db.closeStaleTasks(threshold);
-    db.close();
     // Invalidate stale-related cache entries
     for (const key of cache.keys()) {
       if (key.includes("/stale") || key.includes("/burndown") || key.includes("/velocity")) {

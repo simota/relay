@@ -30,6 +30,7 @@ export default function ContextGraphPage() {
             </p>
           </div>
           <Input
+            aria-label="Filter by repo"
             placeholder="repo filter"
             value={repo}
             onChange={(event) => setRepo(event.target.value)}

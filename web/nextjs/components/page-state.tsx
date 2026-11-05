@@ -7,7 +7,7 @@ import { AlertCircle, LockKeyhole, RefreshCw, WifiOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-export type PageStateVariant = "empty" | "locked" | "offline" | "unauthorized";
+export type PageStateVariant = "empty" | "error" | "locked" | "offline" | "unauthorized";
 
 interface PageStateProps {
   variant: PageStateVariant;
@@ -121,7 +121,10 @@ export function stateVariantFromError(error: unknown, online: boolean): Exclude<
   if (message.includes("db locked") || message.includes("database is locked") || message.includes("sqlite_busy") || message.includes("→ 423")) {
     return "locked";
   }
-  return null;
+  // Any other failure (5xx, 404, network) is still an error. Returning null
+  // here made callers fall through to their empty or loading branch, so a
+  // broken endpoint looked like "no data" or a spinner that never finished.
+  return "error";
 }
 
 function pageStateContent(variant: PageStateVariant, title?: string, hint?: string) {
@@ -137,6 +140,13 @@ function pageStateContent(variant: PageStateVariant, title?: string, hint?: stri
       icon: WifiOff,
       title: title ?? "Offline",
       hint: hint ?? "Network access is unavailable. This page will retry automatically when the browser comes back online.",
+    };
+  }
+  if (variant === "error") {
+    return {
+      icon: AlertCircle,
+      title: title ?? "Couldn't load this data",
+      hint: hint ?? "The local API returned an error. Retry, or check the `relay web` terminal for details.",
     };
   }
   if (variant === "unauthorized") {

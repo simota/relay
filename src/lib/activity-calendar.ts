@@ -15,7 +15,7 @@
 
 import { readdir, readFile, stat } from "node:fs/promises";
 import { basename, join } from "node:path";
-import { RelayDB } from "../db/client.js";
+import type { RelayDB } from "../db/client.js";
 import { getSession } from "../sessions/index.js";
 import type { SessionType } from "../sessions/types.js";
 

@@ -105,6 +105,7 @@ function ContextsInner() {
         </div>
         {!isTrueEmpty && (
           <Input
+            aria-label={c("contexts.filter")}
             placeholder={c("contexts.filter")}
             value={filter}
             onChange={(e) => setFilter(e.target.value)}

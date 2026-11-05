@@ -32,23 +32,21 @@ export function createUndoApi() {
   app.get("/", (c) => {
     const limitQ = Number(c.req.query("limit") ?? "");
     const limit = Number.isFinite(limitQ) && limitQ > 0 ? Math.min(200, Math.round(limitQ)) : 20;
-    const db = new RelayDB();
+    using db = new RelayDB();
     const rows: UndoListItem[] = db.listUndo(limit).map((row) => ({
       id: row.id,
       op_kind: row.op_kind,
       created_at: row.created_at,
       status: row.status,
     }));
-    db.close();
     return c.json(rows);
   });
 
   app.post("/", (c) => {
     const redo = c.req.query("redo") === "1" || c.req.query("mode") === "redo";
-    const db = new RelayDB();
+    using db = new RelayDB();
     const row = db.latestUndo(redo ? "undone" : "active");
     if (!row) {
-      db.close();
       return c.json({ ok: true, undone: false, redone: false });
     }
 
@@ -59,18 +57,15 @@ export function createUndoApi() {
         // redo: re-delete the tasks listed in payload.ids
         const redoPayload = parseDeleteDoneRedoPayload(row.payload);
         if (!redoPayload) {
-          db.close();
           return c.json({ error: "undo payload is invalid" }, 500);
         }
         const snapshots = db.batchDeleteTasks(redoPayload.ids);
         db.markUndoStatus(row.id, "active");
-        db.close();
         return c.json({ ok: true, id: row.id, op_kind: row.op_kind, count: snapshots.length, undone: false, redone: true });
       } else {
         // undo: restore from inverse.tasks snapshots
         const inversePayload = parseDeleteDoneUndoPayload(row.inverse);
         if (!inversePayload) {
-          db.close();
           return c.json({ error: "undo payload is invalid" }, 500);
         }
         // schema_version 6+ rows persist only ids + unrecoverable flag. We
@@ -78,7 +73,6 @@ export function createUndoApi() {
         // restore the rows because full snapshots were never written.
         if (inversePayload.unrecoverable === true) {
           db.markUndoStatus(row.id, "undone");
-          db.close();
           return c.json({
             ok: true,
             id: row.id,
@@ -95,7 +89,6 @@ export function createUndoApi() {
         const tasks = inversePayload.tasks ?? [];
         const count = db.restoreDeletedTasks(tasks);
         db.markUndoStatus(row.id, "undone");
-        db.close();
         return c.json({ ok: true, id: row.id, op_kind: row.op_kind, count, undone: true, redone: false });
       }
     }
@@ -105,24 +98,20 @@ export function createUndoApi() {
     if (row.op_kind === "reassign") {
       const assignees = parseAssigneePayload(redo ? row.payload : row.inverse);
       if (!assignees) {
-        db.close();
         return c.json({ error: "undo payload is invalid" }, 500);
       }
       for (const a of assignees) db.setAssignee(a.id, a.assignee);
       db.markUndoStatus(row.id, redo ? "active" : "undone");
-      db.close();
       return c.json({ ok: true, id: row.id, op_kind: row.op_kind, count: assignees.length, undone: !redo, redone: redo });
     }
 
     const payload = parseUndoPayload(redo ? row.payload : row.inverse);
     if (!payload) {
-      db.close();
       return c.json({ error: "undo payload is invalid" }, 500);
     }
 
     const count = db.applyTaskStates(payload.tasks);
     db.markUndoStatus(row.id, redo ? "active" : "undone");
-    db.close();
     return c.json({ ok: true, id: row.id, op_kind: row.op_kind, count, undone: !redo, redone: redo });
   });
 
@@ -131,9 +120,8 @@ export function createUndoApi() {
     const days = parseOlderThanDays(olderThan);
     if (days === null) return c.json({ error: "older_than must look like 30d" }, 400);
 
-    const db = new RelayDB();
+    using db = new RelayDB();
     const count = db.pruneUndoOlderThan(days);
-    db.close();
     return c.json({ ok: true, count });
   });
 

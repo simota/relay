@@ -34,6 +34,7 @@ import { parseDueInput } from "../lib/due-date.js";
 import { resolveRepoPath } from "../repo-resolver.js";
 import { Assignee } from "../types.js";
 import {
+  createRepoPathLookup,
   deriveGithubUrlFromSourceId,
   findMissingRepos,
   readRepoMetadata,
@@ -152,25 +153,20 @@ export function buildApp(opts: BuildAppOptions = {}) {
 
   // --- Counts ----------------------------------------------------------
   app.get("/api/counts", (c) => {
-    const db = new RelayDB();
+    using db = new RelayDB();
     const cfg = loadConfig();
     const repoNames = db.repoNames();
     const missing = findMissingRepos(repoNames, cfg);
     // Counts exclude missing-repo tasks so the headline numbers match what
     // the queue actually shows.
     const views = db.viewCounts(missing);
-    // Repo count must agree with /repos which filters by `exists !== false`.
-    // Mirror the same enrichment logic here: a repo is "present" when it
-    // resolves to a real directory either via scan.roots or via the user's
-    // tracked_repos allowlist. Tracked-only repos that exist also count.
-    const trackedByName = new Map<string, string>();
-    for (const p of cfg.scan.tracked_repos) {
-      trackedByName.set(basename(p), p);
-    }
+    // Repo count must agree with /repos which filters by `exists !== false`:
+    // both resolve paths through createRepoPathLookup(). Tracked-only repos
+    // that exist also count.
+    const repoPathOf = createRepoPathLookup(cfg);
     let presentCount = 0;
     for (const name of repoNames) {
-      const trackedPath = trackedByName.get(name);
-      const path = trackedPath ?? resolveRepoPath(name, cfg);
+      const path = repoPathOf(name);
       if (path !== null && existsSync(path)) presentCount += 1;
     }
     const repoNameSet = new Set(repoNames);
@@ -181,7 +177,6 @@ export function buildApp(opts: BuildAppOptions = {}) {
     const contexts = db.contextCount();
     const sources = db.sourceCounts();
     const source_delta_7d = db.sourceDelta7d();
-    db.close();
     return c.json({ ...views, repos, contexts, sources, source_delta_7d });
   });
 
@@ -202,7 +197,7 @@ export function buildApp(opts: BuildAppOptions = {}) {
     // input so a malformed query can't reach the SQL LIMIT binding.
     const limitQ = Number(c.req.query("limit") ?? "");
     const limit = Number.isFinite(limitQ) && limitQ > 0 ? Math.min(500, Math.round(limitQ)) : 50;
-    const db = new RelayDB();
+    using db = new RelayDB();
     // Filter out tasks from repos whose directory no longer exists. The
     // rows stay in the DB (so re-clone can restore them), they just don't
     // pollute Today's queue.
@@ -210,7 +205,6 @@ export function buildApp(opts: BuildAppOptions = {}) {
     const repoNames = db.repoNames();
     const missing = findMissingRepos(repoNames, cfg);
     const tasks = db.today(limit, missing, cfg.ui.priority_decay_days);
-    db.close();
     return c.json(tasks);
   });
 
@@ -225,12 +219,11 @@ export function buildApp(opts: BuildAppOptions = {}) {
     const limitQ = Number(c.req.query("limit") ?? "");
     const limit = Number.isFinite(limitQ) && limitQ > 0 ? Math.min(2000, Math.round(limitQ)) : 500;
 
-    const db = new RelayDB();
+    using db = new RelayDB();
     const hasFilter = Boolean(status || repo || source || assignee || context || session || age);
     const tasks = hasFilter
       ? db.listTasks({ status, repo, source, assignee, context, session, age, limit })
       : db.listTasks({ limit });
-    db.close();
     return c.json(tasks);
   });
 
@@ -277,10 +270,9 @@ export function buildApp(opts: BuildAppOptions = {}) {
       wait_on: "self" as const,
     };
 
-    const db = new RelayDB();
+    using db = new RelayDB();
     db.upsertTasks([task]);
     const found = db.getTaskBySourceId("manual", task.source_id);
-    db.close();
     if (!found) return c.json({ error: "insert failed" }, 500);
     return c.json(found, 201);
   });
@@ -288,9 +280,8 @@ export function buildApp(opts: BuildAppOptions = {}) {
   app.get("/api/tasks/:id", (c) => {
     const id = Number(c.req.param("id"));
     if (!Number.isFinite(id)) return c.json({ error: "bad id" }, 400);
-    const db = new RelayDB();
+    using db = new RelayDB();
     const task = db.getTask(id);
-    db.close();
     if (!task) return c.json({ error: "not found" }, 404);
     return c.json(task);
   });
@@ -334,21 +325,16 @@ export function buildApp(opts: BuildAppOptions = {}) {
 
   // --- Repos / Contexts ------------------------------------------------
   app.get("/api/repos", (c) => {
-    const db = new RelayDB();
+    using db = new RelayDB();
     const stats = db.repoStats();
     const githubSourceIds = db.firstGithubSourceIdPerRepo();
     const myOpenPrs = db.myOpenPrCountPerRepo();
-    db.close();
     const cfg = loadConfig();
 
-    // Map of repo name → absolute path the user explicitly tracked. Lets the
-    // enrichment step look up out-of-tree (scan.roots-外) paths whose repo
-    // metadata resolveRepoPath() would otherwise miss, and lets us surface
-    // tracked repos that have zero tasks yet as "added but empty" entries.
-    const trackedByName = new Map<string, string>();
-    for (const p of cfg.scan.tracked_repos) {
-      trackedByName.set(basename(p), p);
-    }
+    // Tracked pins win over scan.roots (createRepoPathLookup), so out-of-tree
+    // (scan.roots-外) repos get their metadata, and tracked repos with zero
+    // tasks are surfaced below as "added but empty" entries.
+    const repoPathOf = createRepoPathLookup(cfg);
 
     // Synthesize zero-stats rows for tracked repos that haven't produced any
     // tasks yet — `relay sync` may still find none (no TODOs, no .agents/*.md,
@@ -374,8 +360,7 @@ export function buildApp(opts: BuildAppOptions = {}) {
     // derive a GitHub URL from any github_issue/pr task's source_id so the
     // info survives even after the local directory is deleted.
     const enriched = allStats.map((r) => {
-      const trackedPath = trackedByName.get(r.name);
-      const path = trackedPath ?? resolveRepoPath(r.name, cfg);
+      const path = repoPathOf(r.name);
       const meta = readRepoMetadata(path);
       const githubUrl =
         meta.githubUrl ??
@@ -429,9 +414,8 @@ export function buildApp(opts: BuildAppOptions = {}) {
     if (typeof body.id !== "number" || !Number.isFinite(body.id)) {
       return c.json({ error: "`id` must be a finite number or null" }, 400);
     }
-    const db = new RelayDB();
+    using db = new RelayDB();
     const task = db.getTask(body.id);
-    db.close();
     if (!task) return c.json({ error: "task not found" }, 404);
     setFocus(body.id);
     return c.json({ focus_task_id: body.id });
@@ -449,23 +433,25 @@ export function buildApp(opts: BuildAppOptions = {}) {
   app.get("/api/sync/preview", (c) => {
     const source = c.req.query("adapter") ?? c.req.query("source");
     return streamSSE(c, async (stream) => {
-      await runSync({
-        source: source ?? undefined,
-        dryRun: true,
-        onEvent: async (event) => {
-          await stream.writeSSE({
-            event: event.type,
-            data: JSON.stringify(event),
-          });
-        },
-      });
+      await runSyncReportingErrors(stream, () =>
+        runSync({
+          source: source ?? undefined,
+          dryRun: true,
+          onEvent: async (event) => {
+            await stream.writeSSE({
+              event: event.type,
+              data: JSON.stringify(event),
+            });
+          },
+        }),
+      );
     });
   });
 
   app.get("/api/sync/stream", (c) => {
     const source = c.req.query("adapter") ?? c.req.query("source");
     return streamSSE(c, async (stream) => {
-      await runSync({
+      await runSyncReportingErrors(stream, () => runSync({
         source: source ?? undefined,
         onEvent: async (event) => {
           if (event.type === "done") {
@@ -508,7 +494,7 @@ export function buildApp(opts: BuildAppOptions = {}) {
             data: JSON.stringify(event),
           });
         },
-      });
+      }));
     });
   });
 
@@ -516,6 +502,25 @@ export function buildApp(opts: BuildAppOptions = {}) {
   app.get("*", (c) => serveStatic(c.req.path));
 
   return app;
+}
+
+/**
+ * Run a sync inside an SSE stream. Per-adapter failures already arrive as
+ * `adapter_error` events; this covers a failure of the run itself (config
+ * parse error, DB locked), which otherwise just dropped the connection and
+ * left the browser with a generic "connection error".
+ */
+async function runSyncReportingErrors(
+  stream: { writeSSE(message: { event: string; data: string }): Promise<void> },
+  run: () => Promise<unknown>,
+): Promise<void> {
+  try {
+    await run();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[relay] sync stream failed: ${message}`);
+    await stream.writeSSE({ event: "sync_error", data: JSON.stringify({ message }) });
+  }
 }
 
 const LOCAL_ORIGIN_RE = /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/;
@@ -566,16 +571,14 @@ function originHost(origin: string): string | null {
 function transitionStatus(c: Context, status: string) {
   const id = Number(c.req.param("id"));
   if (!Number.isFinite(id)) return c.json({ error: "bad id" }, 400);
-  const db = new RelayDB();
+  using db = new RelayDB();
   const task = db.getTask(id);
   if (!task) {
-    db.close();
     return c.json({ error: "not found" }, 404);
   }
   // Same-status transitions change nothing: don't re-stamp closed_at or push
   // a no-op entry that the next undo would silently consume.
   if (task.status === status) {
-    db.close();
     return c.json(task);
   }
   db.setStatus(id, status);
@@ -587,7 +590,6 @@ function transitionStatus(c: Context, status: string) {
       inverse: { tasks: [snapshotTask(task)] },
     });
   }
-  db.close();
   return c.json(updated);
 }
 
@@ -607,14 +609,12 @@ async function reassign(c: Context) {
   if (!assignee || !ASSIGNEES.has(assignee)) {
     return c.json({ error: "invalid assignee", allowed: [...ASSIGNEES] }, 400);
   }
-  const db = new RelayDB();
+  using db = new RelayDB();
   const before = db.getTask(id);
   if (!before) {
-    db.close();
     return c.json({ error: "not found" }, 404);
   }
   if (before.assignee === assignee) {
-    db.close();
     return c.json(before);
   }
   db.setAssignee(id, assignee);
@@ -626,7 +626,6 @@ async function reassign(c: Context) {
       inverse: { tasks: [{ id, assignee: before.assignee }] },
     });
   }
-  db.close();
   return c.json(after);
 }
 

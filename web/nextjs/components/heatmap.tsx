@@ -114,7 +114,9 @@ export function Heatmap({ data, activeOnly, activeSources, onToggleSource }: Hea
       <SourceLegend activeSourceSet={activeSourceSet} sourceItems={sourceItems} onToggleSource={onToggleSource} />
       <div className="overflow-x-auto">
         <svg
-          role="img"
+          // "group", not "img": role=img makes descendants presentational,
+          // which hid the focusable per-day links from screen readers.
+          role="group"
           aria-label={c("heatmap.aria")}
           width={width}
           height={height}

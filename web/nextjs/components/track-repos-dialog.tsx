@@ -107,13 +107,14 @@ export function TrackReposDialog({ open, onClose }: TrackReposDialogProps) {
   return (
     <dialog
       ref={dialogRef}
+      aria-labelledby="track-repos-dialog-title"
       // `flex` is opt-in via `open:` so the closed dialog falls back to the
       // user-agent `display: none` rule for `dialog:not([open])` instead of
       // staying visible at mount time.
       className="hidden fixed inset-0 m-auto w-full max-w-[640px] max-h-[80vh] rounded-[var(--radius)] border border-[var(--color-border)] bg-[var(--color-bg)] p-0 shadow-xl backdrop:bg-black/40 open:flex open:flex-col"
     >
       <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--color-border)] shrink-0">
-        <h2 className="text-[14px] font-semibold">Track repositories</h2>
+        <h2 id="track-repos-dialog-title" className="text-[14px] font-semibold">Track repositories</h2>
         <button
           type="button"
           onClick={onClose}
@@ -154,6 +155,7 @@ export function TrackReposDialog({ open, onClose }: TrackReposDialogProps) {
                   <Input
                     value={row.path}
                     onChange={(e) => updateRow(idx, e.target.value)}
+                    aria-label="Repository path"
                     placeholder="/Users/you/repos/github.com/relay  or  ~/projects/foo"
                     className="flex-1 font-mono text-[12px]"
                     spellCheck={false}

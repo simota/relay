@@ -53,7 +53,9 @@ export function deriveGithubUrlFromSourceId(sourceId: string): string | null {
   return m ? (m[1] ?? null) : null;
 }
 
+import { basename } from "node:path";
 import { repoExistsOnDisk, type Config } from "./config.js";
+import { resolveRepoPath } from "./repo-resolver.js";
 
 // Returns the subset of `candidates` that no longer exist on disk — neither
 // under a scan root nor as a tracked_repos path (same rule as the sync
@@ -81,4 +83,16 @@ function git(cwd: string, args: string[]): string | null {
   if (proc.status !== 0) return null;
   const out = proc.stdout?.trim() ?? "";
   return out.length > 0 ? out : null;
+}
+
+/**
+ * Directory lookup used by the repo listing and the headline repo count.
+ * An explicit `scan.tracked_repos` pin wins over a same-named directory
+ * under `scan.roots`, so both views agree on which checkout a card
+ * describes. Keep `/api/repos` and `/api/counts` on this single rule.
+ */
+export function createRepoPathLookup(cfg: Config): (name: string) => string | null {
+  const trackedByName = new Map<string, string>();
+  for (const p of cfg.scan.tracked_repos) trackedByName.set(basename(p), p);
+  return (name) => trackedByName.get(name) ?? resolveRepoPath(name, cfg);
 }

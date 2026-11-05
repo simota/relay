@@ -14,7 +14,7 @@
 ### Non-Goals
 - マルチユーザー / 共有
 - リアル agent 起動 (browser からは実行不可、deep-link で `relay run <id>` を copy する程度に留める)
-- Mobile 最適化 (Desktop 1280px+ 想定)
+- Mobile 最適化 (Desktop 1280px+ 想定)。ただし `md` 未満では破綻させない最低限の対応のみ行う: サイドバーはフォーカストラップ付きドロワー (`components/app-shell.tsx`) になり、横スクロールは発生させない
 - リッチエディタ / Markdown プレビュー (docview を別途利用)
 - 認証 / 権限管理
 
@@ -174,6 +174,14 @@ Next.js App Router (`web/nextjs/app/*/page.tsx`) — **path routes** (no hash). 
 | Dark / data-flavored | `ocean`, `blueprint` |
 | Light | `light`, `paper`, `washi`, `sketch`, `notebook`, `sunset`, `solar`, `sakura` |
 | Accessibility | `hc-dark`, `hc-light` (WCAG AAA, 純黒/純白 + 高彩度 accent) |
+
+全テーマで `--color-fg` / `--color-fg-muted` / `--color-fg-dim` / `--color-critical` /
+`--color-cool` は `--color-bg` / `--color-bg-elev` / `--color-bg-elev-2` に対して
+4.5:1 以上、`--color-accent` / `--color-warm` は `--color-bg` に対して 3:1 以上、
+`--color-accent-fg` は `--color-accent` に対して 4.5:1 以上 (WCAG 2.1 AA)。
+`lib/theme-tokens.test.ts` が全テーマを検証し、`theme-picker.tsx` のスウォッチと
+トークンの一致も保証する。新テーマ追加・トークン変更時はこのテストを通すこと。
+`--color-danger` / `--color-warn` は `--color-critical` / `--color-warm` のエイリアス。
 
 新着メッセージのハイライト (`.relay-fresh`) は `--color-accent` を
 `color-mix(in oklch, var(--color-accent) 6-18%, transparent)` で薄め、

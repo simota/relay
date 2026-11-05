@@ -92,11 +92,12 @@ export function SyncPreviewButton() {
       </Button>
       <dialog
         ref={dialogRef}
+        aria-labelledby="sync-preview-dialog-title"
         className="bg-[var(--color-bg-elev)] text-[var(--color-fg)] rounded-[var(--radius-md)] border border-[var(--color-border)] shadow-[var(--shadow-pop)] p-0 max-w-[680px] w-[90vw] backdrop:bg-black/40"
         onClose={() => setOpen(false)}
       >
         <div className="flex items-center justify-between px-5 h-11 border-b border-[var(--color-border)]">
-          <h2 className="text-[14px] font-semibold tracking-tight">Sync preview</h2>
+          <h2 id="sync-preview-dialog-title" className="text-[14px] font-semibold tracking-tight">Sync preview</h2>
           <button
             type="button"
             onClick={close}

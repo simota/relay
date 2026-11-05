@@ -5,6 +5,7 @@ import useSWR from "swr";
 import { AlertCircle, Check, RefreshCw } from "lucide-react";
 import { api, type SyncHistoryRow } from "@/lib/api";
 import { PageState, stateVariantFromError, useOnlineStatus } from "@/components/page-state";
+import { SkeletonBlock, SkeletonScreen } from "@/components/skeleton";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatMonthDayTime } from "@/lib/copy";
@@ -54,6 +55,14 @@ export default function SyncPage() {
             hint={stateVariant === "unauthorized" ? "Sync history requires reconnecting a source." : "Sync history could not be loaded."}
             action={() => mutate()}
           />
+        )}
+
+        {/* Same footprint as the empty state below, so it doesn't push the
+            page down when the history request resolves (CLS). */}
+        {!stateVariant && data === undefined && isLoading && (
+          <SkeletonScreen className="h-auto">
+            <SkeletonBlock className="h-[188px] rounded-[var(--radius-lg)]" />
+          </SkeletonScreen>
         )}
 
         {!stateVariant && !isLoading && (data ?? []).length === 0 && (

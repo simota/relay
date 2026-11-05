@@ -16,12 +16,13 @@ interface FilterBarProps {
 
 export function FilterBar({ value, onChange, matched, total, inputRef, onSaveView, savingView }: FilterBarProps) {
   return (
-    <div className="flex items-center gap-3 px-5 h-11 border-b border-[var(--color-border)]">
+    <div className="flex items-center gap-3 px-5 h-11 border-b border-[var(--color-border)] transition-shadow focus-within:shadow-[inset_0_-2px_0_0_var(--color-ring)]">
       <Search className="w-3.5 h-3.5 text-[var(--color-fg-dim)] shrink-0" />
       <input
         ref={inputRef}
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        aria-label="Filter tasks"
         placeholder="repo:foo status:open age>7 source:code_todo title"
         className="flex-1 bg-transparent outline-none text-[13px] placeholder:text-[var(--color-fg-dim)] font-mono"
       />

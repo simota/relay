@@ -168,6 +168,7 @@ export function CommandMenu({ externalOpen, onNewTask }: CommandMenuProps) {
           <input
             value={q}
             onChange={(e) => { setQ(e.target.value); setIdx(0); }}
+            aria-label={c("command.placeholder")}
             placeholder={c("command.placeholder")}
             className="flex-1 bg-transparent outline-none text-[14px] placeholder:text-[var(--color-fg-dim)]"
           />

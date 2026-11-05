@@ -56,8 +56,8 @@ export function QueueTray() {
       {expanded && (
         <div
           ref={trayRef}
-          role="dialog"
-          aria-modal="true"
+          id="queue-tray-panel"
+          role="region"
           aria-label={c("queue.tray")}
           className="max-h-[240px] overflow-y-auto border-b border-[var(--color-border)] bg-[var(--color-bg-elev)]/40"
         >
@@ -95,9 +95,10 @@ export function QueueTray() {
       <div className="h-12 px-4 flex items-center justify-between gap-3">
         <button
           type="button"
-          className="min-w-0 inline-flex items-center gap-2 text-[12px] text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] transition-colors"
+          className="min-w-0 inline-flex items-center gap-2 text-[12px] text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] transition-colors ring-focus rounded-[var(--radius)]"
           onClick={() => setExpanded((value) => !value)}
           aria-expanded={expanded}
+          aria-controls="queue-tray-panel"
         >
           <ChevronUp className={cn("h-4 w-4 transition-transform", expanded && "rotate-180")} />
           <span className="font-medium text-[var(--color-fg)]">{c("queue.title")}</span>

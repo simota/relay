@@ -146,18 +146,12 @@ export async function runRun(id: number, options: RunRunOptions = {}): Promise<v
       repoTemplate,
       noResume: options.noResume,
     });
-    const db2 = new RelayDB();
-    db2.finishRun(runId, result.status);
-    saveRunContextSnapshot(db2, task, repoRoot, result.status);
+    recordRunOutcome(runId, task, repoRoot, result.status);
     // Status stays 'in_progress' — next `relay sync` reconciles from source state.
-    db2.close();
     maybeClearFocusAfterRun(task.id, keepFocus);
     process.exit(result.exitCode);
   } catch (e) {
-    const db2 = new RelayDB();
-    db2.finishRun(runId, "failed", e instanceof Error ? e.message : String(e));
-    saveRunContextSnapshot(db2, task, repoRoot, "failed");
-    db2.close();
+    recordRunOutcome(runId, task, repoRoot, "failed", e instanceof Error ? e.message : String(e));
     maybeClearFocusAfterRun(task.id, keepFocus);
     console.log(chalk.red(`✗ ${e instanceof Error ? e.message : String(e)}`));
     process.exit(1);
@@ -173,6 +167,30 @@ function sessionTypeForAssignee(assignee: Task["assignee"]): SessionType | null 
   if (assignee === "codex") return "codex";
   if (assignee === "antigravity") return "antigravity";
   return null;
+}
+
+/**
+ * Persist a finished run. The run status is written first and is final: the
+ * context snapshot is best-effort, so a git/snapshot failure is reported
+ * but can no longer re-classify a successful run as failed (the snapshot
+ * used to run inside the launch try-block, whose catch re-recorded it).
+ */
+export function recordRunOutcome(
+  runId: number,
+  task: Task,
+  repoRoot: string,
+  status: "success" | "failed" | "interrupted",
+  error?: string,
+  saveSnapshot: typeof saveRunContextSnapshot = saveRunContextSnapshot,
+): void {
+  using db = new RelayDB();
+  db.finishRun(runId, status, error);
+  try {
+    saveSnapshot(db, task, repoRoot, status);
+  } catch (snapshotError) {
+    const message = snapshotError instanceof Error ? snapshotError.message : String(snapshotError);
+    console.warn(chalk.yellow(`! run #${runId} recorded as ${status}; context snapshot not saved: ${message}`));
+  }
 }
 
 function saveRunContextSnapshot(

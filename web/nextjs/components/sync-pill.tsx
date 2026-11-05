@@ -18,30 +18,39 @@ export function SyncPill() {
   const locked = error instanceof Error && error.message.toLowerCase().includes("db locked");
   const summary = data ? summarize(data) : null;
   const failed = Boolean(summary?.failed.length);
+  // No recorded run yet, or history could not be loaded: show a neutral
+  // pill instead of the green "all ok" state, which would claim a success
+  // that never happened.
+  const neverSynced = summary !== null && summary.adapters.length === 0;
+  const unavailable = !locked && !summary && !isLoading && error !== undefined;
+  const neutral = locked || neverSynced || unavailable || (!summary && isLoading);
   const label = locked
     ? "⊘ db locked"
-    : summary
-      ? `${formatAgo(summary.lastEnded)} · ${summary.okCount} adapters ok`
-      : isLoading
-        ? "sync status"
-        : "sync idle";
+    : neverSynced
+      ? "never synced"
+      : summary
+        ? `${formatAgo(summary.lastEnded)} · ${summary.okCount} adapters ok`
+        : unavailable
+          ? "sync status unavailable"
+          : "sync status";
 
   return (
     <div className="relative">
       <button
         type="button"
         popoverTarget="sync-pill-popover"
+        aria-label={label}
         className={cn(
           "inline-flex h-7 items-center gap-1.5 rounded-[var(--radius)] px-2.5 text-[12px] font-medium text-[var(--color-bg)] transition-colors ring-focus",
-          locked
+          neutral
             ? "bg-[var(--color-bg-elev)] text-[var(--color-fg-muted)] border border-[var(--color-border)]"
             : failed
               ? "bg-[var(--color-warm)]"
               : "bg-[var(--color-accent)]",
         )}
       >
-        {locked ? <DatabaseZap className="h-3 w-3" /> : failed ? <AlertCircle className="h-3 w-3" /> : <Activity className="h-3 w-3" />}
-        <span className="tabular">{label}</span>
+        {locked ? <DatabaseZap className="h-3 w-3" aria-hidden /> : failed || unavailable ? <AlertCircle className="h-3 w-3" aria-hidden /> : <Activity className="h-3 w-3" aria-hidden />}
+        <span className="tabular hidden sm:inline">{label}</span>
       </button>
 
       <div
@@ -59,7 +68,17 @@ export function SyncPill() {
           </Link>
         </div>
         {locked && <div className="rounded-[var(--radius)] border border-[var(--color-border)] p-2 text-[12px] text-[var(--color-fg-muted)]">Database is locked. Try again after the current write finishes.</div>}
-        {!locked && summary && (
+        {neverSynced && (
+          <div className="text-[12px] text-[var(--color-fg-muted)]">
+            No sync has run yet. Press <span className="font-medium text-[var(--color-fg)]">sync</span> (⇧R) to ingest tasks from your sources.
+          </div>
+        )}
+        {unavailable && (
+          <div className="text-[12px] text-[var(--color-fg-muted)]">
+            Could not load sync history{error instanceof Error ? `: ${error.message}` : ""}. It will retry automatically.
+          </div>
+        )}
+        {!locked && summary && !neverSynced && (
           <div className="space-y-1.5">
             {summary.adapters.map((row) => (
               <div key={row.adapter} className="flex items-center gap-2 rounded-[var(--radius)] bg-[var(--color-bg)] px-2 py-1.5">
@@ -70,7 +89,7 @@ export function SyncPill() {
             ))}
           </div>
         )}
-        {!locked && !summary && (
+        {!locked && !summary && !unavailable && (
           <div className="flex items-center gap-2 text-[12px] text-[var(--color-fg-muted)]">
             <RefreshCw className="h-3 w-3 animate-spin" />
             Loading sync history

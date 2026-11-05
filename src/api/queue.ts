@@ -5,9 +5,8 @@ export function createQueueApi() {
   const app = new Hono();
 
   app.get("/", (c) => {
-    const db = new RelayDB();
+    using db = new RelayDB();
     const items = db.listQueueItems();
-    db.close();
     return c.json(items);
   });
 
@@ -18,9 +17,8 @@ export function createQueueApi() {
       return c.json({ error: "task_id required" }, 400);
     }
 
-    const db = new RelayDB();
+    using db = new RelayDB();
     const id = db.addQueueItem(taskId);
-    db.close();
     if (id === null) return c.json({ error: "task not found" }, 404);
     return c.json({ id }, 201);
   });
@@ -28,16 +26,14 @@ export function createQueueApi() {
   app.delete("/items/:id", (c) => {
     const id = Number(c.req.param("id"));
     if (!Number.isInteger(id) || id <= 0) return c.json({ error: "bad id" }, 400);
-    const db = new RelayDB();
+    using db = new RelayDB();
     db.deleteQueueItem(id);
-    db.close();
     return c.json({ ok: true });
   });
 
   app.delete("/", (c) => {
-    const db = new RelayDB();
+    using db = new RelayDB();
     db.clearQueue();
-    db.close();
     return c.json({ ok: true });
   });
 

@@ -7,25 +7,22 @@ export function createContextsApi() {
   app.get("/", (c) => {
     const repo = c.req.query("repo");
     const limit = parseLimit(c.req.query("limit"), 50);
-    const db = new RelayDB();
+    using db = new RelayDB();
     const contexts = db.listContexts(repo, limit);
-    db.close();
     return c.json(contexts);
   });
 
   app.get("/graph", (c) => {
     const repo = c.req.query("repo");
     const limit = parseLimit(c.req.query("limit"), 200);
-    const db = new RelayDB();
+    using db = new RelayDB();
     const graph = db.contextGraph({ repo, limit });
-    db.close();
     return c.json(graph);
   });
 
   app.get("/:hash", (c) => {
-    const db = new RelayDB();
+    using db = new RelayDB();
     const ctx = db.getContext(c.req.param("hash"));
-    db.close();
     if (!ctx) return c.json({ error: "not found" }, 404);
     return c.json(ctx);
   });

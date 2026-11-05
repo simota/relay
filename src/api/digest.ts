@@ -15,7 +15,7 @@ export function createDigestApi() {
     if (formatRaw !== "md" && formatRaw !== "markdown" && formatRaw !== "json") {
       return c.json({ error: "format must be md or json" }, 400);
     }
-    const db = new RelayDB();
+    using db = new RelayDB();
     let body: string;
     try {
       const report = buildDigest(db, { since });

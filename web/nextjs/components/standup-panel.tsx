@@ -17,12 +17,20 @@ interface StandupPanelProps {
   onSelectTask?: (id: number) => void;
 }
 
+/** SWR key for the standup report; shared with the Today page's load gate. */
+export function standupKey(window: StandupWindow): string {
+  return `/api/standup?since=${window}`;
+}
+
 export function StandupPanel({ onSelectTask }: StandupPanelProps) {
   const [window, setWindow] = useState<StandupWindow>("24h");
   const { data } = useSWR<StandupReport>(
-    `/api/standup?since=${window}`,
+    standupKey(window),
     () => api.standup(window),
-    { refreshInterval: 5 * 60_000 },
+    // keepPreviousData: switching 24h <-> 7d changes the key; without it
+    // `data` is undefined mid-fetch and the whole panel unmounts and
+    // re-mounts, shifting everything below it.
+    { refreshInterval: 5 * 60_000, keepPreviousData: true },
   );
 
   // SWR is loading or fetch errored — render nothing rather than flashing
@@ -36,8 +44,8 @@ export function StandupPanel({ onSelectTask }: StandupPanelProps) {
 
   return (
     <Card className="overflow-hidden">
-      <details open className="group">
-        <summary className="flex cursor-pointer list-none items-center gap-3 border-b border-[var(--color-border)] px-5 h-10 hover:bg-[var(--color-bg-elev)]/60">
+      <details open className="group relative">
+        <summary className="flex cursor-pointer list-none items-center gap-3 border-b border-[var(--color-border)] pl-5 pr-28 h-10 hover:bg-[var(--color-bg-elev)]/60 ring-focus">
           <ChevronRight
             className="w-3 h-3 text-[var(--color-fg-dim)] transition-transform group-open:rotate-90 shrink-0"
             aria-hidden
@@ -48,10 +56,12 @@ export function StandupPanel({ onSelectTask }: StandupPanelProps) {
           <span className="text-[10.5px] tabular text-[var(--color-fg-dim)]">
             {formatNumber(totalItems)}
           </span>
-          <span className="ml-auto flex items-center gap-2">
-            <WindowToggle current={window} onChange={setWindow} />
-          </span>
         </summary>
+        {/* Kept outside <summary>: interactive content inside a summary
+            is invalid (axe nested-interactive) and toggled the panel. */}
+        <div className="absolute right-5 top-0 h-10 flex items-center">
+          <WindowToggle current={window} onChange={setWindow} />
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x divide-[var(--color-border)]">
           <Section
             heading={c("standup.yesterday")}
@@ -98,19 +108,15 @@ function WindowToggle({
       role="group"
       aria-label="standup window"
       className="flex items-center rounded border border-[var(--color-border)] overflow-hidden"
-      onClick={(e) => e.preventDefault()}
     >
       {(["24h", "7d"] as const).map((value) => (
         <button
           key={value}
           type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            e.preventDefault();
-            onChange(value);
-          }}
+          aria-pressed={current === value}
+          onClick={() => onChange(value)}
           className={cn(
-            "px-2 py-0.5 text-[10.5px] tabular transition-colors",
+            "px-2 py-0.5 text-[10.5px] tabular transition-colors ring-focus",
             current === value
               ? "bg-[var(--color-bg-elev)] text-[var(--color-fg)]"
               : "text-[var(--color-fg-dim)] hover:text-[var(--color-fg)]",
@@ -191,46 +197,46 @@ function StandupRow({
   const showAgentBadge = kind === "yesterday" && cue?.run?.agent;
 
   return (
-    <li>
-      <button
-        type="button"
-        onClick={() => onSelect?.(task.id)}
-        className={cn(
-          "group flex w-full flex-col gap-0.5 px-5 py-2 text-left transition-colors",
-          "hover:bg-[var(--color-bg-elev)]/60 focus-visible:outline-none",
-          "focus-visible:bg-[var(--color-bg-elev)]/80",
-        )}
-      >
-        <span className="flex items-center gap-2 text-[12px]">
-          <StatusDot status={task.status} className="shrink-0" />
-          <span className="tabular text-[10.5px] text-[var(--color-fg-dim)] w-9 shrink-0">
-            #{task.id}
-          </span>
-          <Link
-            href={`/tasks?status=open&repo=${encodeURIComponent(task.repo)}`}
-            onClick={(e) => e.stopPropagation()}
-            className="font-mono text-[11px] text-[var(--color-cool)] truncate max-w-[140px] shrink-0 hover:underline"
-          >
-            {task.repo}
-          </Link>
-          <span className="font-mono text-[10.5px] text-[var(--color-fg-dim)] truncate max-w-[100px] shrink-0">
-            {task.assignee}
-          </span>
-          <span className="flex-1 truncate text-[var(--color-fg)] min-w-0">
-            {task.title}
-          </span>
+    // Stretched-button row: the title <button> covers the whole row via
+    // ::after, and the repo <Link> sits above it (relative z-10). This keeps
+    // the one-click row target without nesting a link inside a button.
+    <li className="relative flex flex-col gap-0.5 px-5 py-2 transition-colors hover:bg-[var(--color-bg-elev)]/60 has-[button:focus-visible]:bg-[var(--color-bg-elev)]/80">
+      <span className="flex items-center gap-2 text-[12px]">
+        <StatusDot status={task.status} className="shrink-0" />
+        <span className="tabular text-[10.5px] text-[var(--color-fg-dim)] w-9 shrink-0">
+          #{task.id}
         </span>
-        {(primaryCue || showAgentBadge) && (
-          <span className="pl-[78px] text-[10.5px] text-[var(--color-fg-dim)] truncate">
-            {showAgentBadge && cue?.run ? (
-              <span className="mr-1.5 text-[var(--color-fg-muted)]">
-                {c("standup.via", { agent: cue.run.agent })}
-              </span>
-            ) : null}
-            {primaryCue}
-          </span>
-        )}
-      </button>
+        <Link
+          href={`/tasks?status=open&repo=${encodeURIComponent(task.repo)}`}
+          className="relative z-10 font-mono text-[11px] text-[var(--color-cool)] truncate max-w-[140px] shrink-0 hover:underline ring-focus"
+        >
+          {task.repo}
+        </Link>
+        <span className="font-mono text-[10.5px] text-[var(--color-fg-dim)] truncate max-w-[100px] shrink-0">
+          {task.assignee}
+        </span>
+        <button
+          type="button"
+          onClick={() => onSelect?.(task.id)}
+          className={cn(
+            "flex-1 truncate text-left text-[var(--color-fg)] min-w-0",
+            "after:absolute after:inset-0 after:content-['']",
+            "focus-visible:outline-none focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-[var(--color-ring)]",
+          )}
+        >
+          {task.title}
+        </button>
+      </span>
+      {(primaryCue || showAgentBadge) && (
+        <span className="pl-[78px] text-[10.5px] text-[var(--color-fg-dim)] truncate">
+          {showAgentBadge && cue?.run ? (
+            <span className="mr-1.5 text-[var(--color-fg-muted)]">
+              {c("standup.via", { agent: cue.run.agent })}
+            </span>
+          ) : null}
+          {primaryCue}
+        </span>
+      )}
     </li>
   );
 }
