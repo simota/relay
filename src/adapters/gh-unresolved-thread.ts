@@ -2,9 +2,12 @@ import { spawn } from "node:child_process";
 import type { Adapter, AdapterContext, ResolvedSource, TaskInput } from "../types.js";
 import { memoizedScan } from "./scan-memo.js";
 import { ghAuthenticated } from "./gh-auth.js";
+import { mapLimit } from "../lib/map-limit.js";
 
 const PR_LIMIT = "80";
 const THREAD_LIMIT = 50;
+// GraphQL thread lookups in flight at once (one `gh api` process each).
+const THREAD_QUERY_CONCURRENCY = 4;
 
 const THREAD_QUERY = `
 query($owner: String!, $name: String!, $number: Int!) {
@@ -79,11 +82,18 @@ async function scanCurrent(ctx: AdapterContext): Promise<{ tasks: TaskInput[]; l
   const tasks: TaskInput[] = [];
   const liveSourceIds: string[] = [];
 
+  const targets: Array<{ pr: GhPrRow & { url: string; number: number }; parsed: { owner: string; name: string } }> = [];
   for (const pr of prs) {
     if (!pr.url || typeof pr.number !== "number") continue;
     const parsed = parsePrUrl(pr.url);
     if (!parsed) continue;
-    const data = await ghJsonObject([
+    targets.push({ pr: pr as GhPrRow & { url: string; number: number }, parsed });
+  }
+  // One GraphQL round-trip per PR; they are independent, so run a few at a
+  // time instead of strictly one after another. mapLimit keeps PR order and
+  // the sequential loop's failure semantics (first failing PR's error).
+  const threadData = await mapLimit(targets, THREAD_QUERY_CONCURRENCY, ({ pr, parsed }) =>
+    ghJsonObject([
       "api",
       "graphql",
       "-f",
@@ -94,7 +104,11 @@ async function scanCurrent(ctx: AdapterContext): Promise<{ tasks: TaskInput[]; l
       `name=${parsed.name}`,
       "-F",
       `number=${pr.number}`,
-    ]);
+    ]),
+  );
+
+  for (const [i, { pr, parsed }] of targets.entries()) {
+    const data = threadData[i];
     const threads = extractThreads(data).filter((thread) => !thread.isResolved).slice(0, THREAD_LIMIT);
     for (const thread of threads) {
       const comment = thread.comments?.nodes?.[0];
