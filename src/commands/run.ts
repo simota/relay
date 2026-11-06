@@ -5,7 +5,7 @@ import chalk from "chalk";
 import { loadConfig, type Config as RelayConfig } from "../config.js";
 import { gitSnapshot } from "../context/git.js";
 import { RelayDB, type RelayContext } from "../db/client.js";
-import { buildPrompt, formatPrerequisites, resolveReviewUrl, runTask } from "../executor/index.js";
+import { buildPrompt, formatNotes, formatPrerequisites, promptBody, resolveReviewUrl, runTask, withResumeNotes } from "../executor/index.js";
 import { resolveHeadlessCommand, runTaskHeadless, supportsHeadless } from "../executor/headless.js";
 import { captureBaseline, computeChanges, formatChangeSummary, type RunChanges } from "../executor/changes.js";
 import { resolveRepoPath } from "../repo-resolver.js";
@@ -48,6 +48,10 @@ export interface PreparedRun {
   repoTemplate?: string;
   /** "Prerequisite tasks" prompt section (task dependencies, schema v12). */
   prerequisites?: string;
+  /** "Notes from the user" prompt section (task notes, schema v14). */
+  notes?: string;
+  /** How many notes the task has (shown by `relay run --ask` / dry-run). */
+  noteCount: number;
   /** Blockers that are not done yet — `relay run` warns before launching. */
   openBlockers: Array<Pick<Task, "id" | "title" | "status">>;
   context: RelayContext | null;
@@ -100,9 +104,24 @@ export function prepareRun(
   const openBlockers = blockers
     .filter((b) => b.status !== "done")
     .map((b) => ({ id: b.id, title: b.title, status: b.status }));
+  // Notes are included even when resuming (as part of the follow-up
+  // prompt): they are usually newer than the session they steer.
+  const taskNotes = db.listNotes(task.id);
+  const notes = formatNotes(taskNotes) || undefined;
   return {
     ok: true,
-    prepared: { task, repoRoot, preamble, repoTemplate, prerequisites, openBlockers, context, willResume },
+    prepared: {
+      task,
+      repoRoot,
+      preamble,
+      repoTemplate,
+      prerequisites,
+      notes,
+      noteCount: taskNotes.length,
+      openBlockers,
+      context,
+      willResume,
+    },
   };
 }
 
@@ -176,6 +195,7 @@ export async function executePrepared(
     contextPreamble: prepared.preamble,
     repoTemplate: prepared.repoTemplate,
     prerequisites: prepared.prerequisites,
+    notes: prepared.notes,
     noResume: options.noResume,
   };
 
@@ -245,7 +265,7 @@ function statusSnapshot(task: Task) {
 
 /** The exact prompt the agent receives (null = none / resume without a prompt). */
 export function previewPrompt(prepared: PreparedRun, headless: boolean, noResume = false): string | null {
-  const { task, willResume, preamble, repoTemplate, prerequisites } = prepared;
+  const { task, willResume, preamble, repoTemplate, prerequisites, notes } = prepared;
   if (headless && supportsHeadless(task.assignee)) {
     const { args } = resolveHeadlessCommand(task, {
       task,
@@ -253,6 +273,7 @@ export function previewPrompt(prepared: PreparedRun, headless: boolean, noResume
       contextPreamble: preamble,
       repoTemplate,
       prerequisites,
+      notes,
       noResume,
     });
     return args[args.length - 1] ?? null;
@@ -263,9 +284,9 @@ export function previewPrompt(prepared: PreparedRun, headless: boolean, noResume
   // the full preamble + template + prompt sandwich is what the agent sees.
   return willResume
     ? task.assignee === "codex"
-      ? task.prompt
+      ? withResumeNotes(task.prompt, notes)
       : null
-    : buildPrompt(task.prompt, preamble, repoTemplate, prerequisites);
+    : buildPrompt(promptBody(task, notes), preamble, repoTemplate, prerequisites, notes);
 }
 
 export async function runRun(id: number, options: RunRunOptions = {}): Promise<void> {
@@ -336,7 +357,8 @@ export async function runRun(id: number, options: RunRunOptions = {}): Promise<v
       `  ${task.title}\n` +
       chalk.gray(`   cd ${repoRoot}  (${task.assignee}${headless ? ", headless" : ""})`) +
       (repoTemplate ? chalk.gray("\n   + .agents/RELAY_PROMPT.md applied") : "") +
-      (preamble ? chalk.gray("\n   + context preamble injected") : ""),
+      (preamble ? chalk.gray("\n   + context preamble injected") : "") +
+      notesLine(prepared, headless),
   );
 
   const keepFocus = Boolean(options.keepFocus);
@@ -353,6 +375,19 @@ export async function runRun(id: number, options: RunRunOptions = {}): Promise<v
   if (headless) printHeadlessOutcome(result);
   else if (result.closed) console.log(chalk.green(`✓ #${task.id} closed`));
   process.exit(result.exitCode);
+}
+
+/**
+ * One status line about task notes: injected, or — for an interactive
+ * claude resume, which takes no prompt — why they were not.
+ */
+function notesLine(prepared: PreparedRun, headless: boolean): string {
+  if (prepared.noteCount === 0) return "";
+  const n = `${prepared.noteCount} note${prepared.noteCount === 1 ? "" : "s"}`;
+  if (prepared.willResume && !headless && prepared.task.assignee === "claude-code") {
+    return chalk.yellow(`\n   ! ${n} not sent: resuming the claude session takes no prompt (use --no-resume or --headless)`);
+  }
+  return chalk.gray(`\n   + ${n} injected`);
 }
 
 export function printHeadlessOutcome(result: ExecuteResult): void {

@@ -76,6 +76,14 @@ export interface TagCount {
   total: number;
 }
 
+/** A user progress note on a task (schema v14); sent to the next agent run. */
+export interface TaskNote {
+  id: number;
+  task_id: number;
+  body: string;
+  created_at: string;
+}
+
 export interface DependencyInfo {
   /** Tasks this one waits on. */
   blocked_by: Task[];
@@ -502,3 +510,44 @@ export type SyncEvent =
   | { type: "prune_complete"; missingRepoCount: number; closedCount: number; deletedCount: number; perRepoTop: PruneRepoSummary[] }
   | { type: "prune_error"; message: string }
   | { type: "done"; report: SyncReport };
+
+/** GET /api/rules — `[[rules]]` triage rules with live open-task match counts. */
+export interface TriageRule {
+  index: number;
+  name: string;
+  when: string;
+  then: string;
+  matching: number;
+}
+
+export interface TriageRuleError {
+  index: number;
+  name: string;
+  message: string;
+}
+
+export interface RulesOverview {
+  rules: TriageRule[];
+  errors: TriageRuleError[];
+  disabled: number;
+}
+
+export interface RuleTaskChange {
+  id: number;
+  repo: string;
+  title: string;
+  rules: string[];
+  tags_added: string[];
+  assign?: { from: string; to: string };
+  priority?: { from: number; to: number };
+  wait_on?: { from: string; to: string };
+  queued: boolean;
+}
+
+/** POST /api/rules/apply */
+export interface RulesApplyResult {
+  matched: number;
+  changes: RuleTaskChange[];
+  totals: { tagged: number; assigned: number; reprioritized: number; wait_on: number; queued: number };
+  errors: TriageRuleError[];
+}

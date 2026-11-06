@@ -4,6 +4,9 @@ import toml from "@iarna/toml";
 import { z } from "zod";
 import { CONFIG_PATH, expandHome } from "./paths.js";
 
+/** TOML accepts `repo = "x"` or `repo = ["x", "y"]`; both become a list. */
+const stringOrList = z.union([z.string(), z.array(z.string())]).transform((v) => (Array.isArray(v) ? v : [v]));
+
 export const ConfigSchema = z.object({
   scan: z
     .object({
@@ -197,6 +200,32 @@ export const ConfigSchema = z.object({
       z.object({
         match: z.string().min(1),
         command: z.string().min(1),
+      }),
+    )
+    .default([]),
+  // Triage rules: `[[rules]]` tables applied to every task a sync newly
+  // ingests (and on demand via `relay rules apply`). Match fields AND
+  // together; actions from every matching rule apply in order (scalars:
+  // later rule wins, tags: union). Semantic checks (regex, assignee,
+  // source names) happen in src/lib/rules.ts so one bad rule is reported
+  // and skipped instead of breaking every command. See SPEC.md §rules.
+  rules: z
+    .array(
+      z.object({
+        name: z.string().optional(),
+        enabled: z.boolean().default(true),
+        // --- match ---
+        repo: stringOrList.optional(),
+        source: stringOrList.optional(),
+        title: z.string().optional(),
+        body: z.string().optional(),
+        // --- actions ---
+        tag: stringOrList.optional(),
+        assign: z.string().optional(),
+        priority: z.number().int().min(0).max(100).optional(),
+        wait_on: z.string().optional(),
+        queue: z.boolean().default(false),
+        stop: z.boolean().default(false),
       }),
     )
     .default([]),

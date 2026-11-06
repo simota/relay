@@ -20,6 +20,14 @@ export interface ExportPayload {
    * source_id) pair because numeric ids differ between machines.
    */
   dependencies?: SnapshotDependency[];
+  /** Task notes (schema v14), keyed like dependencies. */
+  notes?: SnapshotNote[];
+}
+
+export interface SnapshotNote {
+  task: { source_type: string; source_id: string };
+  body: string;
+  created_at: string;
 }
 
 export interface SnapshotDependency {
@@ -41,6 +49,12 @@ export function runExport(opts: ExportOptions): void {
         }]
       : [];
   });
+  const notes: SnapshotNote[] = db.listAllNotes().flatMap((note) => {
+    const task = byId.get(note.task_id);
+    return task
+      ? [{ task: { source_type: task.source_type, source_id: task.source_id }, body: note.body, created_at: note.created_at }]
+      : [];
+  });
   db.close();
 
   const payload: ExportPayload = {
@@ -51,6 +65,7 @@ export function runExport(opts: ExportOptions): void {
     task_count: tasks.length,
     tasks: tasks.map(({ id: _id, ...rest }) => rest),
     dependencies,
+    notes,
   };
 
   try {
@@ -61,7 +76,7 @@ export function runExport(opts: ExportOptions): void {
   }
 
   console.log(
-    chalk.green(`✓ exported ${tasks.length} task(s) to ${opts.file}`) +
+    chalk.green(`✓ exported ${tasks.length} task(s)${notes.length ? ` + ${notes.length} note(s)` : ""} to ${opts.file}`) +
       chalk.gray(`  (host=${payload.machine_hostname})`),
   );
 }

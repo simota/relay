@@ -445,4 +445,14 @@ export interface SyncReport {
   updated: number;
   unchanged: number;
   errors: Array<{ adapter: SourceType; message: string }>;
+  /**
+   * Triage rules applied to the newly inserted tasks (src/lib/rules.ts).
+   * Absent when no rules are configured or nothing was inserted.
+   */
+  rules?: {
+    matched: number;
+    changed: number;
+    totals: { tagged: number; assigned: number; reprioritized: number; wait_on: number; queued: number };
+    errors: number;
+  };
 }

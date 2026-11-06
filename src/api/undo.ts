@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { RelayDB, type TaskEditSnapshot, type TaskStatusSnapshot } from "../db/client.js";
+import { RelayDB, type TaskEditSnapshot, type TaskNote, type TaskStatusSnapshot } from "../db/client.js";
 import { Assignee, EDITABLE_FIELDS, type Task } from "../types.js";
 import { recurrenceUndoIds } from "../lib/recurrence-close.js";
 
@@ -180,6 +180,53 @@ export function applyUndo(db: RelayDB, redo: boolean): UndoOutcome {
       const added = db.addDependency(edge.task_id, edge.depends_on_id);
       if (added.ok && added.added) count++;
     }
+    db.markUndoStatus(row.id, redo ? "active" : "undone");
+    return { ok: true, id: row.id, op_kind: row.op_kind, count, undone: !redo, redone: redo };
+  }
+
+  // merge rows (src/lib/merge.ts) bundle the duplicates' status snapshots,
+  // the survivor's tag list, and the dependency edges / notes the merge
+  // added — `{ tasks, tags, deps: {add, remove}, notes: {add, remove} }`.
+  if (row.op_kind === "merge") {
+    const data = parseMergePayload(redo ? row.payload : row.inverse);
+    if (!data) {
+      return { error: "undo payload is invalid" };
+    }
+    let count = db.deleteNotesByIds(data.notes.remove.map((n) => n.id));
+    for (const edge of data.deps.remove) db.removeDependency(edge.task_id, edge.depends_on_id);
+    count += db.applyTaskStates(data.tasks);
+    db.applyTagLists(data.tags);
+    for (const edge of data.deps.add) db.addDependency(edge.task_id, edge.depends_on_id);
+    count += db.restoreNotes(data.notes.add);
+    db.markUndoStatus(row.id, redo ? "active" : "undone");
+    return { ok: true, id: row.id, op_kind: row.op_kind, count, undone: !redo, redone: redo };
+  }
+
+  // rules_apply rows bundle the three kinds a triage-rules run writes:
+  // `{ tags: [{id,tags}], reassign: [{id,assignee}], edit: [snapshot] }`.
+  if (row.op_kind === "rules_apply") {
+    const data = parseRulesApplyPayload(redo ? row.payload : row.inverse);
+    if (!data) {
+      return { error: "undo payload is invalid" };
+    }
+    let count = db.applyTagLists(data.tags);
+    for (const a of data.reassign) db.setAssignee(a.id, a.assignee);
+    count += data.reassign.length;
+    for (const snapshot of data.edit) if (db.restoreTaskEdit(snapshot)) count++;
+    db.markUndoStatus(row.id, redo ? "active" : "undone");
+    return { ok: true, id: row.id, op_kind: row.op_kind, count, undone: !redo, redone: redo };
+  }
+
+  // notes rows (schema v14) carry `{ add: [note], remove: [note] }` with
+  // full note rows, so a deleted note comes back with its original id and
+  // timestamp. The inverse swaps the two lists.
+  if (row.op_kind === "notes") {
+    const change = parseNotesPayload(redo ? row.payload : row.inverse);
+    if (!change) {
+      return { error: "undo payload is invalid" };
+    }
+    let count = db.deleteNotesByIds(change.remove.map((n) => n.id));
+    count += db.restoreNotes(change.add);
     db.markUndoStatus(row.id, redo ? "active" : "undone");
     return { ok: true, id: row.id, op_kind: row.op_kind, count, undone: !redo, redone: redo };
   }
@@ -381,6 +428,81 @@ function parseDepsPayload(value: string): { add: DepEdge[]; remove: DepEdge[] } 
     const remove = edges(record.remove);
     if (!add || !remove) return null;
     return { add, remove };
+  } catch {
+    return null;
+  }
+}
+
+function parseNotesPayload(value: string): { add: TaskNote[]; remove: TaskNote[] } | null {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    const record = parsed as Record<string, unknown>;
+    const notes = (list: unknown): TaskNote[] | null => {
+      if (list === undefined) return [];
+      if (!Array.isArray(list)) return null;
+      const out: TaskNote[] = [];
+      for (const item of list) {
+        if (!item || typeof item !== "object") return null;
+        const n = item as Record<string, unknown>;
+        if (typeof n.id !== "number" || !Number.isInteger(n.id) || n.id <= 0) return null;
+        if (typeof n.task_id !== "number" || !Number.isInteger(n.task_id) || n.task_id <= 0) return null;
+        if (typeof n.body !== "string" || typeof n.created_at !== "string") return null;
+        out.push({ id: n.id, task_id: n.task_id, body: n.body, created_at: n.created_at });
+      }
+      return out;
+    };
+    const add = notes(record.add);
+    const remove = notes(record.remove);
+    if (!add || !remove) return null;
+    return { add, remove };
+  } catch {
+    return null;
+  }
+}
+
+/** One `notes` undo entry; the inverse swaps add/remove. */
+export function recordNotesUndo(db: RelayDB, add: TaskNote[], remove: TaskNote[]): void {
+  db.recordUndo({ op_kind: "notes", payload: { add, remove }, inverse: { add: remove, remove: add } });
+}
+
+function parseRulesApplyPayload(value: string): {
+  tags: Array<{ id: number; tags: string[] }>;
+  reassign: Array<{ id: number; assignee: Assignee }>;
+  edit: TaskEditSnapshot[];
+} | null {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    const record = parsed as Record<string, unknown>;
+    // Re-use the single-kind parsers, which expect `{ tasks: [...] }`.
+    const wrap = (list: unknown) => JSON.stringify({ tasks: list ?? [] });
+    const tags = parseTagListPayload(wrap(record.tags));
+    const reassign = parseAssigneePayload(wrap(record.reassign));
+    const edit = parseEditPayload(wrap(record.edit));
+    if (!tags || !reassign || !edit) return null;
+    return { tags, reassign, edit };
+  } catch {
+    return null;
+  }
+}
+
+function parseMergePayload(value: string): {
+  tasks: TaskStatusSnapshot[];
+  tags: Array<{ id: number; tags: string[] }>;
+  deps: { add: DepEdge[]; remove: DepEdge[] };
+  notes: { add: TaskNote[]; remove: TaskNote[] };
+} | null {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    const record = parsed as Record<string, unknown>;
+    const status = parseUndoPayload(JSON.stringify({ tasks: record.tasks ?? [] }));
+    const tags = parseTagListPayload(JSON.stringify({ tasks: record.tags ?? [] }));
+    const deps = parseDepsPayload(JSON.stringify(record.deps ?? {}));
+    const notes = parseNotesPayload(JSON.stringify(record.notes ?? {}));
+    if (!status || !tags || !deps || !notes) return null;
+    return { tasks: status.tasks, tags, deps, notes };
   } catch {
     return null;
   }

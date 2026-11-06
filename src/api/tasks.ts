@@ -1,5 +1,8 @@
 import { Hono } from "hono";
-import { RelayDB } from "../db/client.js";
+import { MAX_NOTE_LENGTH, RelayDB, normalizeNoteBody } from "../db/client.js";
+import { recordNotesUndo } from "./undo.js";
+import { mergeTasks } from "../lib/merge.js";
+import { invalidateInsightsCache } from "./insights.js";
 import { parseWhenInput, WHEN_INPUT_HINT } from "../lib/due-date.js";
 import { parseTaskEdit } from "../lib/task-edit.js";
 import { spawnAfterClose } from "../lib/recurrence-close.js";
@@ -227,6 +230,69 @@ export function createTasksApi() {
     const removed = db.removeDependency(id, dep);
     if (removed) recordDepsUndo(db, [], [{ task_id: id, depends_on_id: dep }]);
     return c.json({ ...db.dependencyInfo(id), removed });
+  });
+
+  // --- Merge duplicates ------------------------------------------------
+  // POST /:id/merge { ids: [dup...] } — /:id survives; the others close.
+  app.post("/:id/merge", async (c) => {
+    const id = parseId(c.req.param("id"));
+    if (!id) return c.json({ error: "bad id" }, 400);
+    const body = (await c.req.json().catch(() => null)) as { ids?: unknown } | null;
+    const ids = parseIds(body?.ids);
+    if (!ids || ids.length === 0) return c.json({ error: "ids must be a non-empty array of task ids" }, 400);
+    using db = new RelayDB();
+    const result = mergeTasks(db, id, ids);
+    if (!result.ok) return c.json({ error: result.error }, result.status);
+    invalidateInsightsCache();
+    return c.json({ ...result, task: db.getTask(id) });
+  });
+
+  // --- Notes (schema v14) -----------------------------------------------
+  // User progress notes; the next agent run gets them in its prompt.
+  app.get("/:id/notes", (c) => {
+    const id = parseId(c.req.param("id"));
+    if (!id) return c.json({ error: "bad id" }, 400);
+    using db = new RelayDB();
+    if (!db.getTask(id)) return c.json({ error: "not found" }, 404);
+    return c.json(db.listNotes(id));
+  });
+
+  app.post("/:id/notes", async (c) => {
+    const id = parseId(c.req.param("id"));
+    if (!id) return c.json({ error: "bad id" }, 400);
+    const body = (await c.req.json().catch(() => null)) as { body?: unknown; queue?: unknown } | null;
+    if (typeof body?.body !== "string") return c.json({ error: "body must be a string" }, 400);
+    if (body.body.length > MAX_NOTE_LENGTH * 2) {
+      return c.json({ error: `note is too long (max ${MAX_NOTE_LENGTH} characters)` }, 400);
+    }
+    const text = normalizeNoteBody(body.body);
+    if (!text) return c.json({ error: "note is empty" }, 400);
+    using db = new RelayDB();
+    const task = db.getTask(id);
+    if (!task) return c.json({ error: "not found" }, 404);
+    const note = db.addNote(id, text);
+    if (!note) return c.json({ error: "not found" }, 404);
+    recordNotesUndo(db, [note], []);
+    // `queue: true` = "retry with feedback": note + put the task on the
+    // AI job queue in one request. Done tasks are never queued.
+    let queued = false;
+    if (body.queue === true && task.status !== "done") {
+      db.addQueueItem(id);
+      queued = true;
+    }
+    return c.json({ ...note, queued }, 201);
+  });
+
+  app.delete("/:id/notes/:noteId", (c) => {
+    const id = parseId(c.req.param("id"));
+    const noteId = parseId(c.req.param("noteId"));
+    if (!id || !noteId) return c.json({ error: "bad id" }, 400);
+    using db = new RelayDB();
+    const note = db.getNote(noteId);
+    if (!note || note.task_id !== id) return c.json({ error: "not found" }, 404);
+    db.deleteNote(noteId);
+    recordNotesUndo(db, [], [note]);
+    return c.json({ ok: true, removed: note });
   });
 
   // --- Run history ------------------------------------------------------

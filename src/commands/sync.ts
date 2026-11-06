@@ -11,6 +11,7 @@ import {
   type Config,
 } from "../config.js";
 import { unavailableScanRoots } from "./prune.js";
+import { applyRules, compileRules, describeTotals } from "../lib/rules.js";
 import { RelayDB, closedSnapshots } from "../db/client.js";
 import type {
   Adapter,
@@ -62,6 +63,9 @@ export async function runSync(opts: SyncOptions = {}): Promise<SyncReport> {
   if (!opts.dryRun) migrateLegacyConfig();
   const cfg = loadConfig();
   const db = new RelayDB();
+  // Everything above this id was in the DB before the adapters ran; the
+  // triage-rules pass below only touches tasks this sync inserted.
+  const maxIdBefore = db.maxTaskId();
   if (!opts.dryRun) {
     // Wake expired snoozes first so the adapters below refresh their
     // due_at from upstream like any other open task.
@@ -303,6 +307,7 @@ export async function runSync(opts: SyncOptions = {}): Promise<SyncReport> {
   await Promise.all(work);
 
   if (!opts.dryRun) {
+    applyTriageRules(db, cfg, maxIdBefore, report, log);
     autoCloseMissingRepoTasks(db, cfg, baseRoots, log);
     await autoCloseResolvedRemoteTasks(
       adapters.filter((a) => completed.has(a.name)),
@@ -329,6 +334,40 @@ export async function runSync(opts: SyncOptions = {}): Promise<SyncReport> {
 
   await opts.onEvent?.({ type: "done", report });
   return report;
+}
+
+/**
+ * Run `[[rules]]` over the tasks this sync inserted. Never throws: a rules
+ * problem must not fail a sync whose ingest already succeeded.
+ */
+function applyTriageRules(
+  db: RelayDB,
+  cfg: Config,
+  maxIdBefore: number,
+  report: SyncReport,
+  log: (msg: string) => void,
+): void {
+  if (cfg.rules.length === 0) return;
+  try {
+    const compiled = compileRules(cfg.rules);
+    for (const err of compiled.errors) {
+      log(chalk.yellow(`⚠ rules: skipped ${err.name} (#${err.index}): ${err.message}`));
+    }
+    const fresh = db.tasksInsertedAfter(maxIdBefore);
+    if (fresh.length === 0 || compiled.rules.length === 0) return;
+    const result = applyRules(db, compiled.rules, fresh);
+    report.rules = {
+      matched: result.matched,
+      changed: result.changes.length,
+      totals: result.totals,
+      errors: compiled.errors.length,
+    };
+    if (result.changes.length > 0) {
+      log(chalk.cyan(`⚙ rules: triaged ${result.changes.length} new task(s) — ${describeTotals(result.totals)}`));
+    }
+  } catch (e) {
+    log(chalk.yellow(`⚠ rules: ${(e as Error).message}`));
+  }
 }
 
 function autoCloseMissingRepoTasks(

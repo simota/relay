@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import useSWR from "swr";
+import useSWR, { useSWRConfig } from "swr";
 
 import { PageState, stateVariantFromError, useOnlineStatus } from "@/components/page-state";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,6 +19,36 @@ export function DuplicatesList() {
   const variant = stateVariantFromError(error, online);
   const clusters = data?.clusters ?? [];
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  const [merging, setMerging] = useState<number | null>(null);
+  const [notice, setNotice] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
+  const { mutate: globalMutate } = useSWRConfig();
+
+  // Keep `keepId`, merge the rest of its cluster into it.
+  async function merge(clusterTasks: Array<{ id: number }>, keepId: number) {
+    const others = clusterTasks.map((t) => t.id).filter((id) => id !== keepId);
+    if (others.length === 0) return;
+    setMerging(keepId);
+    setNotice(null);
+    try {
+      const result = await api.mergeTasks(keepId, others);
+      setNotice({
+        tone: "ok",
+        text: `merged ${result.merged.map((id) => `#${id}`).join(", ")} into #${result.keep} · ⌘Z reverts`,
+      });
+      await Promise.all([
+        mutate(),
+        globalMutate(
+          (key) =>
+            typeof key === "string" &&
+            (key.startsWith("/api/tasks") || key.startsWith("/api/today") || key.startsWith("/api/counts")),
+        ),
+      ]);
+    } catch (e) {
+      setNotice({ tone: "error", text: e instanceof Error ? e.message : "merge failed" });
+    } finally {
+      setMerging(null);
+    }
+  }
 
   function toggle(id: number) {
     setExpanded((prev) => {
@@ -51,6 +81,14 @@ export function DuplicatesList() {
         {!variant && !isLoading && clusters.length === 0 && (
           <p className="text-[12px] text-[var(--color-fg-dim)]">
             No near-duplicate open tasks detected.
+          </p>
+        )}
+        {notice && (
+          <p
+            role={notice.tone === "error" ? "alert" : "status"}
+            className={`mb-2 text-[11.5px] ${notice.tone === "error" ? "text-[var(--color-critical)]" : "text-[var(--color-fg-muted)]"}`}
+          >
+            {notice.text}
           </p>
         )}
         {!variant && clusters.length > 0 && (
@@ -96,6 +134,15 @@ export function DuplicatesList() {
                           <span className="flex-shrink-0 text-[var(--color-fg-dim)] opacity-60">
                             {task.source_type}
                           </span>
+                          <button
+                            type="button"
+                            disabled={merging !== null}
+                            onClick={() => { void merge(cluster.tasks, task.id); }}
+                            title={`Keep #${task.id}; close the other ${cluster.tasks.length - 1} and move their tags, dependencies and notes onto it`}
+                            className="ml-auto flex-shrink-0 rounded-[var(--radius)] px-1.5 py-0.5 text-[10.5px] text-[var(--color-cool)] hover:bg-[var(--color-bg)] hover:underline disabled:opacity-50 ring-focus"
+                          >
+                            {merging === task.id ? "merging…" : "keep this, merge others"}
+                          </button>
                         </li>
                       ))}
                     </ul>
