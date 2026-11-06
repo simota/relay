@@ -787,6 +787,7 @@ function fieldLabel(field: EditableField): string {
 function RunHistory({ runs }: { runs: RunListItem[] }) {
   const [openLog, setOpenLog] = useState<number | null>(null);
   const [openChanges, setOpenChanges] = useState<number | null>(null);
+  const [openVerify, setOpenVerify] = useState<number | null>(null);
   return (
     <section aria-label="Agent runs" className="space-y-1.5">
       <div className="flex items-center gap-1.5 text-[10.5px] uppercase tracking-wider text-[var(--color-fg-dim)] font-medium">
@@ -836,6 +837,21 @@ function RunHistory({ runs }: { runs: RunListItem[] }) {
                   {formatChangeSummary(run.changes)}
                 </button>
               )}
+              {run.verify_status && (
+                <button
+                  type="button"
+                  className={cn(
+                    "shrink-0 text-[11px] hover:underline ring-focus rounded-[var(--radius)]",
+                    run.verify_status === "passed" ? "text-[var(--color-accent)]" : "text-[var(--color-critical)]",
+                  )}
+                  aria-expanded={openVerify === run.id}
+                  aria-controls={`run-verify-${run.id}`}
+                  title={`Verify gate: ${run.verify_command ?? ""}`}
+                  onClick={() => setOpenVerify((current) => (current === run.id ? null : run.id))}
+                >
+                  {run.verify_status === "passed" ? "✓ verified" : "✗ verify"}
+                </button>
+              )}
               {run.has_log && (
                 <button
                   type="button"
@@ -849,6 +865,23 @@ function RunHistory({ runs }: { runs: RunListItem[] }) {
               )}
             </div>
             {openChanges === run.id && run.changes && <RunChangesView runId={run.id} changes={run.changes} />}
+            {openVerify === run.id && run.verify_status && (
+              <div
+                id={`run-verify-${run.id}`}
+                className="mt-1 rounded-[var(--radius)] border border-[var(--color-border)] bg-[var(--color-bg)]/60 px-2 py-1.5 space-y-1"
+              >
+                <p className="text-[11px] text-[var(--color-fg-muted)]">
+                  verify {run.verify_status} · <code>{run.verify_command}</code>
+                </p>
+                {run.verify_output ? (
+                  <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words text-[11px] text-[var(--color-fg-dim)]">
+                    {run.verify_output}
+                  </pre>
+                ) : (
+                  <p className="text-[11px] text-[var(--color-fg-dim)]">(no output)</p>
+                )}
+              </div>
+            )}
             {openLog === run.id && <RunLogView runId={run.id} />}
           </li>
         ))}

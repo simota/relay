@@ -57,6 +57,29 @@ export const ConfigSchema = z.object({
       headless_timeout_min: z.number().int().nonnegative().default(30),
     })
     .default({}),
+  // Verify gate (schema v15): a command that proves an agent run actually
+  // worked (tests / typecheck / lint). With `relay run --verify`, `relay
+  // queue run --verify` or `auto = true`, every successful agent run is
+  // followed by the repo's verify command in the repo root; a non-zero exit
+  // turns the run into a failure (no --close-on-success, retry-failed picks
+  // it up) and `retries` re-runs the agent with the failure output as a
+  // task note. The command comes from the first matching `[[verify.repos]]`
+  // entry, else `<repo>/.agents/RELAY_VERIFY`. See src/executor/verify.ts.
+  verify: z
+    .object({
+      auto: z.boolean().default(false),
+      timeout_min: z.number().int().nonnegative().default(10),
+      retries: z.number().int().min(0).max(5).default(0),
+      repos: z
+        .array(
+          z.object({
+            repo: stringOrList,
+            command: z.string().min(1),
+          }),
+        )
+        .default([]),
+    })
+    .default({}),
   ui: z
     .object({
       default_view: z.string().default("today"),

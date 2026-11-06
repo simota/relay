@@ -71,7 +71,10 @@ CLI と Web UI の早見表。インストールは `INSTALL.md`、Web UI 詳細
 | `relay run <id> --no-resume` | 直前セッションを再開せず新規プロンプト。 |
 | `relay run <id> --keep-focus` | 完了後に focus を解除しない。 |
 | `relay run <id> --headless [--timeout <min>]` | 非対話実行 (`claude -p` / `codex exec`)。出力は `~/.relay/runs/<run>.log`。 |
-| `relay run <id> --close-on-success` | agent が exit 0 なら task を close (⌘Z / `relay undo` 可)。 |
+| `relay run <id> --close-on-success` | agent が exit 0 (かつ verify gate 通過) なら task を close (⌘Z / `relay undo` 可)。 |
+| `relay run <id> --verify` / `--no-verify` | verify gate: 成功後に repo の verify コマンドを実行し、赤なら run を failed に。 |
+| `relay run <id> --headless --verify --retries 2` | 失敗したら出力をノートに書いて最大 2 回再挑戦 (green になるまで反復)。 |
+| `relay verify <id>` / `--repo X` / `--list` | verify コマンドを単独実行 / repo ごとの設定を一覧。 |
 
 ## Queue (AI job queue)
 
@@ -85,12 +88,28 @@ Web の queue tray (`a` / bulk `a`) と共有。
 | `relay queue rm <ids...>` / `relay queue clear` | 除去 / 全消去。 |
 | `relay queue run` | 先頭から順に起動 (依存関係順: blocker が成功するまで dependent は待つ)。成功分は queue から外れる。失敗で停止。 |
 | `relay queue run --headless [--continue-on-error] [--close-on-success] [-n N] [--timeout <min>]` | 無人で一括実行 (claude-code / codex)。 |
+| `relay queue run --headless --verify --retries 2 --close-on-success` | 夜間バッチ: 各タスクを verify が green になるまで最大 3 attempt、green だけ close。 |
 | `relay queue run --dry-run` | 起動順と prompt だけ確認。 |
 | `relay runs [--task <id>] [--status failed] [-n N] [--json]` | run 履歴 (所要時間・出力末尾・変更ファイル数 / コミット数)。 |
 | `relay runs --log <run-id>` | headless run の出力ログ全体 (先頭に変更ファイル一覧)。 |
 | `relay runs --diff <run-id>` | その run が repo に加えた変更の patch (起動前 HEAD との差分)。 |
 
 headless の権限は `~/.relay/config.toml` の `[agents]` で: `claude_headless_args = ["--permission-mode", "acceptEdits"]`, `codex_headless_args = ["--full-auto"]`, `headless_timeout_min = 30`。
+
+## Verify gate (`[verify]`)
+
+```toml
+[verify]
+auto = false        # true で全 run を検証
+retries = 0         # headless の既定 --retries
+timeout_min = 10
+
+[[verify.repos]]
+repo = ["billing-*", "relay"]
+command = "bun run typecheck && bun test"
+```
+
+repo 側に置く場合は `<repo>/.agents/RELAY_VERIFY` に 1 行 (`#` コメント可)。config が優先。
 
 ## Triage rules (`[[rules]]`)
 

@@ -16,6 +16,7 @@ import { findMissingRepos } from "../repo-metadata.js";
 import type { SourceType, Task } from "../types.js";
 import { clearFocus, getFocus } from "./focus.js";
 import { formatNoteLines } from "./notes.js";
+import { verifyBadge } from "./runs.js";
 
 export interface ListFilters {
   repo?: string;
@@ -219,7 +220,7 @@ export function runShow(id: number): void {
     for (const r of runs) {
       const tone = r.status === "success" ? chalk.green : r.status === "running" ? chalk.cyan : chalk.red;
       const summary = r.output_summary ? `  ${firstLine(r.output_summary).slice(0, 80)}` : "";
-      console.log(`  ${tone(r.status.padEnd(8))} ${chalk.gray(r.agent.padEnd(12))} ${chalk.gray(r.started_at)}${chalk.gray(summary)}`);
+      console.log(`  ${tone(r.status.padEnd(8))} ${chalk.gray(r.agent.padEnd(12))} ${chalk.gray(r.started_at)}${verifyBadge(r.verify_status)}${chalk.gray(summary)}`);
       if (r.changes) console.log(chalk.cyan(`           r${r.id} changed ${formatChangeSummary(r.changes)}`) + chalk.gray(`  (relay runs --diff ${r.id})`));
     }
   }

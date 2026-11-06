@@ -26,6 +26,16 @@ function parseTimeout(raw: unknown): number | undefined {
   return value;
 }
 
+function parseRetries(raw: unknown): number | undefined {
+  if (raw === undefined) return undefined;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 0 || value > 5) {
+    console.error(chalk.red(`invalid --retries: ${String(raw)} (0-5)`));
+    process.exit(1);
+  }
+  return value;
+}
+
 program
   .name("relay")
   .description("AI-era cross-project task hub: tasks as executable agent jobs.")
@@ -190,7 +200,10 @@ program
   .option("--no-resume", "build a fresh prompt instead of resuming the prior session")
   .option("--headless", "run unattended (claude -p / codex exec); output is logged under ~/.relay/runs/")
   .option("--timeout <min>", "headless: kill the agent after N minutes (default agents.headless_timeout_min)")
-  .option("--close-on-success", "close the task when the agent exits 0")
+  .option("--close-on-success", "close the task when the agent exits 0 (and the verify gate passes)")
+  .option("--verify", "verify gate: run the repo's verify command after a successful run; red = failed run")
+  .option("--no-verify", "skip the verify gate even when verify.auto = true")
+  .option("--retries <n>", "headless: re-run up to N times (0-5) on failure, feeding the failure output back as a note")
   .action(async (id, opts) => {
     const { runRun } = await import("./commands/run.js");
     await runRun(Number(id), {
@@ -202,6 +215,8 @@ program
       headless: Boolean(opts.headless),
       timeoutMin: parseTimeout(opts.timeout),
       closeOnSuccess: Boolean(opts.closeOnSuccess),
+      verify: typeof opts.verify === "boolean" ? opts.verify : undefined,
+      retries: parseRetries(opts.retries),
     });
   });
 
@@ -260,7 +275,10 @@ queue
   .option("-n, --limit <n>", "launch at most N tasks")
   .option("--continue-on-error", "keep going after a failed run (default: stop)")
   .option("--keep", "leave tasks in the queue after a successful run")
-  .option("--close-on-success", "close each task whose agent exits 0")
+  .option("--close-on-success", "close each task whose agent exits 0 (and the verify gate passes)")
+  .option("--verify", "verify gate: run each repo's verify command after a successful run")
+  .option("--no-verify", "skip the verify gate even when verify.auto = true")
+  .option("--retries <n>", "headless: re-run a failed task up to N times (0-5) with the failure output as a note")
   .option("--timeout <min>", "headless: per-task limit in minutes (default agents.headless_timeout_min)")
   .option("--no-template", "skip <repo>/.agents/RELAY_PROMPT.md")
   .option("--no-resume", "build fresh prompts instead of resuming prior sessions")
@@ -277,6 +295,26 @@ queue
       timeoutMin: parseTimeout(opts.timeout),
       noTemplate: opts.template === false,
       noResume: opts.resume === false,
+      verify: typeof opts.verify === "boolean" ? opts.verify : undefined,
+      retries: parseRetries(opts.retries),
+    });
+  });
+
+program
+  .command("verify [id]")
+  .option("--repo <name>", "verify a repo by name instead of a task's repo")
+  .option("--list", "show which verify command each tracked repo would use")
+  .option("--json", "machine-readable output")
+  .description(
+    "Verify gate: run the verify command ([[verify.repos]] in config.toml or <repo>/.agents/RELAY_VERIFY) for a task's repo now.",
+  )
+  .action(async (id: string | undefined, opts) => {
+    const { runVerifyCommand } = await import("./commands/verify.js");
+    await runVerifyCommand({
+      taskId: id ? parseIds([id])[0] : undefined,
+      repo: typeof opts.repo === "string" ? opts.repo : undefined,
+      list: Boolean(opts.list),
+      json: Boolean(opts.json),
     });
   });
 

@@ -127,6 +127,11 @@ export interface TaskRun {
   output_summary: string | null;
   /** What the run changed in the repo (schema v13); null when unknown. */
   changes?: RunChanges | null;
+  /** Verify gate (schema v15): "passed" / "failed" / null = not verified. */
+  verify_status?: "passed" | "failed" | null;
+  verify_command?: string | null;
+  /** Tail of the verify command's output. */
+  verify_output?: string | null;
 }
 
 export interface RunChangedFile {

@@ -84,6 +84,33 @@ export function recordRunChanges(db: Database, runId: number, changes: RunChange
   );
 }
 
+export interface RunVerification {
+  status: "passed" | "failed";
+  command: string;
+  output: string | null;
+}
+
+/**
+ * Store a verify-gate result (schema v15). A failed verification also
+ * turns the run itself into a failure, with `summary` explaining why, so
+ * every consumer of runs.status (retry-failed, insights, standup) treats
+ * "the agent exited 0 but the tests are red" as the failure it is.
+ */
+export function recordRunVerification(db: Database, runId: number, verify: RunVerification, summary?: string): void {
+  db.prepare(`UPDATE runs SET verify_status = ?, verify_command = ?, verify_output = ? WHERE id = ?`).run(
+    verify.status,
+    verify.command,
+    verify.output,
+    runId,
+  );
+  if (verify.status === "failed") {
+    db.prepare(`UPDATE runs SET status = 'failed', output_summary = COALESCE(?, output_summary) WHERE id = ?`).run(
+      summary ?? null,
+      runId,
+    );
+  }
+}
+
 export function finishRun(db: Database, runId: number, status: string, summary?: string): void {
   const now = new Date().toISOString();
   db
@@ -357,6 +384,10 @@ export interface RunListRow {
   repo: string;
   /** What the run changed in the repo (schema v13); null when unknown. */
   changes: RunChanges | null;
+  /** Verify gate (schema v15): 'passed' / 'failed' / null = not verified. */
+  verify_status: string | null;
+  verify_command: string | null;
+  verify_output: string | null;
 }
 
 function withChanges<T extends Record<string, unknown>>(row: T): Omit<T, "head_before" | "head_after"> & { changes: RunChanges | null } {
@@ -389,6 +420,7 @@ export function listRuns(
     .prepare(
       `SELECT r.id, r.task_id, r.agent, r.started_at, r.ended_at, r.status, r.output_summary,
               r.head_before, r.head_after, r.changes,
+              r.verify_status, r.verify_command, r.verify_output,
               t.title AS task_title, t.repo
          FROM runs r
          JOIN tasks t ON t.id = r.task_id
@@ -432,6 +464,7 @@ export function getRun(db: Database, id: number): RunListRow | null {
     .prepare(
       `SELECT r.id, r.task_id, r.agent, r.started_at, r.ended_at, r.status, r.output_summary,
               r.head_before, r.head_after, r.changes,
+              r.verify_status, r.verify_command, r.verify_output,
               t.title AS task_title, t.repo
          FROM runs r
          JOIN tasks t ON t.id = r.task_id

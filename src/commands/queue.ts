@@ -13,6 +13,7 @@ import { Assignee, type Task } from "../types.js";
 import { padEndDisplay, truncateDisplay } from "../lib/text-width.js";
 import {
   executePrepared,
+  executeWithRetries,
   launchBlocker,
   prepareRun,
   previewPrompt,
@@ -167,6 +168,10 @@ export interface QueueRunOptions {
   timeoutMin?: number;
   noTemplate?: boolean;
   noResume?: boolean;
+  /** Verify gate after each successful run (default: verify.auto). */
+  verify?: boolean;
+  /** Headless: extra attempts per failed task, with the failure fed back as a note. */
+  retries?: number;
 }
 
 export type QueueOutcomeKind = "success" | "failed" | "interrupted" | "skipped" | "planned";
@@ -177,6 +182,10 @@ export interface QueueOutcome {
   kind: QueueOutcomeKind;
   reason?: string;
   runId?: number;
+  /** How many runs it took (1 = first try). */
+  attempts?: number;
+  /** Verify gate outcome of the final attempt. */
+  verify?: "passed" | "failed" | "missing";
 }
 
 export interface QueueRunDeps {
@@ -280,12 +289,25 @@ export async function processQueue(
 
       log(header);
       launches += 1;
-      const result: ExecuteResult = await execute(prep.prepared, cfg, {
-        headless,
-        noResume: options.noResume,
-        timeoutMin: options.timeoutMin,
-        closeOnSuccess: options.closeOnSuccess,
-      });
+      const taskId = task.id;
+      const result = await executeWithRetries(
+        prep.prepared,
+        cfg,
+        {
+          headless,
+          noResume: options.noResume,
+          noTemplate: options.noTemplate,
+          timeoutMin: options.timeoutMin,
+          closeOnSuccess: options.closeOnSuccess,
+          verify: options.verify ?? cfg.verify.auto,
+          retries: headless ? options.retries ?? cfg.verify.retries : 0,
+          onRetry: ({ attempt, maxAttempts, previous }) => {
+            if (headless) printHeadlessOutcome(previous);
+            log(chalk.yellow(`↻ retry ${attempt}/${maxAttempts} for #${taskId} — failure output added as a task note`));
+          },
+        },
+        execute,
+      );
       if (headless) printHeadlessOutcome(result);
       outcomes.push({
         taskId: task.id,
@@ -293,6 +315,8 @@ export async function processQueue(
         kind: result.status,
         runId: result.runId,
         reason: result.status === "success" ? undefined : result.summary ?? `exit ${result.exitCode}`,
+        attempts: result.attempts.length,
+        verify: result.verify ? result.verify.status : result.verifyMissing ? "missing" : undefined,
       });
       if (result.status === "success") {
         satisfied.add(task.id);
@@ -341,6 +365,22 @@ export async function runQueueRun(options: QueueRunOptions = {}): Promise<void> 
       (count("skipped") > 0 ? `, ${count("skipped")} skipped` : "") +
       chalk.gray(` · ${remaining} left in queue`),
   );
+  const verified = outcomes.filter((o) => o.verify === "passed").length;
+  const unverified = outcomes.filter((o) => o.verify === "missing").length;
+  const retried = outcomes.filter((o) => (o.attempts ?? 1) > 1);
+  if (verified > 0 || unverified > 0) {
+    console.log(
+      chalk.gray("  verify gate: ") +
+        chalk.green(`${verified} verified`) +
+        (unverified > 0 ? chalk.yellow(`, ${unverified} with no verify command`) : ""),
+    );
+  }
+  if (retried.length > 0) {
+    console.log(
+      chalk.gray("  retried: ") +
+        retried.map((o) => `#${o.taskId}×${o.attempts}${o.kind === "success" ? chalk.green("✓") : chalk.red("✗")}`).join(" "),
+    );
+  }
   for (const outcome of outcomes.filter((o) => o.kind === "failed" || o.kind === "interrupted")) {
     console.log(
       chalk.red(`  ✗ #${outcome.taskId} ${outcome.title}`) +

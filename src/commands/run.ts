@@ -8,6 +8,13 @@ import { RelayDB, type RelayContext } from "../db/client.js";
 import { buildPrompt, formatNotes, formatPrerequisites, promptBody, resolveReviewUrl, runTask, withResumeNotes } from "../executor/index.js";
 import { resolveHeadlessCommand, runTaskHeadless, supportsHeadless } from "../executor/headless.js";
 import { captureBaseline, computeChanges, formatChangeSummary, type RunChanges } from "../executor/changes.js";
+import {
+  resolveVerifyCommand,
+  retryFeedbackNote,
+  runVerify,
+  verifyFailureSummary,
+  type VerifyResult,
+} from "../executor/verify.js";
 import { resolveRepoPath } from "../repo-resolver.js";
 import { spawnAfterClose } from "../lib/recurrence-close.js";
 import type { SessionType, Task } from "../types.js";
@@ -38,6 +45,10 @@ export interface RunRunOptions {
   timeoutMin?: number;
   /** Close the task when the agent exits successfully. */
   closeOnSuccess?: boolean;
+  /** Run the repo's verify command after a successful run (verify gate). */
+  verify?: boolean;
+  /** Headless only: re-run a failed attempt up to N times with the failure as a note. */
+  retries?: number;
 }
 
 /** Everything resolved before a launch: shared by `relay run` and `relay queue run`. */
@@ -147,6 +158,12 @@ export interface ExecuteOptions {
   closeOnSuccess?: boolean;
   /** Headless only: mirror agent output to this terminal (default true). */
   echo?: boolean;
+  /**
+   * Verify gate: after a successful agent run, run the repo's verify
+   * command; a non-zero exit makes the run a failure. Defaults to
+   * `verify.auto` from config.
+   */
+  verify?: boolean;
 }
 
 export interface ExecuteResult {
@@ -158,6 +175,10 @@ export interface ExecuteResult {
   closed: boolean;
   /** What the run changed in the repo; null outside a git work tree. */
   changes?: RunChanges | null;
+  /** Verify gate outcome; null when verification did not run. */
+  verify?: VerifyResult | null;
+  /** Verification was requested but the repo has no verify command. */
+  verifyMissing?: boolean;
 }
 
 /**
@@ -223,7 +244,34 @@ export async function executePrepared(
     exitCode = 1;
     summary = e instanceof Error ? e.message : String(e);
   }
+  // Verify gate: an agent exit 0 is only a success once the repo's own
+  // check agrees. Runs before the outcome is recorded so the run row and
+  // --close-on-success below both see the verified status.
+  let verify: VerifyResult | null = null;
+  let verifyMissing = false;
+  if (status === "success" && (options.verify ?? cfg.verify.auto)) {
+    const cmd = resolveVerifyCommand(task.repo, repoRoot, cfg);
+    if (!cmd) {
+      verifyMissing = true;
+    } else {
+      const timeoutMin = cfg.verify.timeout_min;
+      verify = await runVerify(cmd.command, repoRoot, {
+        timeoutMs: timeoutMin > 0 ? timeoutMin * 60_000 : undefined,
+        logPath,
+        echo: options.echo !== false,
+      });
+      if (verify.status === "failed") {
+        status = "failed";
+        exitCode = verify.exitCode === 0 ? 1 : verify.exitCode;
+        summary = verifyFailureSummary(verify);
+      }
+    }
+  }
   recordRunOutcome(runId, task, repoRoot, status, summary ?? undefined);
+  if (verify) {
+    using db = new RelayDB();
+    db.recordRunVerification(runId, { status: verify.status, command: verify.command, output: verify.output || null });
+  }
   const changes = baseline ? computeChanges(baseline) : null;
   if (changes) {
     using db = new RelayDB();
@@ -256,7 +304,67 @@ export async function executePrepared(
   }
   // After a success the status stays 'in_progress' — next `relay sync`
   // reconciles from source state (or --close-on-success closed it above).
-  return { runId, status, exitCode, summary, logPath, closed, changes };
+  return { runId, status, exitCode, summary, logPath, closed, changes, verify, verifyMissing };
+}
+
+export interface RetryOptions extends ExecuteOptions {
+  /** Extra attempts after a failure (0 = none). */
+  retries?: number;
+  noTemplate?: boolean;
+  /** Called before each retry (for progress output). */
+  onRetry?: (info: { attempt: number; maxAttempts: number; previous: ExecuteResult; noteId: number | null }) => void;
+}
+
+export interface RetryResult extends ExecuteResult {
+  /** Every attempt in order; the last one is the returned result. */
+  attempts: ExecuteResult[];
+}
+
+/**
+ * Execute with automatic retry-with-feedback: when an attempt fails (agent
+ * error, timeout or a red verify gate — not a user interrupt) and retries
+ * remain, the failure output is written to the task as a note and the task
+ * is re-prepared, so the next attempt's prompt carries what went wrong.
+ * The notes stay on the task: the user sees exactly what the agent was told.
+ */
+export async function executeWithRetries(
+  prepared: PreparedRun,
+  cfg: RelayConfig,
+  options: RetryOptions = {},
+  execute: typeof executePrepared = executePrepared,
+): Promise<RetryResult> {
+  const retries = Math.max(0, Math.min(5, Math.trunc(options.retries ?? 0)));
+  const maxAttempts = retries + 1;
+  const attempts: ExecuteResult[] = [];
+  let current = prepared;
+  for (let attempt = 1; ; attempt++) {
+    const result = await execute(current, cfg, options);
+    attempts.push(result);
+    if (result.status !== "failed" || attempt >= maxAttempts) return { ...result, attempts };
+    let noteId: number | null = null;
+    let next: PrepareResult;
+    {
+      using db = new RelayDB();
+      const note = db.addNote(
+        current.task.id,
+        retryFeedbackNote({
+          attempt,
+          maxAttempts,
+          runId: result.runId,
+          verify: result.verify,
+          agentSummary: result.summary,
+          exitCode: result.exitCode,
+        }),
+      );
+      noteId = note?.id ?? null;
+      const fresh = db.getTask(current.task.id);
+      if (!fresh || fresh.status === "done") return { ...result, attempts };
+      next = prepareRun(db, fresh, cfg, { noTemplate: options.noTemplate, noResume: options.noResume });
+    }
+    if (!next.ok) return { ...result, attempts };
+    options.onRetry?.({ attempt: attempt + 1, maxAttempts, previous: result, noteId });
+    current = next.prepared;
+  }
 }
 
 function statusSnapshot(task: Task) {
@@ -362,18 +470,36 @@ export async function runRun(id: number, options: RunRunOptions = {}): Promise<v
   );
 
   const keepFocus = Boolean(options.keepFocus);
-  const result = await executePrepared(prepared, cfg, {
+  const retries = options.retries ?? (headless ? cfg.verify.retries : 0);
+  if (retries > 0 && !headless) {
+    console.log(chalk.red("✗ --retries needs --headless (an interactive session is its own retry loop)"));
+    process.exit(1);
+  }
+  const verify = options.verify ?? cfg.verify.auto;
+  if (verify) console.log(chalk.gray(`   + verify gate: ${describeVerify(task.repo, repoRoot, cfg)}`));
+  const result = await executeWithRetries(prepared, cfg, {
     noResume: options.noResume,
+    noTemplate: options.noTemplate,
     headless,
     timeoutMin: options.timeoutMin,
     closeOnSuccess: options.closeOnSuccess,
+    verify,
+    retries,
+    onRetry: ({ attempt, maxAttempts, previous }) => {
+      if (headless) printHeadlessOutcome(previous);
+      console.log(chalk.yellow(`\n↻ retry ${attempt}/${maxAttempts} for #${task.id} — failure output added as a task note`));
+    },
   });
   maybeClearFocusAfterRun(task.id, keepFocus);
   if (result.status !== "success" && result.summary && !headless) {
     console.log(chalk.red(`✗ ${result.summary}`));
   }
   if (headless) printHeadlessOutcome(result);
-  else if (result.closed) console.log(chalk.green(`✓ #${task.id} closed`));
+  else {
+    if (result.verify?.status === "passed") console.log(chalk.green(`✓ verify passed: ${result.verify.command}`));
+    if (result.verifyMissing) console.log(chalk.yellow(`! no verify command for ${task.repo} — run not verified`));
+    if (result.closed) console.log(chalk.green(`✓ #${task.id} closed`));
+  }
   process.exit(result.exitCode);
 }
 
@@ -397,9 +523,23 @@ export function printHeadlessOutcome(result: ExecuteResult): void {
     `\n${mark} run #${result.runId} ${result.status} (exit ${result.exitCode})` +
       (result.closed ? chalk.green(" · task closed") : "") +
       (result.changes ? chalk.cyan(`\n   changed: ${formatChangeSummary(result.changes)}`) : "") +
+      (result.verify
+        ? result.verify.status === "passed"
+          ? chalk.green(`\n   verify passed: ${result.verify.command}`)
+          : chalk.red(`\n   verify failed (exit ${result.verify.exitCode}): ${result.verify.command}`)
+        : result.verifyMissing
+          ? chalk.yellow("\n   verify skipped: no verify command for this repo")
+          : "") +
       (result.logPath ? chalk.gray(`\n   log: ${result.logPath}  (relay runs --log ${result.runId})`) : "") +
       (result.status !== "success" && result.summary ? chalk.red(`\n   ${result.summary.split("\n").pop()}`) : ""),
   );
+}
+
+/** "bun test (config)" / "none configured" — for the launch banner. */
+export function describeVerify(repo: string, repoRoot: string, cfg: RelayConfig): string {
+  const cmd = resolveVerifyCommand(repo, repoRoot, cfg);
+  if (!cmd) return "no verify command configured (see `relay verify --help`)";
+  return `${cmd.command} ${chalk.gray(cmd.source === "config" ? "([[verify.repos]])" : "(.agents/RELAY_VERIFY)")}`;
 }
 
 function agentSupportsContextPreamble(assignee: Task["assignee"]): boolean {
