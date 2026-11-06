@@ -207,6 +207,15 @@ Today 画面は `wait_on='self'` を上段に常に展開、それ以外を下�
 | `agents-note` | `<repo>/.agents/*.md` | sync 時 / daemon 5min | checkbox `- [ ]` 行抽出 |
 | `manual` | `relay add` | 即時 | CLI (sync 経路では fetch しない — no-op adapter として登録、`precheck` で常に SKIPPED) |
 
+`fetch` と `fetchResolved` が同じ全 scan から導出される adapter
+(`git-interrupted` / `git-stash` / `git-dirty-worktree` / `orphan-branch` /
+`gh-review-request` / `gh-unresolved-thread` / `agents-note` /
+`docs-checklist`) は、1 回の `runSync` 内では scan 結果を共有する
+(`src/adapters/scan-memo.ts`、`AdapterContext.scanMemo`)。下記の
+「同じ walk を行い」は、ingest した snapshot と同じ scan 結果で resolved を
+判定するという意味で、sync 内で git / gh / fs を 2 度走らせるわけではない。
+run 外 (memo なし) の呼び出しは従来どおり毎回 scan する。
+
 ### `code-todo` 詳細仕様
 
 - ripgrep pattern: `^(\s*[#/]+\s*)?(TODO|FIXME|HACK|XXX)(\([^)]*\))?:?\s+(.+)$`

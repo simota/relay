@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { basename, join } from "node:path";
 import type { Adapter, AdapterContext, ResolvedSource, TaskInput } from "../types.js";
+import { memoizedScan } from "./scan-memo.js";
 
 // Matches GitHub-style task list checkboxes. Capture group 1 is the inner
 // char: " " = open, "x"/"X" = done. We tolerate `- [ ]`, `- [x]`, `- [X]`,
@@ -23,7 +24,7 @@ export const agentsNoteAdapter: Adapter = {
   name: "agents_note",
 
   async fetch(ctx: AdapterContext): Promise<TaskInput[]> {
-    const { open, agentsDirCount } = await scanAll(ctx);
+    const { open, agentsDirCount } = await memoizedScan(ctx, "agents_note", () => scanAll(ctx));
     // Observability: no precheck (the scan itself is the side-effect-free
     // probe), but if nothing under `scan.roots` carries a `.agents/`
     // directory the adapter has no work to ingest — surface that so users
@@ -41,7 +42,7 @@ export const agentsNoteAdapter: Adapter = {
   // matching DB task. The source_id formula matches `fetch()` so the same
   // line produces the same id whether it's currently `- [ ]` or `- [x]`.
   async fetchResolved(ctx: AdapterContext): Promise<ResolvedSource[]> {
-    const { resolved } = await scanAll(ctx);
+    const { resolved } = await memoizedScan(ctx, "agents_note", () => scanAll(ctx));
     return resolved;
   },
 };

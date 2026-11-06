@@ -418,6 +418,12 @@ export interface AdapterContext {
    */
   lastSyncCursor?: string;
   /**
+   * Run-scoped scan results shared by an adapter's `fetch()` and
+   * `fetchResolved()` (see `src/adapters/scan-memo.ts`). Created by
+   * `runSync` for one run; absent elsewhere, which means "scan every call".
+   */
+  scanMemo?: Map<string, Promise<unknown>>;
+  /**
    * Write-side DB handle. Session adapters use this to UPSERT into the
    * `sessions` table as a best-effort side effect during `fetch`. Optional
    * so test harnesses and in-memory adapters can ignore it; absent =
