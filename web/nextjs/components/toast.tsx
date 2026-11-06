@@ -86,7 +86,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
         taskIds: [task.id],
         action,
         opKind: action,
-        label: action === "snooze" ? formatSnoozeLabel(task) : c("toast.closed"),
+        label: action === "snooze" ? formatSnoozeLabel(task) : formatCloseLabel(task),
         count: 1,
         exiting: false,
       };
@@ -318,6 +318,15 @@ function formatSnoozeLabel(task: Task): string {
 
   const days = Math.max(1, Math.ceil(ms / 86_400_000));
   return c("toast.snoozedUntilWeekday", { days: formatNumber(days), weekday: formatWeekday(due) });
+}
+
+/** "closed · next Mon" when closing a recurring task scheduled its next occurrence. */
+function formatCloseLabel(task: Task): string {
+  const next = task.next_occurrence;
+  if (!next) return c("toast.closed");
+  const due = new Date(next.due_at);
+  if (Number.isNaN(due.getTime())) return c("toast.closed");
+  return `${c("toast.closed")} · ↻ next ${due.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}`;
 }
 
 function formatCollapsedLabel(action: UndoAction, count: number): string {

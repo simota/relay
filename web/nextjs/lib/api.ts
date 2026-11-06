@@ -98,6 +98,8 @@ export interface CreateTaskInput {
   tags?: string[];
   /** Task ids the new task waits on. */
   blocked_by?: number[];
+  /** Repeat rule (e.g. "weekly"); closing the task schedules the next one. */
+  recurrence?: string;
 }
 
 export interface SyncHistoryRow {
@@ -494,7 +496,9 @@ export const api = {
   taskRuns: (id: number, limit = 10) => request<TaskRun[]>(`/api/tasks/${id}/runs?limit=${limit}`),
   searchTasks: (q: string, limit = 20) =>
     request<Task[]>(`/api/tasks?status=all&q=${encodeURIComponent(q)}&limit=${limit}`),
-  close: (id: number) => request<Task>(`/api/tasks/${id}/close`, { method: "POST" }),
+  /** `next_occurrence` is set when closing a recurring task scheduled the next one. */
+  close: (id: number) =>
+    request<Task>(`/api/tasks/${id}/close`, { method: "POST" }),
   reopen: (id: number) => request<Task>(`/api/tasks/${id}/reopen`, { method: "POST" }),
   reassign: (id: number, assignee: string) =>
     request<Task>(`/api/tasks/${id}/assignee`, {
@@ -580,6 +584,13 @@ export const api = {
     remove: (id: number) =>
       request<{ ok: true }>(`/api/queue/items/${id}`, { method: "DELETE" }),
     clear: () => request<{ ok: true }>("/api/queue", { method: "DELETE" }),
+    /** Not-done tasks whose latest run failed and that are not queued yet. */
+    failedCount: () => request<{ count: number; task_ids: number[] }>("/api/queue/retry-failed"),
+    retryFailed: () =>
+      request<{ ok: true; count: number; task_ids: number[] }>("/api/queue/retry-failed", {
+        method: "POST",
+        body: JSON.stringify({}),
+      }),
   },
   views: {
     list: () => request<SavedView[]>("/api/views"),

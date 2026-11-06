@@ -5,6 +5,10 @@ import chalk from "chalk";
 import { RelayDB, type RunListRow } from "../db/client.js";
 import { readRunLog, runLogPath } from "../executor/headless.js";
 import { padEndDisplay, truncateDisplay } from "../lib/text-width.js";
+import { spawnSync } from "node:child_process";
+import { loadConfig } from "../config.js";
+import { formatChangeSummary, type RunChanges } from "../executor/changes.js";
+import { resolveRepoPath } from "../repo-resolver.js";
 
 export interface RunsOptions {
   task?: number;
@@ -12,6 +16,8 @@ export interface RunsOptions {
   agent?: string;
   limit?: number;
   log?: number;
+  /** Print the git diff a run produced (vs its pre-run HEAD). */
+  diff?: number;
   json?: boolean;
 }
 
@@ -20,6 +26,10 @@ const RUN_STATUSES = new Set(["running", "success", "failed", "interrupted"]);
 export function runRuns(options: RunsOptions = {}): void {
   if (options.log !== undefined) {
     showLog(options.log);
+    return;
+  }
+  if (options.diff !== undefined) {
+    showDiff(options.diff);
     return;
   }
   if (options.status && !RUN_STATUSES.has(options.status)) {
@@ -42,7 +52,7 @@ export function runRuns(options: RunsOptions = {}): void {
     return;
   }
   for (const row of rows) console.log(formatRunRow(row));
-  console.log(chalk.gray("\nlog of a headless run: relay runs --log <run-id>"));
+  console.log(chalk.gray("\nlog of a headless run: relay runs --log <run-id>  ·  what it changed: relay runs --diff <run-id>"));
 }
 
 function formatRunRow(row: RunListRow): string {
@@ -56,6 +66,7 @@ function formatRunRow(row: RunListRow): string {
     chalk.gray(formatDuration(row.started_at, row.ended_at).padEnd(8)) +
     chalk.cyan(`#${row.task_id} `) +
     truncateDisplay(row.task_title, 48) +
+    (row.changes ? chalk.cyan(`  ${formatChangeSummary(row.changes)}`) : "") +
     (summary ? chalk.gray(`\n${" ".repeat(7)}${truncateDisplay(summary, 100)}`) : "")
   );
 }
@@ -83,6 +94,7 @@ function showLog(runId: number): void {
     chalk.bold(`run #${run.id}`) +
       chalk.gray(` · task #${run.task_id} ${run.task_title} · ${run.agent} · ${run.status}`),
   );
+  if (run.changes) printChanges(run.changes);
   if (!log) {
     console.log(chalk.gray("(no captured log — only headless runs record output)"));
     if (run.output_summary) console.log(run.output_summary);
@@ -90,4 +102,51 @@ function showLog(runId: number): void {
   }
   if (log.truncated) console.log(chalk.gray(`(showing the last part of ${log.bytes} bytes — full log: ${runLogPath(runId)})`));
   process.stdout.write(log.text.endsWith("\n") ? log.text : `${log.text}\n`);
+}
+
+export function printChanges(changes: RunChanges, indent = ""): void {
+  console.log(chalk.cyan(`${indent}changed: ${formatChangeSummary(changes)}`));
+  for (const file of changes.files) {
+    const stat =
+      file.added === null && file.removed === null
+        ? chalk.gray("new/binary")
+        : `${chalk.green(`+${file.added ?? 0}`)} ${chalk.red(`−${file.removed ?? 0}`)}`;
+    console.log(`${indent}  ${stat}  ${file.path}`);
+  }
+  if (changes.more > 0) console.log(chalk.gray(`${indent}  … ${changes.more} more`));
+}
+
+/**
+ * `relay runs --diff <id>` — the patch an agent run produced. While HEAD
+ * is still where the run left it, the diff runs against the work tree so
+ * uncommitted edits show too; once HEAD moved on, only the run's commits.
+ */
+function showDiff(runId: number): void {
+  using db = new RelayDB();
+  const run = db.getRun(runId);
+  if (!run) {
+    console.log(chalk.red(`run #${runId} not found`));
+    process.exit(1);
+  }
+  const before = run.changes?.head_before;
+  if (!run.changes || !before) {
+    console.log(chalk.gray(`run #${runId} has no recorded changes (not a git repo, or recorded before schema v13)`));
+    return;
+  }
+  const repoRoot = resolveRepoPath(run.repo, loadConfig());
+  if (!repoRoot) {
+    console.log(chalk.red(`repo '${run.repo}' not found under scan.roots`));
+    process.exit(1);
+  }
+  printChanges(run.changes);
+  const head = spawnSync("git", ["rev-parse", "HEAD"], { cwd: repoRoot, encoding: "utf8" }).stdout?.trim();
+  const after = run.changes.head_after;
+  const args =
+    after && head && head !== after ? ["diff", before, after] : ["diff", before];
+  if (after && head && head !== after) {
+    console.log(chalk.gray(`(HEAD moved since the run — showing ${before.slice(0, 8)}..${after.slice(0, 8)} only)`));
+  }
+  console.log("");
+  const res = spawnSync("git", ["--no-pager", ...args], { cwd: repoRoot, stdio: "inherit" });
+  if (res.status !== 0) process.exitCode = res.status ?? 1;
 }

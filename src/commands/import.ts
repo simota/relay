@@ -134,6 +134,7 @@ function runRelaySnapshotImport(raw: string, opts: ImportOptions): void {
       ? (t.user_overrides as unknown[]).filter((f): f is string => typeof f === "string")
       : [],
     tags: Array.isArray(t.tags) ? (t.tags as unknown[]).filter((f): f is string => typeof f === "string") : undefined,
+    recurrence: !("recurrence" in t) ? undefined : typeof t.recurrence === "string" ? t.recurrence : null,
   }));
   const dependencies = parseSnapshotDependencies((parsed as Record<string, unknown>).dependencies);
 

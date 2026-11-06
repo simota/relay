@@ -220,13 +220,24 @@ queue
     runQueueList();
   });
 queue
-  .command("add <ids...>")
+  .command("add [ids...]")
   .option("--front", "put the tasks at the head of the queue")
   .option("--assign <agent>", "also assign them (claude-code | codex | antigravity | self | human-review)")
-  .description("Queue tasks by id (re-adding a queued task does not duplicate it).")
-  .action(async (ids: string[], opts) => {
+  .option("--failed", "also queue every open task whose latest agent run failed or was interrupted")
+  .option("--since <window>", "with --failed: only failures in this window (24h, 3d, 1w)")
+  .description("Queue tasks by id (re-adding a queued task does not duplicate it); --failed re-queues failed runs.")
+  .action(async (ids: string[] | undefined, opts) => {
     const { runQueueAdd } = await import("./commands/queue.js");
-    runQueueAdd(parseIds(ids), { front: Boolean(opts.front), assign: opts.assign });
+    if ((!ids || ids.length === 0) && !opts.failed) {
+      console.error(chalk.red("give task ids, or --failed to retry failed runs"));
+      process.exit(1);
+    }
+    runQueueAdd(ids && ids.length > 0 ? parseIds(ids) : [], {
+      front: Boolean(opts.front),
+      assign: opts.assign,
+      failed: Boolean(opts.failed),
+      since: typeof opts.since === "string" ? opts.since : undefined,
+    });
   });
 queue
   .command("rm <ids...>")
@@ -276,8 +287,9 @@ program
   .option("--agent <name>")
   .option("-n, --limit <n>", "rows (default 20)")
   .option("--log <runId>", "print the captured output of a headless run")
+  .option("--diff <runId>", "print the git diff a run produced (vs its pre-run HEAD)")
   .option("--json", "machine-readable output")
-  .description("Agent run history across tasks; --log shows a headless run's output.")
+  .description("Agent run history across tasks; --log shows a headless run's output, --diff what it changed.")
   .action(async (opts) => {
     const { runRuns } = await import("./commands/runs.js");
     runRuns({
@@ -286,6 +298,7 @@ program
       agent: opts.agent,
       limit: opts.limit ? Number(opts.limit) : undefined,
       log: opts.log ? parseIds([opts.log])[0] : undefined,
+      diff: opts.diff ? parseIds([opts.diff])[0] : undefined,
       json: Boolean(opts.json),
     });
   });
@@ -335,6 +348,7 @@ program
   .option("--priority <n>", "0-100", "50")
   .option("--tags <list>", "comma-separated tags, e.g. billing,release-v2")
   .option("--blocked-by <ids>", "comma-separated task ids this task waits on")
+  .option("--every <rule>", "repeat: daily | weekdays | weekly | biweekly | monthly | 3d | 2w | mon,thu")
   .description("Add a manual task (interactive when flags are missing).")
   .action(async (opts) => {
     const { runAdd } = await import("./commands/add.js");
@@ -383,20 +397,20 @@ program
   });
 
 program
-  .command("close <id>")
-  .description("Mark a task as done.")
-  .action(async (id) => {
+  .command("close <ids...>")
+  .description("Mark tasks as done (one undo entry). Recurring tasks schedule their next occurrence.")
+  .action(async (ids: string[]) => {
     const { runClose } = await import("./commands/mutate.js");
-    runClose(Number(id));
+    runClose(parseIdList(ids));
   });
 
 program
-  .command("snooze <id>")
+  .command("snooze <ids...>")
   .option("--until <when>", "wake date: YYYY-MM-DD, tomorrow, next-week, mon..sun, +3d, +4h")
-  .description("Snooze a task (indefinitely, or until a date — it reopens on its own).")
-  .action(async (id, opts) => {
+  .description("Snooze tasks (indefinitely, or until a date — they reopen on their own).")
+  .action(async (ids: string[], opts) => {
     const { runSnoozeUntil } = await import("./commands/edit.js");
-    runSnoozeUntil(Number(id), opts.until);
+    runSnoozeUntil(parseIdList(ids), opts.until);
   });
 
 program
@@ -412,6 +426,7 @@ program
   .option("--wait-on <who>", "self | reviewer | external | scheduled")
   .option("--repo <name>", "move a manual task to another repo")
   .option("--reset <fields>", "comma-separated fields to hand back to the adapter on next sync")
+  .option("--every <rule>", "repeat rule (daily | weekdays | weekly | biweekly | monthly | 3d | 2w | mon,thu); 'none' stops")
   .description("Edit a task. Edited fields survive `relay sync`; undo with `relay undo`.")
   .action(async (id, opts) => {
     const { runEdit } = await import("./commands/edit.js");
@@ -430,11 +445,11 @@ program
   });
 
 program
-  .command("reopen <id>")
-  .description("Re-open a snoozed or closed task.")
-  .action(async (id) => {
+  .command("reopen <ids...>")
+  .description("Re-open snoozed or closed tasks (one undo entry).")
+  .action(async (ids: string[]) => {
     const { runReopen } = await import("./commands/mutate.js");
-    runReopen(Number(id));
+    runReopen(parseIdList(ids));
   });
 
 program

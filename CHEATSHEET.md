@@ -44,15 +44,15 @@ CLI と Web UI の早見表。インストールは `INSTALL.md`、Web UI 詳細
 
 | Command | 用途 |
 |---|---|
-| `relay add [--repo X --title "..." --assignee A --prompt "..." --files a,b --due <when> --wait-on W --priority 0-100 --body "..." --tags a,b --blocked-by 1,2]` | 手動追加。引数なしで対話モード。作成した `#id` を表示。 |
-| `relay edit <id> [--title --body --priority --prompt --files --due <when> --wait-on W --repo] [--clear-due] [--clear-prompt] [--reset f1,f2]` | タスクを編集。編集したフィールドは `relay sync` で上書きされない (`--reset` で adapter に返す)。`--repo` は manual のみ。 |
+| `relay add [--repo X --title "..." --assignee A --prompt "..." --files a,b --due <when> --wait-on W --priority 0-100 --body "..." --tags a,b --blocked-by 1,2 --every R]` | 手動追加。引数なしで対話モード。作成した `#id` を表示。`--every` = `daily`/`weekdays`/`weekly`/`biweekly`/`monthly`/`3d`/`2w`/`mon,thu` で繰り返しタスク。 |
+| `relay edit <id> [--title --body --priority --prompt --files --due <when> --wait-on W --repo --every R] [--clear-due] [--clear-prompt] [--reset f1,f2]` | タスクを編集 (`--every none` で繰り返し解除)。編集したフィールドは `relay sync` で上書きされない (`--reset` で adapter に返す)。`--repo` は manual のみ。 |
 | `relay tag <id> [tag ^tag ...] [--ids 3,4] [--clear]` | タグを表示 / 追加 / 削除 (`^tag` または `relay tag 5 -- -tag` で削除、`--ids` で一括)。sync で消えない。 |
 | `relay block <id> <blocker...>` | 依存関係を追加 ("#id は blocker の完了待ち")。完了まで today から隠れ、queue run は blocker 成功後に起動。循環は拒否。 |
 | `relay unblock <id> [blocker...]` | 依存関係を削除 (blocker 省略で全部)。 |
 | `relay assign <id> <agent>` | 担当変更 (`claude-code` / `codex` / `antigravity` / `self` / `human-review`)。 |
-| `relay close <id>` | done に。 |
-| `relay snooze <id> [--until <when>]` | snooze に。`--until` 指定時はその日時を過ぎると自動で open に戻る。 |
-| `relay reopen <id>` | snooze / done → open に戻す。 |
+| `relay close <ids...>` | done に (複数 id 可、1 回の undo でまとめて戻る)。繰り返しタスクは次回分を snooze 状態で自動生成 (期日に open へ復帰)。 |
+| `relay snooze <ids...> [--until <when>]` | snooze に。`--until` 指定時はその日時を過ぎると自動で open に戻る。 |
+| `relay reopen <ids...>` | snooze / done → open に戻す。 |
 | `relay focus [id] [--clear]` | 今フォーカス中のタスクを set / show / clear。 |
 | `relay undo [--redo] [--list]` | 直前の変更 (close / snooze / reopen / assign / edit / tag / block / bulk / prune) を取り消し。Web の ⌘Z と同じ undo log。 |
 | `relay forget <sessionId> [--source claude_session_todo] [--yes]` * | 特定セッションから入ったタスクを物理削除。 |
@@ -79,12 +79,14 @@ Web の queue tray (`a` / bulk `a`) と共有。
 |---|---|
 | `relay queue` / `relay queue ls` | 実行順に一覧。 |
 | `relay queue add <ids...> [--front] [--assign codex]` | 追加 (重複なし)。`--front` で先頭、`--assign` で担当も一括変更。 |
+| `relay queue add --failed [--since 24h\|3d\|1w]` | 最新 run が失敗 / 中断した未完了タスクをまとめて再キュー (Web tray の「retry N failed」と同じ)。 |
 | `relay queue rm <ids...>` / `relay queue clear` | 除去 / 全消去。 |
 | `relay queue run` | 先頭から順に起動 (依存関係順: blocker が成功するまで dependent は待つ)。成功分は queue から外れる。失敗で停止。 |
 | `relay queue run --headless [--continue-on-error] [--close-on-success] [-n N] [--timeout <min>]` | 無人で一括実行 (claude-code / codex)。 |
 | `relay queue run --dry-run` | 起動順と prompt だけ確認。 |
-| `relay runs [--task <id>] [--status failed] [-n N] [--json]` | run 履歴 (所要時間・出力末尾)。 |
-| `relay runs --log <run-id>` | headless run の出力ログ全体。 |
+| `relay runs [--task <id>] [--status failed] [-n N] [--json]` | run 履歴 (所要時間・出力末尾・変更ファイル数 / コミット数)。 |
+| `relay runs --log <run-id>` | headless run の出力ログ全体 (先頭に変更ファイル一覧)。 |
+| `relay runs --diff <run-id>` | その run が repo に加えた変更の patch (起動前 HEAD との差分)。 |
 
 headless の権限は `~/.relay/config.toml` の `[agents]` で: `claude_headless_args = ["--permission-mode", "acceptEdits"]`, `codex_headless_args = ["--full-auto"]`, `headless_timeout_min = 30`。
 

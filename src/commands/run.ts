@@ -7,7 +7,9 @@ import { gitSnapshot } from "../context/git.js";
 import { RelayDB, type RelayContext } from "../db/client.js";
 import { buildPrompt, formatPrerequisites, resolveReviewUrl, runTask } from "../executor/index.js";
 import { resolveHeadlessCommand, runTaskHeadless, supportsHeadless } from "../executor/headless.js";
+import { captureBaseline, computeChanges, formatChangeSummary, type RunChanges } from "../executor/changes.js";
 import { resolveRepoPath } from "../repo-resolver.js";
+import { spawnAfterClose } from "../lib/recurrence-close.js";
 import type { SessionType, Task } from "../types.js";
 import { clearFocus, getFocus } from "./focus.js";
 
@@ -135,6 +137,8 @@ export interface ExecuteResult {
   summary: string | null;
   logPath: string | null;
   closed: boolean;
+  /** What the run changed in the repo; null outside a git work tree. */
+  changes?: RunChanges | null;
 }
 
 /**
@@ -160,6 +164,8 @@ export async function executePrepared(
     runId = db.insertRun(task.id, task.assignee);
     db.setStatus(task.id, "in_progress");
   }
+  // What the repo looked like before the agent touched it (schema v13).
+  const baseline = captureBaseline(repoRoot);
 
   const runOptions = {
     task,
@@ -198,6 +204,11 @@ export async function executePrepared(
     summary = e instanceof Error ? e.message : String(e);
   }
   recordRunOutcome(runId, task, repoRoot, status, summary ?? undefined);
+  const changes = baseline ? computeChanges(baseline) : null;
+  if (changes) {
+    using db = new RelayDB();
+    db.recordRunChanges(runId, changes);
+  }
 
   let closed = false;
   if (status === "success" && options.closeOnSuccess) {
@@ -206,11 +217,12 @@ export async function executePrepared(
     if (before && before.status !== "done") {
       db.setStatus(task.id, "done");
       const after = db.getTask(task.id);
+      const recur = spawnAfterClose(db, [task.id]);
       if (after) {
         db.recordUndo({
           op_kind: "close",
-          payload: { tasks: [statusSnapshot(after)] },
-          inverse: { tasks: [statusSnapshot(before)] },
+          payload: { tasks: [statusSnapshot(after)], ...recur.payload },
+          inverse: { tasks: [statusSnapshot(before)], ...recur.inverse },
         });
       }
       closed = true;
@@ -224,7 +236,7 @@ export async function executePrepared(
   }
   // After a success the status stays 'in_progress' — next `relay sync`
   // reconciles from source state (or --close-on-success closed it above).
-  return { runId, status, exitCode, summary, logPath, closed };
+  return { runId, status, exitCode, summary, logPath, closed, changes };
 }
 
 function statusSnapshot(task: Task) {
@@ -349,6 +361,7 @@ export function printHeadlessOutcome(result: ExecuteResult): void {
   console.log(
     `\n${mark} run #${result.runId} ${result.status} (exit ${result.exitCode})` +
       (result.closed ? chalk.green(" · task closed") : "") +
+      (result.changes ? chalk.cyan(`\n   changed: ${formatChangeSummary(result.changes)}`) : "") +
       (result.logPath ? chalk.gray(`\n   log: ${result.logPath}  (relay runs --log ${result.runId})`) : "") +
       (result.status !== "success" && result.summary ? chalk.red(`\n   ${result.summary.split("\n").pop()}`) : ""),
   );

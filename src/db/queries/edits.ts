@@ -7,6 +7,7 @@ import type { Database } from "bun:sqlite";
 import type { EditableField, TaskEdit } from "../../types.js";
 import { EDITABLE_FIELDS } from "../../types.js";
 import { parseOverrides } from "../internal.js";
+import { parseRunChanges, type RunChanges } from "../../executor/changes.js";
 
 /** Before/after image of the edited fields, stored in undo_log. */
 export interface TaskEditSnapshot {
@@ -24,7 +25,14 @@ const COLUMN_OF: Record<EditableField, string> = {
   due_at: "due_at",
   wait_on: "wait_on",
   repo: "repo",
+  recurrence: "recurrence",
 };
+
+/**
+ * User-owned columns no adapter writes: editing them needs no sync lock
+ * (adding one to user_overrides would only confuse `--reset`).
+ */
+const UNLOCKED_FIELDS: ReadonlySet<EditableField> = new Set(["recurrence"]);
 
 function encode(field: EditableField, value: unknown): unknown {
   if (field === "files") {
@@ -44,6 +52,7 @@ function decodeRow(row: Record<string, unknown>): TaskEdit {
     due_at: (row.due_at as string | null) ?? null,
     wait_on: (row.wait_on as TaskEdit["wait_on"]) ?? "self",
     repo: row.repo as string,
+    recurrence: (row.recurrence as string | null) ?? null,
   };
 }
 
@@ -84,7 +93,7 @@ export function editTask(
   }
 
   const overrides = new Set(overridesBefore);
-  if (lock) for (const field of changed) overrides.add(field);
+  if (lock) for (const field of changed) if (!UNLOCKED_FIELDS.has(field)) overrides.add(field);
   for (const field of unlock) overrides.delete(field);
   const overridesAfter = EDITABLE_FIELDS.filter((f) => overrides.has(f));
   const overridesChanged =
@@ -189,16 +198,22 @@ export interface TaskRunRow {
   ended_at: string | null;
   status: string;
   output_summary: string | null;
+  /** What the run changed in the repo (schema v13); null when unknown. */
+  changes: RunChanges | null;
 }
 
 /** Newest-first agent runs for one task (`relay run` history). */
 export function listRunsForTask(db: Database, taskId: number, limit = 20): TaskRunRow[] {
   return db
     .prepare(
-      `SELECT id, agent, started_at, ended_at, status, output_summary
+      `SELECT id, agent, started_at, ended_at, status, output_summary, head_before, head_after, changes
          FROM runs WHERE task_id = ?
         ORDER BY started_at DESC, id DESC
         LIMIT ?`,
     )
-    .all(taskId, limit) as TaskRunRow[];
+    .all(taskId, limit)
+    .map((raw) => {
+      const { head_before, head_after, changes, ...row } = raw as Record<string, unknown>;
+      return { ...(row as Omit<TaskRunRow, "changes">), changes: parseRunChanges(changes, head_before, head_after) };
+    });
 }

@@ -137,6 +137,12 @@ import {
   today as _today,
   viewCounts as _viewCounts,
 } from "./queries/aggregates.js";
+import type { RunChanges } from "../executor/changes.js";
+import {
+  dropSpawnedOccurrences as _dropSpawnedOccurrences,
+  spawnNextOccurrences as _spawnNextOccurrences,
+  type SpawnedOccurrence,
+} from "./queries/recurrence.js";
 import {
   addQueueItem as _addQueueItem,
   clearQueue as _clearQueue,
@@ -148,6 +154,8 @@ import {
   moveQueueItemToFront as _moveQueueItemToFront,
   type RunListRow,
   finishRun as _finishRun,
+  recordRunChanges as _recordRunChanges,
+  failedTaskIds as _failedTaskIds,
   insertRun as _insertRun,
   lastSuccessfulSyncEndedAt as _lastSuccessfulSyncEndedAt,
   latestSuccessfulRunsForTasks as _latestSuccessfulRunsForTasks,
@@ -449,6 +457,19 @@ export class RelayDB {
 
   bulkClose(ids: number[]): number {
     return _bulkClose(this.db, ids);
+  }
+
+  /**
+   * Schedule the next occurrence of every recurring task in `ids` that is
+   * now done (schema v13). Call right after closing; idempotent.
+   */
+  spawnNextOccurrences(ids: number[], now?: Date): SpawnedOccurrence[] {
+    return _spawnNextOccurrences(this.db, ids, now);
+  }
+
+  /** Undo side of spawnNextOccurrences: removes untouched occurrences only. */
+  dropSpawnedOccurrences(ids: number[]): number[] {
+    return _dropSpawnedOccurrences(this.db, ids);
   }
 
   upsertSession(row: SessionRow): void {
@@ -809,6 +830,15 @@ export class RelayDB {
 
   insertRun(taskId: number, agent: string): number {
     return _insertRun(this.db, taskId, agent);
+  }
+
+  /** Not-done tasks whose latest run failed / was interrupted (retry set). */
+  failedTaskIds(sinceIso?: string): number[] {
+    return _failedTaskIds(this.db, sinceIso);
+  }
+
+  recordRunChanges(runId: number, changes: RunChanges): void {
+    _recordRunChanges(this.db, runId, changes);
   }
 
   finishRun(runId: number, status: string, summary?: string): void {

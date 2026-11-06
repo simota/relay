@@ -6,6 +6,7 @@ import type { TaskInput } from "../../types.js";
 import type { SnapshotRow, UpsertResult } from "../types.js";
 import { parseOverrides, serialize } from "../internal.js";
 import { normalizeTags } from "../../lib/tags.js";
+import { normalizeRecurrence } from "../../lib/recurrence.js";
 
 interface ExistingSyncFields {
   repo: string;
@@ -219,15 +220,16 @@ export function upsertSnapshot(
     INSERT INTO tasks (
       source_type, source_id, repo, title, body, status, assignee,
       priority, prompt, files, context_hash, session_id, due_at,
-      wait_on, created_at, updated_at, closed_at, user_overrides, tags
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      wait_on, created_at, updated_at, closed_at, user_overrides, tags, recurrence
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const updateStmt = db.prepare(`
     UPDATE tasks SET
       repo = ?, title = ?, body = ?, status = ?, assignee = ?, priority = ?,
       prompt = ?, files = ?, session_id = ?, due_at = ?, wait_on = ?,
       updated_at = ?, closed_at = ?, user_overrides = ?,
-      tags = COALESCE(?, tags)
+      tags = COALESCE(?, tags),
+      recurrence = CASE WHEN ? = 1 THEN ? ELSE recurrence END
     WHERE id = ?
   `);
 
@@ -257,6 +259,7 @@ export function upsertSnapshot(
           r.closed_at,
           overridesJson(r.user_overrides),
           snapshotTagsJson(r.tags) ?? null,
+          snapshotRecurrence(r.recurrence),
         );
         result.inserted++;
         continue;
@@ -279,6 +282,9 @@ export function upsertSnapshot(
           overridesJson(r.user_overrides),
           // undefined (pre-v12 snapshot) keeps local tags; [] clears them.
           r.tags === undefined ? null : JSON.stringify(normalizeTags(r.tags).tags),
+          // undefined (pre-v13 snapshot) keeps the local rule; null clears it.
+          r.recurrence === undefined ? 0 : 1,
+          snapshotRecurrence(r.recurrence),
           existing.id,
         );
         result.updated++;
@@ -289,6 +295,11 @@ export function upsertSnapshot(
   });
   tx(rows);
   return result;
+}
+
+function snapshotRecurrence(rule: string | null | undefined): string | null {
+  if (rule === undefined || rule === null) return null;
+  return normalizeRecurrence(rule) ?? null;
 }
 
 function snapshotTagsJson(tags: string[] | undefined): string | null {

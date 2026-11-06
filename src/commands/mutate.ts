@@ -3,6 +3,8 @@ import { loadConfig } from "../config.js";
 import { RelayDB } from "../db/client.js";
 import { Assignee, type Task } from "../types.js";
 import { runSnoozeUntil } from "./edit.js";
+import { spawnAfterClose } from "../lib/recurrence-close.js";
+import { describeRecurrence } from "../lib/recurrence.js";
 
 export function deriveCloseHint(
   task: Pick<Task, "source_type" | "source_id">,
@@ -34,26 +36,38 @@ export function deriveCloseHint(
   return null;
 }
 
-export function runClose(id: number): void {
-  const db = new RelayDB();
-  const task = db.getTask(id);
-  if (!task) {
-    console.log(chalk.red(`task #${id} not found`));
-    db.close();
-    process.exit(1);
+/**
+ * `relay close <ids...>` — one undo entry for the whole batch, so a single
+ * `relay undo` / ⌘Z brings every task (and any recurring occurrence the
+ * close scheduled) back.
+ */
+export function runClose(ids: number | number[]): void {
+  const list = Array.isArray(ids) ? ids : [ids];
+  using db = new RelayDB();
+  const { targets, failed } = resolveTargets(db, list);
+  const toClose = targets.filter((task) => {
+    if (task.status !== "done") return true;
+    console.log(chalk.gray(`#${task.id} already closed`));
+    return false;
+  });
+  if (toClose.length > 0) {
+    for (const task of toClose) db.setStatus(task.id, "done");
+    const recur = spawnAfterClose(db, toClose.map((task) => task.id));
+    recordStatusUndo(db, toClose, toClose.length > 1 ? "bulk_close" : "close", recur);
+    const hints = loadConfig().close_hints;
+    for (const task of toClose) {
+      console.log(chalk.green(`✓ closed #${task.id}: ${task.title}`));
+      const next = recur.spawned.find((s) => s.from === task.id);
+      if (next && task.recurrence) {
+        console.log(
+          chalk.cyan(`  ↻ ${describeRecurrence(task.recurrence)} — next occurrence #${next.id} on ${new Date(next.due_at).toLocaleDateString()}`),
+        );
+      }
+      const hint = deriveCloseHint(task, hints);
+      if (hint) console.log(chalk.gray(`  hint: also close upstream → ${hint}`));
+    }
   }
-  if (task.status === "done") {
-    console.log(chalk.gray(`#${id} already closed`));
-    db.close();
-    return;
-  }
-  setStatusWithUndo(db, task, "done", "close");
-  db.close();
-  console.log(chalk.green(`✓ closed #${id}: ${task.title}`));
-  const hint = deriveCloseHint(task, loadConfig().close_hints);
-  if (hint) {
-    console.log(chalk.gray(`  hint: also close upstream → ${hint}`));
-  }
+  if (failed) process.exitCode = 1;
 }
 
 /** Indefinite snooze; `relay snooze --until` goes through runSnoozeUntil. */
@@ -61,22 +75,36 @@ export function runSnooze(id: number): void {
   runSnoozeUntil(id, undefined);
 }
 
-export function runReopen(id: number): void {
-  const db = new RelayDB();
-  const task = db.getTask(id);
-  if (!task) {
-    console.log(chalk.red(`task #${id} not found`));
-    db.close();
-    process.exit(1);
+export function runReopen(ids: number | number[]): void {
+  const list = Array.isArray(ids) ? ids : [ids];
+  using db = new RelayDB();
+  const { targets, failed } = resolveTargets(db, list);
+  const toOpen = targets.filter((task) => {
+    if (task.status !== "open") return true;
+    console.log(chalk.gray(`#${task.id} already open`));
+    return false;
+  });
+  if (toOpen.length > 0) {
+    for (const task of toOpen) db.setStatus(task.id, "open");
+    recordStatusUndo(db, toOpen, toOpen.length > 1 ? "bulk_reopen" : "reopen");
+    for (const task of toOpen) console.log(chalk.green(`↺ re-opened #${task.id}: ${task.title}`));
   }
-  if (task.status === "open") {
-    console.log(chalk.gray(`#${id} already open`));
-    db.close();
-    return;
+  if (failed) process.exitCode = 1;
+}
+
+function resolveTargets(db: RelayDB, ids: number[]): { targets: Task[]; failed: boolean } {
+  let failed = false;
+  const targets: Task[] = [];
+  for (const id of [...new Set(ids)]) {
+    const task = Number.isInteger(id) && id > 0 ? db.getTask(id) : null;
+    if (!task) {
+      console.log(chalk.red(`task #${id} not found`));
+      failed = true;
+      continue;
+    }
+    targets.push(task);
   }
-  setStatusWithUndo(db, task, "open", "reopen");
-  db.close();
-  console.log(chalk.green(`↺ re-opened #${id}: ${task.title}`));
+  return { targets, failed };
 }
 
 /**
@@ -84,14 +112,18 @@ export function runReopen(id: number): void {
  * and, through recordUndo, discards stale redo entries — otherwise a Web
  * redo of an earlier action would silently overwrite this change.
  */
-function setStatusWithUndo(db: RelayDB, before: Task, status: Task["status"], opKind: string): void {
-  db.setStatus(before.id, status);
-  const after = db.getTask(before.id);
-  if (!after) return;
+function recordStatusUndo(
+  db: RelayDB,
+  before: Task[],
+  opKind: string,
+  recur?: { payload: object; inverse: object },
+): void {
+  const after = db.getTasksByIds(before.map((task) => task.id));
+  if (after.length === 0) return;
   db.recordUndo({
     op_kind: opKind,
-    payload: { tasks: [statusSnapshot(after)] },
-    inverse: { tasks: [statusSnapshot(before)] },
+    payload: { tasks: after.map(statusSnapshot), ...recur?.payload },
+    inverse: { tasks: before.map(statusSnapshot), ...recur?.inverse },
   });
 }
 

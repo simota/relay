@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import useSWR from "swr";
-import { ArrowDown, ArrowUp, ChevronUp, ClipboardCopy, TerminalSquare, Trash2, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronUp, ClipboardCopy, RotateCcw, TerminalSquare, Trash2, X } from "lucide-react";
 import { api, type QueueItem } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { useFocusTrap } from "@/hooks/use-focus-trap";
@@ -19,6 +19,20 @@ export function QueueTray() {
   const { data: items = [], mutate } = useSWR<QueueItem[]>(QUEUE_KEY, () => api.queue.list());
   // `relay queue run` defers items whose blockers are unfinished; say so here.
   const { data: blocked = {} } = useSWR("/api/deps/blocked", () => api.blockedMap());
+  // Tasks whose latest agent run failed / was interrupted and are not queued.
+  const { data: failed, mutate: mutateFailed } = useSWR("/api/queue/retry-failed", () => api.queue.failedCount());
+  const failedCount = failed?.count ?? 0;
+  const [retrying, setRetrying] = useState(false);
+
+  async function retryFailed() {
+    setRetrying(true);
+    try {
+      await api.queue.retryFailed();
+      await Promise.all([mutate(), mutateFailed()]);
+    } finally {
+      setRetrying(false);
+    }
+  }
 
   // Agents with a headless mode; the rest only run interactively.
   const headlessReady = useMemo(
@@ -168,6 +182,20 @@ export function QueueTray() {
           )}
         </button>
         <div className="shrink-0 flex items-center gap-2">
+          {failedCount > 0 && (
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              disabled={retrying}
+              onClick={() => { void retryFailed(); }}
+              title={`Queue the ${formatNumber(failedCount)} open task(s) whose latest agent run failed (relay queue add --failed)`}
+              className="text-[var(--color-warm)]"
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+              {retrying ? "queuing…" : `retry ${formatNumber(failedCount)} failed`}
+            </Button>
+          )}
           <Button
             type="button"
             size="sm"

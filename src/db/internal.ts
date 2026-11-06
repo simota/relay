@@ -98,6 +98,7 @@ export function hydrate(row: Record<string, unknown>): Task {
     closed_at: (row.closed_at as string | null) ?? null,
     user_overrides: parseOverrides(row.user_overrides),
     tags: parseOverrides(row.tags),
+    recurrence: (row.recurrence as string | null) ?? null,
   };
 }
 

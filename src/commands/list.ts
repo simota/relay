@@ -9,6 +9,8 @@ import {
 } from "../lib/priority.js";
 import { buildResumeBrief, type ResumeBriefCandidate } from "../lib/resume-brief.js";
 import { normalizeTag } from "../lib/tags.js";
+import { describeRecurrence } from "../lib/recurrence.js";
+import { formatChangeSummary } from "../executor/changes.js";
 import { displayWidth, padEndDisplay } from "../lib/text-width.js";
 import { findMissingRepos } from "../repo-metadata.js";
 import type { SourceType, Task } from "../types.js";
@@ -180,6 +182,9 @@ export function runShow(id: number): void {
   if (task.session_id) console.log(chalk.gray(`session:  ${task.session_id}`));
   if (task.files.length) console.log(chalk.gray(`files:    ${task.files.join(", ")}`));
   if (task.tags?.length) console.log(chalk.gray(`tags:     `) + task.tags.map((t) => chalk.magenta(`#${t}`)).join(" "));
+  if (task.recurrence) {
+    console.log(chalk.gray(`repeats:  `) + chalk.cyan(`↻ ${describeRecurrence(task.recurrence)}`) + chalk.gray("  (closing schedules the next occurrence; stop: relay edit --every none)"));
+  }
   if (task.prompt) console.log(chalk.gray(`prompt:   ${task.prompt.replace(/\s+/g, " ").slice(0, 120)}${task.prompt.length > 120 ? "…" : ""}`));
   if (task.user_overrides?.length && task.source_type !== "manual") {
     console.log(
@@ -208,6 +213,7 @@ export function runShow(id: number): void {
       const tone = r.status === "success" ? chalk.green : r.status === "running" ? chalk.cyan : chalk.red;
       const summary = r.output_summary ? `  ${firstLine(r.output_summary).slice(0, 80)}` : "";
       console.log(`  ${tone(r.status.padEnd(8))} ${chalk.gray(r.agent.padEnd(12))} ${chalk.gray(r.started_at)}${chalk.gray(summary)}`);
+      if (r.changes) console.log(chalk.cyan(`           r${r.id} changed ${formatChangeSummary(r.changes)}`) + chalk.gray(`  (relay runs --diff ${r.id})`));
     }
   }
 
@@ -247,7 +253,9 @@ function printTable(
     const title = truncate(t.title, 60);
     const waitingOn = blockers?.get(t.id);
     const marker = waitingOn ? chalk.yellow("⛓") : statusMarker(t.status);
-    const tags = t.tags?.length ? " " + t.tags.map((tag) => chalk.magenta(`#${tag}`)).join(" ") : "";
+    const tags =
+      (t.tags?.length ? " " + t.tags.map((tag) => chalk.magenta(`#${tag}`)).join(" ") : "") +
+      (t.recurrence ? chalk.cyan(" ↻") : "");
     const waiting = waitingOn ? chalk.yellow(` ← ${waitingOn.map((b) => `#${b}`).join(" ")}`) : "";
     console.log(
       `${chalk.gray(`#${id}`)} ${marker} ${chalk.cyan(repo)}  ${chalk.dim(agent)}  ${title}${tags}${waiting}`,

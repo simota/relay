@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { RelayDB } from "../db/client.js";
 import { parseWhenInput, WHEN_INPUT_HINT } from "../lib/due-date.js";
 import { parseTaskEdit } from "../lib/task-edit.js";
+import { spawnAfterClose } from "../lib/recurrence-close.js";
 import { MAX_TAGS_PER_TASK, normalizeTags } from "../lib/tags.js";
 import { Assignee, type Task } from "../types.js";
 
@@ -48,15 +49,18 @@ export function createTasksApi() {
     // bulkClose skips already-done rows; snapshot exactly the rows it changes.
     const tasks = db.getTasksByIds(ids).filter((task) => task.status !== "done");
     const count = db.bulkClose(ids);
+    let spawned = 0;
     if (count > 0) {
       const now = new Date().toISOString();
+      const recur = spawnAfterClose(db, tasks.map((task) => task.id));
+      spawned = recur.spawned.length;
       db.recordUndo({
         op_kind: "bulk_close",
-        payload: { tasks: tasks.map((task) => ({ ...snapshotTask(task), status: "done", closed_at: now })) },
-        inverse: { tasks: tasks.map(snapshotTask) },
+        payload: { tasks: tasks.map((task) => ({ ...snapshotTask(task), status: "done", closed_at: now })), ...recur.payload },
+        inverse: { tasks: tasks.map(snapshotTask), ...recur.inverse },
       });
     }
-    return c.json({ ok: true, count });
+    return c.json({ ok: true, count, spawned });
   });
 
   // Assign many tasks to one agent (e.g. hand a batch of TODOs to codex

@@ -10,6 +10,7 @@ import {
   ensureUndoSchema,
 } from "../migrations.js";
 import type { LatestSyncRow, QueueItem, SyncHistoryRow } from "../types.js";
+import { parseRunChanges, type RunChanges } from "../../executor/changes.js";
 
 /**
  * Most recent successful run per task within the given window. Used by
@@ -71,6 +72,16 @@ export function insertRun(db: Database, taskId: number, agent: string): number {
     )
     .run(taskId, agent, now);
   return Number(info.lastInsertRowid);
+}
+
+/** Store what a run changed (schema v13); see src/executor/changes.ts. */
+export function recordRunChanges(db: Database, runId: number, changes: RunChanges): void {
+  db.prepare(`UPDATE runs SET head_before = ?, head_after = ?, changes = ? WHERE id = ?`).run(
+    changes.head_before,
+    changes.head_after,
+    JSON.stringify({ commits: changes.commits, files: changes.files, more: changes.more }),
+    runId,
+  );
 }
 
 export function finishRun(db: Database, runId: number, status: string, summary?: string): void {
@@ -344,6 +355,13 @@ export interface RunListRow {
   output_summary: string | null;
   task_title: string;
   repo: string;
+  /** What the run changed in the repo (schema v13); null when unknown. */
+  changes: RunChanges | null;
+}
+
+function withChanges<T extends Record<string, unknown>>(row: T): Omit<T, "head_before" | "head_after"> & { changes: RunChanges | null } {
+  const { head_before, head_after, changes, ...rest } = row as T & { head_before?: unknown; head_after?: unknown; changes?: unknown };
+  return { ...(rest as Omit<T, "head_before" | "head_after">), changes: parseRunChanges(changes, head_before, head_after) };
 }
 
 /** Recent runs across all tasks, newest first, for `relay runs` / GET /api/runs. */
@@ -370,6 +388,7 @@ export function listRuns(
   return db
     .prepare(
       `SELECT r.id, r.task_id, r.agent, r.started_at, r.ended_at, r.status, r.output_summary,
+              r.head_before, r.head_after, r.changes,
               t.title AS task_title, t.repo
          FROM runs r
          JOIN tasks t ON t.id = r.task_id
@@ -377,20 +396,49 @@ export function listRuns(
         ORDER BY r.started_at DESC, r.id DESC
         LIMIT ?`,
     )
-    .all(...params) as RunListRow[];
+    .all(...params)
+    .map((row) => withChanges(row as Record<string, unknown>)) as unknown as RunListRow[];
+}
+
+/**
+ * Tasks whose most recent run failed or was interrupted and that are still
+ * not done — the "retry what broke overnight" set for `relay queue add
+ * --failed` and POST /api/queue/retry-failed. `sinceIso` limits it to runs
+ * that ended after that instant. Ordered oldest failure first so a retry
+ * pass replays them in the order they originally ran.
+ */
+export function failedTaskIds(db: Database, sinceIso?: string): number[] {
+  const rows = db
+    .prepare(
+      `SELECT r.task_id
+         FROM runs r
+         JOIN tasks t ON t.id = r.task_id
+        WHERE r.status IN ('failed', 'interrupted')
+          AND t.status != 'done'
+          AND (? IS NULL OR COALESCE(r.ended_at, r.started_at) >= ?)
+          AND NOT EXISTS (
+            SELECT 1 FROM runs n
+             WHERE n.task_id = r.task_id
+               AND (n.started_at > r.started_at OR (n.started_at = r.started_at AND n.id > r.id))
+          )
+        ORDER BY r.started_at ASC, r.id ASC`,
+    )
+    .all(sinceIso ?? null, sinceIso ?? null) as Array<{ task_id: number }>;
+  return rows.map((r) => r.task_id);
 }
 
 export function getRun(db: Database, id: number): RunListRow | null {
   const row = db
     .prepare(
       `SELECT r.id, r.task_id, r.agent, r.started_at, r.ended_at, r.status, r.output_summary,
+              r.head_before, r.head_after, r.changes,
               t.title AS task_title, t.repo
          FROM runs r
          JOIN tasks t ON t.id = r.task_id
         WHERE r.id = ?`,
     )
-    .get(id) as RunListRow | undefined;
-  return row ?? null;
+    .get(id) as Record<string, unknown> | undefined;
+  return row ? (withChanges(row) as unknown as RunListRow) : null;
 }
 
 // --- undo_log -------------------------------------------------------------

@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Copy, Check, RotateCcw, ExternalLink, ChevronDown, Pencil, History, Link2, X, Hash } from "lucide-react";
+import { Copy, Check, RotateCcw, ExternalLink, ChevronDown, Pencil, History, Link2, X, Hash, Repeat } from "lucide-react";
+import { describeRecurrence } from "@/lib/recurrence";
 import useSWR, { useSWRConfig } from "swr";
 import { api, type RunListItem } from "@/lib/api";
 import { c, formatNumber } from "@/lib/copy";
@@ -15,7 +16,7 @@ import { SnoozeMenu } from "@/components/snooze-menu";
 import { EditedChip, TaskEditForm } from "@/components/task-edit-form";
 import { useHotkeys } from "@/hooks/use-hotkeys";
 import { sourceTypeToSessionType, stripSessionIdPrefix } from "@/lib/session-link";
-import type { DependencyInfo, EditableField, Task, SourceType } from "@/lib/types";
+import type { DependencyInfo, EditableField, RunChanges, Task, SourceType } from "@/lib/types";
 
 export function TaskDetail({
   task,
@@ -89,8 +90,8 @@ export function TaskDetail({
     setBusy(action);
     try {
       if (action === "close") {
-        await api.close(task.id);
-        pushUndo("close", task);
+        const closed = await api.close(task.id);
+        pushUndo("close", { ...task, next_occurrence: closed.next_occurrence });
       }
       if (action === "reopen") await api.reopen(task.id);
       onChange?.();
@@ -221,6 +222,17 @@ export function TaskDetail({
           {task.context_hash && (
             <MetaRow label={c("task.context")} mono>
               <span className="text-[var(--color-fg-muted)]">{task.context_hash.slice(0, 10)}</span>
+            </MetaRow>
+          )}
+          {task.recurrence && (
+            <MetaRow label="repeats">
+              <span
+                className="inline-flex items-center gap-1 text-[var(--color-fg-muted)]"
+                title="Closing this task schedules the next occurrence (snoozed until it is due). Change it with e."
+              >
+                <Repeat className="w-3 h-3" aria-hidden />
+                {describeRecurrence(task.recurrence)}
+              </span>
             </MetaRow>
           )}
           {task.files.length > 0 && (
@@ -606,6 +618,7 @@ function fieldLabel(field: EditableField): string {
 
 function RunHistory({ runs }: { runs: RunListItem[] }) {
   const [openLog, setOpenLog] = useState<number | null>(null);
+  const [openChanges, setOpenChanges] = useState<number | null>(null);
   return (
     <section aria-label="Agent runs" className="space-y-1.5">
       <div className="flex items-center gap-1.5 text-[10.5px] uppercase tracking-wider text-[var(--color-fg-dim)] font-medium">
@@ -638,6 +651,23 @@ function RunHistory({ runs }: { runs: RunListItem[] }) {
                   {run.output_summary.split("\n").at(-1)}
                 </span>
               )}
+              {run.changes && (
+                <button
+                  type="button"
+                  className={cn(
+                    "shrink-0 text-[11px] hover:underline ring-focus rounded-[var(--radius)]",
+                    run.changes.files.length + run.changes.more > 0 || run.changes.commits > 0
+                      ? "text-[var(--color-fg-muted)]"
+                      : "text-[var(--color-fg-dim)]",
+                  )}
+                  aria-expanded={openChanges === run.id}
+                  aria-controls={`run-changes-${run.id}`}
+                  title="Files this run changed in the repo"
+                  onClick={() => setOpenChanges((current) => (current === run.id ? null : run.id))}
+                >
+                  {formatChangeSummary(run.changes)}
+                </button>
+              )}
               {run.has_log && (
                 <button
                   type="button"
@@ -650,11 +680,59 @@ function RunHistory({ runs }: { runs: RunListItem[] }) {
                 </button>
               )}
             </div>
+            {openChanges === run.id && run.changes && <RunChangesView runId={run.id} changes={run.changes} />}
             {openLog === run.id && <RunLogView runId={run.id} />}
           </li>
         ))}
       </ul>
     </section>
+  );
+}
+
+function formatChangeSummary(changes: RunChanges): string {
+  const total = changes.files.length + changes.more;
+  if (total === 0 && changes.commits === 0) return "no changes";
+  let added = 0;
+  let removed = 0;
+  for (const f of changes.files) {
+    added += f.added ?? 0;
+    removed += f.removed ?? 0;
+  }
+  const parts = [`${total} file${total === 1 ? "" : "s"}${total > 0 ? ` +${added} −${removed}` : ""}`];
+  if (changes.commits > 0) parts.push(`${changes.commits} commit${changes.commits === 1 ? "" : "s"}`);
+  return parts.join(" · ");
+}
+
+function RunChangesView({ runId, changes }: { runId: number; changes: RunChanges }) {
+  return (
+    <div id={`run-changes-${runId}`} className="mt-1 rounded-[var(--radius)] border border-[var(--color-border)] bg-[var(--color-bg)]/60 px-2 py-1.5 space-y-0.5">
+      {changes.files.length === 0 ? (
+        <p className="text-[11px] text-[var(--color-fg-dim)]">
+          {changes.commits > 0 ? "commits only — no file differences remain vs the pre-run HEAD" : "the agent left the repo unchanged"}
+        </p>
+      ) : (
+        <ul className="space-y-0.5 text-[11px]">
+          {changes.files.map((file) => (
+            <li key={file.path} className="flex items-baseline gap-2 min-w-0">
+              {file.added === null && file.removed === null ? (
+                <span className="shrink-0 w-[72px] text-[var(--color-fg-dim)]">new/bin</span>
+              ) : (
+                <span className="shrink-0 w-[72px]">
+                  <span className="text-[var(--color-accent)]">+{file.added ?? 0}</span>{" "}
+                  <span className="text-[var(--color-critical)]">−{file.removed ?? 0}</span>
+                </span>
+              )}
+              <span className="truncate text-[var(--color-fg-muted)]" title={file.path}>{file.path}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {changes.more > 0 && <p className="text-[11px] text-[var(--color-fg-dim)]">… {formatNumber(changes.more)} more</p>}
+      <p className="text-[11px] text-[var(--color-fg-dim)]">
+        full patch: <code>relay runs --diff {runId}</code>
+        {changes.head_before && <> · base <code>{changes.head_before.slice(0, 8)}</code></>}
+      </p>
+    </div>
   );
 }
 

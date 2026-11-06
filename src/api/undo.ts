@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { RelayDB, type TaskEditSnapshot, type TaskStatusSnapshot } from "../db/client.js";
 import { Assignee, EDITABLE_FIELDS, type Task } from "../types.js";
+import { recurrenceUndoIds } from "../lib/recurrence-close.js";
 
 interface UndoPayload {
   tasks: TaskStatusSnapshot[];
@@ -189,6 +190,15 @@ export function applyUndo(db: RelayDB, redo: boolean): UndoOutcome {
   }
 
   const count = db.applyTaskStates(payload.tasks);
+  // Recurring closes (schema v13): undo drops the occurrence the close
+  // spawned (while untouched); redo re-spawns it from the re-closed task.
+  if (redo) {
+    const respawn = recurrenceUndoIds(row.payload, "respawn");
+    if (respawn.length > 0) db.spawnNextOccurrences(respawn);
+  } else {
+    const drop = recurrenceUndoIds(row.inverse, "drop");
+    if (drop.length > 0) db.dropSpawnedOccurrences(drop);
+  }
   db.markUndoStatus(row.id, redo ? "active" : "undone");
   return { ok: true, id: row.id, op_kind: row.op_kind, count, undone: !redo, redone: redo };
 }

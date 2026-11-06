@@ -176,8 +176,8 @@ export default function TodayPage() {
           pushUndo("snooze", selected);
         }
         if (action === "close") {
-          await api.close(selected.id);
-          pushUndo("close", selected);
+          const closed = await api.close(selected.id);
+          pushUndo("close", { ...selected, next_occurrence: closed.next_occurrence });
         }
         if (action === "reopen") await api.reopen(selected.id);
         await Promise.all([
