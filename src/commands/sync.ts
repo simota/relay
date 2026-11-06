@@ -340,7 +340,10 @@ function autoCloseMissingRepoTasks(
     log(chalk.gray(`⊘ scan root(s) not found, skipping missing-repo auto-close: ${offline.join(", ")}`));
     return;
   }
-  const repos = db.repoStats().map((r) => r.name);
+  // Only the set of repo names matters here (it feeds an IN list whose
+  // results come back ORDER BY repo, id), so read it from the repo index
+  // instead of computing repoStats' full per-repo rollup.
+  const repos = db.repoNames();
   const missing = repos.filter((name) => !repoExistsOnDisk(name, cfg));
   if (missing.length === 0) return;
   // Snoozed tasks are user-owned: an automatic sweep must not clear them.
