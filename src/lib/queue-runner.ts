@@ -20,6 +20,8 @@ export interface QueueRunnerStartOptions {
   timeoutMin?: number;
   /** Only run these tasks (they must be queued); the rest of the queue waits. */
   taskIds?: number[];
+  /** Run up to N tasks at once (different repos). */
+  parallel?: number;
 }
 
 export interface QueueRunnerState {
@@ -27,7 +29,10 @@ export interface QueueRunnerState {
   started_at: string | null;
   finished_at: string | null;
   options: QueueRunnerStartOptions | null;
-  current: { task_id: number; title: string; repo: string; assignee: string; started_at: string } | null;
+  /** First in-flight task (kept for single-run clients); see `active`. */
+  current: ActiveTask | null;
+  /** Every task running right now (more than one with `parallel`). */
+  active: ActiveTask[];
   outcomes: QueueOutcome[];
   /** Last lines of runner output (ANSI stripped). */
   log: string[];
@@ -36,6 +41,14 @@ export interface QueueRunnerState {
 
 const LOG_KEEP = 200;
 
+export interface ActiveTask {
+  task_id: number;
+  title: string;
+  repo: string;
+  assignee: string;
+  started_at: string;
+}
+
 function idleState(): QueueRunnerState {
   return {
     status: "idle",
@@ -43,6 +56,7 @@ function idleState(): QueueRunnerState {
     finished_at: null,
     options: null,
     current: null,
+    active: [],
     outcomes: [],
     log: [],
     error: null,
@@ -63,7 +77,13 @@ export class QueueRunner {
   constructor(private readonly deps: QueueRunnerDeps = {}) {}
 
   snapshot(): QueueRunnerState {
-    return { ...this.state, outcomes: [...this.state.outcomes], log: [...this.state.log] };
+    return {
+      ...this.state,
+      current: this.state.active[0] ?? null,
+      active: [...this.state.active],
+      outcomes: [...this.state.outcomes],
+      log: [...this.state.log],
+    };
   }
 
   get running(): boolean {
@@ -117,6 +137,7 @@ export class QueueRunner {
             limit: options.limit,
             timeoutMin: options.timeoutMin,
             taskIds: options.taskIds,
+            parallel: options.parallel,
           },
           {
             cfg,
@@ -126,17 +147,17 @@ export class QueueRunner {
             handleSigint: false,
             lockOwner: "web",
             onTaskStart: (info) => {
-              this.state.current = {
+              this.state.active.push({
                 task_id: info.taskId,
                 title: info.title,
                 repo: info.repo,
                 assignee: info.assignee,
                 started_at: new Date().toISOString(),
-              };
+              });
             },
             onTaskDone: (outcome) => {
               this.state.outcomes.push(outcome);
-              if (this.state.current?.task_id === outcome.taskId) this.state.current = null;
+              this.state.active = this.state.active.filter((t) => t.task_id !== outcome.taskId);
             },
           },
         );
@@ -147,7 +168,7 @@ export class QueueRunner {
         this.state.status = "error";
         this.state.error = e instanceof Error ? e.message : String(e);
       } finally {
-        this.state.current = null;
+        this.state.active = [];
         this.state.finished_at = new Date().toISOString();
         this.abort = null;
       }

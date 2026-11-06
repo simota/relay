@@ -44,6 +44,7 @@ export function QueueTray() {
   const [runVerify, setRunVerify] = useState(true);
   const [runRetries, setRunRetries] = useState(1);
   const [runClose, setRunClose] = useState(false);
+  const [runParallel, setRunParallel] = useState(1);
   const [runError, setRunError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const [showLog, setShowLog] = useState(false);
@@ -68,6 +69,7 @@ export function QueueTray() {
         retries: runRetries,
         close_on_success: runClose,
         continue_on_error: true,
+        parallel: runParallel,
       });
       await mutateRunner(state);
     } catch (error) {
@@ -146,6 +148,8 @@ export function QueueTray() {
               verify={runVerify}
               retries={runRetries}
               closeOnSuccess={runClose}
+              parallel={runParallel}
+              onParallel={setRunParallel}
               onVerify={setRunVerify}
               onRetries={setRunRetries}
               onCloseOnSuccess={setRunClose}
@@ -254,7 +258,11 @@ export function QueueTray() {
             <>
               <span className="hidden sm:inline text-[11px] text-[var(--color-cool)] tabular max-w-[28vw] truncate" role="status" aria-live="polite">
                 {runner.status === "stopping" ? "stopping after " : "running "}
-                {runner.current ? `#${runner.current.task_id} ${runner.current.title}` : "…"}
+                {runner.active.length > 1
+                  ? `${formatNumber(runner.active.length)} tasks`
+                  : runner.current
+                    ? `#${runner.current.task_id} ${runner.current.title}`
+                    : "…"}
                 {" · "}
                 {formatNumber(runner.outcomes.length)} done
               </span>
@@ -351,6 +359,8 @@ interface RunnerPanelProps {
   verify: boolean;
   retries: number;
   closeOnSuccess: boolean;
+  parallel: number;
+  onParallel: (value: number) => void;
   onVerify: (value: boolean) => void;
   onRetries: (value: number) => void;
   onCloseOnSuccess: (value: boolean) => void;
@@ -389,6 +399,21 @@ function RunnerPanel(props: RunnerPanelProps) {
               ))}
             </select>
           </label>
+          <label
+            className="inline-flex items-center gap-1 text-[var(--color-fg-muted)]"
+            title="Tasks in different repos run at the same time; one repo never runs two agents at once"
+          >
+            parallel
+            <select
+              className="bg-[var(--color-bg)] border border-[var(--color-border)] rounded-[var(--radius)] px-1 text-[12px]"
+              value={props.parallel}
+              onChange={(e) => props.onParallel(Number(e.target.value))}
+            >
+              {[1, 2, 3, 4].map((n) => (
+                <option key={n} value={n}>{n}</option>
+              ))}
+            </select>
+          </label>
           <label className="inline-flex items-center gap-1 text-[var(--color-fg-muted)]">
             <input type="checkbox" checked={props.closeOnSuccess} onChange={(e) => props.onCloseOnSuccess(e.target.checked)} />
             close on success
@@ -408,11 +433,15 @@ function RunnerPanel(props: RunnerPanelProps) {
         </div>
       )}
       {props.error && <p role="alert" className="text-[11px] text-[var(--color-critical)]">{props.error}</p>}
-      {active && runner.current && (
-        <p className="text-[12px] text-[var(--color-cool)]" role="status">
-          ▶ #{runner.current.task_id} {runner.current.title}
-          <span className="text-[var(--color-fg-dim)]"> · {runner.current.repo} · {runner.current.assignee}</span>
-        </p>
+      {active && runner.active.length > 0 && (
+        <ul className="space-y-0.5" role="status" aria-label="Running now">
+          {runner.active.map((task) => (
+            <li key={task.task_id} className="text-[12px] text-[var(--color-cool)] truncate">
+              ▶ #{task.task_id} {task.title}
+              <span className="text-[var(--color-fg-dim)]"> · {task.repo} · {task.assignee}</span>
+            </li>
+          ))}
+        </ul>
       )}
       {hasResult && (
         <>

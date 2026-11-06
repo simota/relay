@@ -239,3 +239,42 @@ describe("run now (task_ids)", () => {
     expect(db.listQueueItems().map((i) => i.task_id)).toEqual([other]);
   });
 });
+
+describe("parallel runner state", () => {
+  test("reports every in-flight task and validates parallel", async () => {
+    mkdirSync(join(ROOT, "rpar"), { recursive: true });
+    const a = seed("par a");
+    const b = (() => {
+      using db = new RelayDB();
+      const sourceId = `manual:runner-test:${Math.random().toString(36).slice(2)}`;
+      db.upsertTasks([
+        {
+          source_type: "manual", source_id: sourceId, repo: "rpar", title: "par b", body: "", status: "open",
+          assignee: "codex", priority: 50, prompt: "b", files: [], context_hash: null, session_id: null, due_at: null, wait_on: "self",
+        },
+      ]);
+      return db.getTaskBySourceId("manual", sourceId)!.id;
+    })();
+    {
+      using db = new RelayDB();
+      for (const id of [a, b]) db.addQueueItem(id);
+    }
+    const gates: Array<() => void> = [];
+    const execute = (async (prepared: PreparedRun): Promise<ExecuteResult> => {
+      await new Promise<void>((resolve) => gates.push(resolve));
+      return { runId: prepared.task.id, status: "success", exitCode: 0, summary: null, logPath: null, closed: false };
+    }) as never;
+    const runner = new QueueRunner({ cfg: () => cfg, execute });
+    const api = createQueueApi({ runner, isLocalRequest: () => true });
+    const bad = await api.request("/runner", { method: "POST", body: JSON.stringify({ parallel: 20 }) });
+    expect(bad.status).toBe(400);
+    const res = await api.request("/runner", { method: "POST", body: JSON.stringify({ parallel: 2 }) });
+    expect(res.status).toBe(202);
+    await until(() => runner.snapshot().active.length === 2);
+    expect(runner.snapshot().active.map((t) => t.task_id).sort()).toEqual([a, b].sort());
+    for (const g of gates.splice(0)) g();
+    await runner.wait();
+    expect(runner.snapshot().active).toEqual([]);
+    expect(runner.snapshot().outcomes).toHaveLength(2);
+  });
+});

@@ -36,6 +36,16 @@ function parseRetries(raw: unknown): number | undefined {
   return value;
 }
 
+function parseParallel(raw: unknown): number | undefined {
+  if (raw === undefined) return undefined;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 1 || value > 8) {
+    console.error(chalk.red(`invalid --parallel: ${String(raw)} (1-8)`));
+    process.exit(1);
+  }
+  return value;
+}
+
 program
   .name("relay")
   .description("AI-era cross-project task hub: tasks as executable agent jobs.")
@@ -279,6 +289,7 @@ queue
   .option("--verify", "verify gate: run each repo's verify command after a successful run")
   .option("--no-verify", "skip the verify gate even when verify.auto = true")
   .option("--retries <n>", "headless: re-run a failed task up to N times (0-5) with the failure output as a note")
+  .option("-j, --parallel <n>", "headless: run up to N tasks at once (1-8), never two in the same repo")
   .option("--timeout <min>", "headless: per-task limit in minutes (default agents.headless_timeout_min)")
   .option("--no-template", "skip <repo>/.agents/RELAY_PROMPT.md")
   .option("--no-resume", "build fresh prompts instead of resuming prior sessions")
@@ -297,6 +308,7 @@ queue
       noResume: opts.resume === false,
       verify: typeof opts.verify === "boolean" ? opts.verify : undefined,
       retries: parseRetries(opts.retries),
+      parallel: parseParallel(opts.parallel),
     });
   });
 

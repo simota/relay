@@ -40,7 +40,7 @@ export function TaskDetail({
   const { data: runner, mutate: mutateRunner } = useSWR<QueueRunnerState>("/api/queue/runner", () => api.queue.runner(), {
     refreshInterval: (state) => (state && (state.status === "running" || state.status === "stopping") ? 1500 : 20000),
   });
-  const runningHere = Boolean(task && runner?.current?.task_id === task.id);
+  const runningHere = Boolean(task && (runner?.active ?? []).some((t) => t.task_id === task.id));
   const { data: runs = [], mutate: mutateRuns } = useSWR<RunListItem[]>(
     task ? `/api/runs?task_id=${task.id}` : null,
     () => (task ? api.runs({ taskId: task.id, limit: 5 }) : []),
@@ -128,8 +128,8 @@ export function TaskDetail({
       const state = await api.queue.startRunner({ task_ids: [task.id], verify: true });
       await mutateRunner(state);
       setRunNowState(
-        state.current && state.current.task_id !== task.id
-          ? "queued next — the runner is busy with another task"
+        !state.active.some((t) => t.task_id === task.id)
+          ? "queued — the runner picks it up as soon as a slot (and its repo) is free"
           : "running headless — results appear under agent runs",
       );
     } catch (error) {

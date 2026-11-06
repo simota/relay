@@ -411,3 +411,87 @@ describe("retry failed runs", () => {
     expect(Date.parse(sinceToIso("2h")!)).toBeLessThan(Date.now());
   });
 });
+
+describe("parallel queue runs", () => {
+  /** Executor that records concurrency and finishes each task after `ms`. */
+  function timedExecutor(ms: number, outcomes: Record<number, ExecuteResult["status"]> = {}) {
+    let running = 0;
+    let peak = 0;
+    const order: string[] = [];
+    const execute = async (prepared: PreparedRun): Promise<ExecuteResult> => {
+      running += 1;
+      peak = Math.max(peak, running);
+      order.push(`start ${prepared.task.id}`);
+      await new Promise((r) => setTimeout(r, ms));
+      order.push(`end ${prepared.task.id}`);
+      running -= 1;
+      const status = outcomes[prepared.task.id] ?? "success";
+      return { runId: 0, status, exitCode: status === "success" ? 0 : 1, summary: null, logPath: null, closed: false };
+    };
+    return { execute: execute as never, order, peak: () => peak };
+  }
+
+  for (const repo of ["pa", "pb", "pc"]) mkdirSync(join(ROOT, repo), { recursive: true });
+
+  test("runs different repos concurrently, but one task per repo at a time", async () => {
+    const a1 = seed("a1", "claude-code", "pa");
+    const a2 = seed("a2", "claude-code", "pa");
+    const b1 = seed("b1", "claude-code", "pb");
+    const c1 = seed("c1", "codex", "pc");
+    {
+      using db = new RelayDB();
+      for (const id of [a1, a2, b1, c1]) db.addQueueItem(id);
+    }
+    const exec = timedExecutor(40);
+    const outcomes = await processQueue({ headless: true, parallel: 3 }, { cfg, execute: exec.execute, ...quiet });
+    expect(outcomes.map((o) => o.kind)).toEqual(["success", "success", "success", "success"]);
+    expect(exec.peak()).toBe(3);
+    // a2 waits for a1 (same repo) even though a slot is free
+    expect(exec.order.indexOf(`start ${a2}`)).toBeGreaterThan(exec.order.indexOf(`end ${a1}`));
+    expect(queueTaskIds()).toEqual([]);
+  });
+
+  test("a dependent waits for its in-flight blocker instead of being skipped", async () => {
+    const blocker = seed("blocker", "claude-code", "pa");
+    const dependent = seed("dependent", "claude-code", "pb");
+    {
+      using db = new RelayDB();
+      db.addDependency(dependent, blocker);
+      for (const id of [blocker, dependent]) db.addQueueItem(id);
+    }
+    const exec = timedExecutor(20);
+    const outcomes = await processQueue({ headless: true, parallel: 4 }, { cfg, execute: exec.execute, ...quiet });
+    expect(outcomes.map((o) => [o.taskId, o.kind])).toEqual([
+      [blocker, "success"],
+      [dependent, "success"],
+    ]);
+    expect(exec.order).toEqual([`start ${blocker}`, `end ${blocker}`, `start ${dependent}`, `end ${dependent}`]);
+  });
+
+  test("a failure stops new launches but lets in-flight runs finish", async () => {
+    const bad = seed("bad", "claude-code", "pa");
+    const slow = seed("slow", "claude-code", "pb");
+    const later = seed("later", "claude-code", "pc");
+    {
+      using db = new RelayDB();
+      for (const id of [bad, slow, later]) db.addQueueItem(id);
+    }
+    const exec = timedExecutor(10, { [bad]: "failed" });
+    const outcomes = await processQueue({ headless: true, parallel: 2 }, { cfg, execute: exec.execute, ...quiet });
+    expect(outcomes.map((o) => o.taskId).sort()).toEqual([bad, slow].sort());
+    expect(exec.order).not.toContain(`start ${later}`);
+    expect(queueTaskIds()).toEqual([bad, later]);
+  });
+
+  test("parallel is ignored for interactive runs", async () => {
+    const x = seed("x", "claude-code", "pa");
+    const y = seed("y", "claude-code", "pb");
+    {
+      using db = new RelayDB();
+      for (const id of [x, y]) db.addQueueItem(id);
+    }
+    const exec = timedExecutor(10);
+    await processQueue({ parallel: 4 }, { cfg, execute: exec.execute, ...quiet });
+    expect(exec.peak()).toBe(1);
+  });
+});

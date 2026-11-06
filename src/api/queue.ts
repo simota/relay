@@ -57,6 +57,10 @@ export function createQueueApi(opts: QueueApiOptions = {}) {
     if (retries !== undefined && (!Number.isInteger(retries) || retries < 0 || retries > 5)) {
       return c.json({ error: "retries must be an integer 0-5" }, 400);
     }
+    const parallel = body.parallel === undefined ? undefined : Number(body.parallel);
+    if (parallel !== undefined && (!Number.isInteger(parallel) || parallel < 1 || parallel > 8)) {
+      return c.json({ error: "parallel must be an integer 1-8" }, 400);
+    }
     const limit = body.limit === undefined || body.limit === null ? undefined : Number(body.limit);
     if (limit !== undefined && (!Number.isInteger(limit) || limit <= 0)) {
       return c.json({ error: "limit must be a positive integer" }, 400);
@@ -90,6 +94,7 @@ export function createQueueApi(opts: QueueApiOptions = {}) {
     try {
       runner.start({
         taskIds,
+        parallel,
         verify: typeof body.verify === "boolean" ? body.verify : undefined,
         retries,
         closeOnSuccess: body.close_on_success === true,

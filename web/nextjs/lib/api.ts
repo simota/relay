@@ -87,6 +87,16 @@ export interface QueueRunnerOptions {
   limit?: number;
   /** Run only these tasks now (front-queued; picked up next if a run is active). */
   task_ids?: number[];
+  /** Up to N tasks at once, never two in the same repo (1-8). */
+  parallel?: number;
+}
+
+export interface QueueRunnerActiveTask {
+  task_id: number;
+  title: string;
+  repo: string;
+  assignee: string;
+  started_at: string;
 }
 
 /** GET /api/queue/runner: the Web server's headless queue runner. */
@@ -94,7 +104,9 @@ export interface QueueRunnerState {
   status: "idle" | "running" | "stopping" | "finished" | "error";
   started_at: string | null;
   finished_at: string | null;
-  current: { task_id: number; title: string; repo: string; assignee: string; started_at: string } | null;
+  current: QueueRunnerActiveTask | null;
+  /** Every task in flight (several with `parallel`). */
+  active: QueueRunnerActiveTask[];
   outcomes: QueueRunOutcome[];
   log: string[];
   error: string | null;
