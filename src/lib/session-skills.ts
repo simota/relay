@@ -410,57 +410,69 @@ const CLAUDE_AGENT_PERSONA_JA_RE = /あなたは\s*([A-Za-z][A-Za-z0-9-]{2,40})\
 const CLAUDE_AGENT_PERSONA_EN_RE = /You are (?:the\s+)?([A-Za-z][A-Za-z0-9-]{2,40})\s+(?:agent|skill|specialist|orchestrator)\b/g;
 
 /**
- * Pre-scan a Claude JSONL for `tool_result` blocks and produce a map
- * `tool_use_id → "success" | "failed"`. `is_error: true` (or a sentinel
- * "Error" / "Failed" prefix in the content body) flips the entry to
- * "failed"; everything else stays "success". Unmatched tool_use_ids
- * (no result observed) are absent from the map so the caller can keep
- * `last_status: null`.
+ * Call `fn` with every non-empty JSONL line that parses to a non-null
+ * object (arrays included), in file order. Malformed lines and JSON
+ * scalars are skipped — the filter every Claude JSONL scanner here uses.
  */
-function collectToolResultStatuses(text: string): Map<string, "success" | "failed"> {
-  const map = new Map<string, "success" | "failed">();
+export function forEachJsonObjectLine(
+  text: string,
+  fn: (obj: Record<string, unknown>) => void,
+): void {
   for (const line of text.split("\n")) {
     if (!line) continue;
-    let obj: Record<string, unknown>;
+    let parsed: unknown;
     try {
-      const parsed = JSON.parse(line);
-      if (!parsed || typeof parsed !== "object") continue;
-      obj = parsed as Record<string, unknown>;
+      parsed = JSON.parse(line);
     } catch {
       continue;
     }
-    const wrapper = (obj.message as Record<string, unknown> | undefined) ?? obj;
-    const content = (wrapper as Record<string, unknown>).content;
-    if (!Array.isArray(content)) continue;
-    for (const block of content) {
-      if (!block || typeof block !== "object") continue;
-      const b = block as Record<string, unknown>;
-      if (b.type !== "tool_result") continue;
-      const id = typeof b.tool_use_id === "string" ? b.tool_use_id : null;
-      if (!id) continue;
-      const explicitError = b.is_error === true;
-      // Some adapters wrap the body in a string instead of using
-      // is_error; detect the common "Error:" / "Failed:" prefixes so we
-      // don't miss those.
-      const bodyError = (() => {
-        const c = b.content;
-        if (typeof c === "string") return /^(error|failed)\b[:\s]/i.test(c.trim());
-        if (Array.isArray(c)) {
-          for (const part of c) {
-            if (part && typeof part === "object") {
-              const p = part as Record<string, unknown>;
-              if (typeof p.text === "string" && /^(error|failed)\b[:\s]/i.test(p.text.trim())) {
-                return true;
-              }
+    if (!parsed || typeof parsed !== "object") continue;
+    fn(parsed as Record<string, unknown>);
+  }
+}
+
+/**
+ * Record the `tool_result` blocks of one Claude JSONL event into `map`
+ * (`tool_use_id → "success" | "failed"`, later results win).
+ * `is_error: true` (or a sentinel "Error" / "Failed" prefix in the content
+ * body) flips the entry to "failed"; everything else stays "success".
+ * Unmatched tool_use_ids (no result observed) stay absent from the map so
+ * the caller can keep `last_status: null`.
+ */
+function recordToolResultStatuses(
+  obj: Record<string, unknown>,
+  map: Map<string, "success" | "failed">,
+): void {
+  const wrapper = (obj.message as Record<string, unknown> | undefined) ?? obj;
+  const content = (wrapper as Record<string, unknown>).content;
+  if (!Array.isArray(content)) return;
+  for (const block of content) {
+    if (!block || typeof block !== "object") continue;
+    const b = block as Record<string, unknown>;
+    if (b.type !== "tool_result") continue;
+    const id = typeof b.tool_use_id === "string" ? b.tool_use_id : null;
+    if (!id) continue;
+    const explicitError = b.is_error === true;
+    // Some adapters wrap the body in a string instead of using
+    // is_error; detect the common "Error:" / "Failed:" prefixes so we
+    // don't miss those.
+    const bodyError = (() => {
+      const c = b.content;
+      if (typeof c === "string") return /^(error|failed)\b[:\s]/i.test(c.trim());
+      if (Array.isArray(c)) {
+        for (const part of c) {
+          if (part && typeof part === "object") {
+            const p = part as Record<string, unknown>;
+            if (typeof p.text === "string" && /^(error|failed)\b[:\s]/i.test(p.text.trim())) {
+              return true;
             }
           }
         }
-        return false;
-      })();
-      map.set(id, explicitError || bodyError ? "failed" : "success");
-    }
+      }
+      return false;
+    })();
+    map.set(id, explicitError || bodyError ? "failed" : "success");
   }
-  return map;
 }
 
 /**
@@ -586,124 +598,150 @@ export function extractClaudeSkillChains(text: string): SessionSkillChainEdge[] 
   return edges;
 }
 
-export function extractClaudeSkills(text: string): SessionSkillUse[] {
-  const events: SkillEvent[] = [];
-  // First pass collects tool_result statuses keyed by tool_use_id so the
-  // Skill tool_use loop below can attach an outcome ("failed" when
-  // `is_error: true` was returned, "success" otherwise). Built ahead of
-  // the main pass because tool_use_id ordering is forward-only and the
-  // result lands on a later line than the call itself.
-  const resultStatus = collectToolResultStatuses(text);
-  for (const line of text.split("\n")) {
-    if (!line) continue;
-    let obj: Record<string, unknown>;
-    try {
-      const parsed = JSON.parse(line);
-      if (!parsed || typeof parsed !== "object") continue;
-      obj = parsed as Record<string, unknown>;
-    } catch {
-      continue;
-    }
-    const ts = typeof obj.timestamp === "string" ? obj.timestamp : "";
-    const wrapper = (obj.message as Record<string, unknown> | undefined) ?? obj;
-    const role = (wrapper as Record<string, unknown>).role;
-    const content = (wrapper as Record<string, unknown>).content;
-    const isUser = role === "user";
+/**
+ * Incremental form of `extractClaudeSkills`: feed every parsed JSONL event
+ * in file order with `add`, then call `finish` once. Lets a caller that
+ * already parses a session (the sync adapter, the session readers) collect
+ * skills without a second JSON.parse pass over the file.
+ */
+export interface ClaudeSkillCollector {
+  add(obj: Record<string, unknown>): void;
+  finish(): SessionSkillUse[];
+}
 
-    if (typeof content === "string") {
-      const argsBody = content.match(CLAUDE_COMMAND_ARGS_RE)?.[1] ?? null;
-      const seenInMessage = new Set<string>();
-      for (const match of content.matchAll(CLAUDE_COMMAND_NAME_RE)) {
-        const name = match[1];
-        if (name) {
-          seenInMessage.add(name.toLowerCase());
-          events.push({ name, source: "slash_command", ts, args: argsBody });
-        }
+export function createClaudeSkillCollector(): ClaudeSkillCollector {
+  const events: SkillEvent[] = [];
+  // tool_result outcomes keyed by tool_use_id ("failed" when `is_error:
+  // true` was returned, "success" otherwise). A result lands on a later line
+  // than its call, so Skill events remember their id and get their status
+  // in finish(), once the whole file has been seen — the same last-result-
+  // wins map a separate pre-scan would build.
+  const resultStatus = new Map<string, "success" | "failed">();
+  const pendingStatus: Array<{ event: SkillEvent; toolUseId: string }> = [];
+  return {
+    add(obj) {
+      recordToolResultStatuses(obj, resultStatus);
+      collectClaudeSkillEvents(obj, events, pendingStatus);
+    },
+    finish() {
+      for (const { event, toolUseId } of pendingStatus) {
+        event.status = resultStatus.get(toolUseId) ?? null;
       }
-      if (isUser) {
-        const bare = content.match(CLAUDE_BARE_SLASH_RE);
-        const bareName = bare?.[1];
-        if (bareName && !seenInMessage.has(bareName.toLowerCase())) {
-          events.push({ name: bareName, source: "slash_command", ts });
-        }
+      return aggregate(events);
+    },
+  };
+}
+
+export function extractClaudeSkills(text: string): SessionSkillUse[] {
+  const collector = createClaudeSkillCollector();
+  forEachJsonObjectLine(text, (obj) => collector.add(obj));
+  return collector.finish();
+}
+
+function collectClaudeSkillEvents(
+  obj: Record<string, unknown>,
+  events: SkillEvent[],
+  pendingStatus: Array<{ event: SkillEvent; toolUseId: string }>,
+): void {
+  const ts = typeof obj.timestamp === "string" ? obj.timestamp : "";
+  const wrapper = (obj.message as Record<string, unknown> | undefined) ?? obj;
+  const role = (wrapper as Record<string, unknown>).role;
+  const content = (wrapper as Record<string, unknown>).content;
+  const isUser = role === "user";
+
+  if (typeof content === "string") {
+    const argsBody = content.match(CLAUDE_COMMAND_ARGS_RE)?.[1] ?? null;
+    const seenInMessage = new Set<string>();
+    for (const match of content.matchAll(CLAUDE_COMMAND_NAME_RE)) {
+      const name = match[1];
+      if (name) {
+        seenInMessage.add(name.toLowerCase());
+        events.push({ name, source: "slash_command", ts, args: argsBody });
       }
-    } else if (Array.isArray(content)) {
-      for (const block of content) {
-        if (!block || typeof block !== "object") continue;
-        const b = block as Record<string, unknown>;
-        const blockType = b.type;
-        if (blockType === "text" && typeof b.text === "string") {
-          const argsBody = b.text.match(CLAUDE_COMMAND_ARGS_RE)?.[1] ?? null;
-          const seenInMessage = new Set<string>();
-          for (const match of b.text.matchAll(CLAUDE_COMMAND_NAME_RE)) {
+    }
+    if (isUser) {
+      const bare = content.match(CLAUDE_BARE_SLASH_RE);
+      const bareName = bare?.[1];
+      if (bareName && !seenInMessage.has(bareName.toLowerCase())) {
+        events.push({ name: bareName, source: "slash_command", ts });
+      }
+    }
+  } else if (Array.isArray(content)) {
+    for (const block of content) {
+      if (!block || typeof block !== "object") continue;
+      const b = block as Record<string, unknown>;
+      const blockType = b.type;
+      if (blockType === "text" && typeof b.text === "string") {
+        const argsBody = b.text.match(CLAUDE_COMMAND_ARGS_RE)?.[1] ?? null;
+        const seenInMessage = new Set<string>();
+        for (const match of b.text.matchAll(CLAUDE_COMMAND_NAME_RE)) {
+          const name = match[1];
+          if (name) {
+            seenInMessage.add(name.toLowerCase());
+            events.push({ name, source: "slash_command", ts, args: argsBody });
+          }
+        }
+        if (isUser) {
+          const bare = b.text.match(CLAUDE_BARE_SLASH_RE);
+          const bareName = bare?.[1];
+          if (bareName && !seenInMessage.has(bareName.toLowerCase())) {
+            events.push({ name: bareName, source: "slash_command", ts });
+          }
+        }
+      } else if (blockType === "tool_use" && typeof b.name === "string") {
+        const input =
+          b.input && typeof b.input === "object"
+            ? (b.input as Record<string, unknown>)
+            : {};
+        if (b.name === "Skill" && typeof input.skill === "string") {
+          const args = typeof input.args === "string" ? input.args : null;
+          const toolUseId = typeof b.id === "string" ? b.id : null;
+          const event: SkillEvent = { name: input.skill, source: "skill_tool", ts, args, status: null };
+          events.push(event);
+          if (toolUseId) pendingStatus.push({ event, toolUseId });
+        } else if (b.name === "Agent" || b.name === "Task") {
+          // Spawn template references the agent's SKILL.md by path. When
+          // that path isn't present we fall back to persona declarations
+          // ("あなたは X エージェントです" / "You are the X agent") in
+          // the prompt body, or finally the `subagent_type` field.
+          // Registry filter at aggregate() drops any false positives the
+          // persona / subagent_type patterns might capture.
+          const prompt = typeof input.prompt === "string" ? input.prompt : "";
+          const desc = typeof input.description === "string" ? input.description : null;
+          const found = new Set<string>();
+          for (const match of prompt.matchAll(CLAUDE_SKILL_PATH_RE)) {
             const name = match[1];
             if (name) {
-              seenInMessage.add(name.toLowerCase());
-              events.push({ name, source: "slash_command", ts, args: argsBody });
+              found.add(name);
+              events.push({ name, source: "subagent", ts, args: desc });
             }
           }
-          if (isUser) {
-            const bare = b.text.match(CLAUDE_BARE_SLASH_RE);
-            const bareName = bare?.[1];
-            if (bareName && !seenInMessage.has(bareName.toLowerCase())) {
-              events.push({ name: bareName, source: "slash_command", ts });
-            }
-          }
-        } else if (blockType === "tool_use" && typeof b.name === "string") {
-          const input =
-            b.input && typeof b.input === "object"
-              ? (b.input as Record<string, unknown>)
-              : {};
-          if (b.name === "Skill" && typeof input.skill === "string") {
-            const args = typeof input.args === "string" ? input.args : null;
-            const toolUseId = typeof b.id === "string" ? b.id : null;
-            const status = toolUseId ? (resultStatus.get(toolUseId) ?? null) : null;
-            events.push({ name: input.skill, source: "skill_tool", ts, args, status });
-          } else if (b.name === "Agent" || b.name === "Task") {
-            // Spawn template references the agent's SKILL.md by path. When
-            // that path isn't present we fall back to persona declarations
-            // ("あなたは X エージェントです" / "You are the X agent") in
-            // the prompt body, or finally the `subagent_type` field.
-            // Registry filter at aggregate() drops any false positives the
-            // persona / subagent_type patterns might capture.
-            const prompt = typeof input.prompt === "string" ? input.prompt : "";
-            const desc = typeof input.description === "string" ? input.description : null;
-            const found = new Set<string>();
-            for (const match of prompt.matchAll(CLAUDE_SKILL_PATH_RE)) {
-              const name = match[1];
-              if (name) {
-                found.add(name);
-                events.push({ name, source: "subagent", ts, args: desc });
-              }
-            }
-            if (found.size === 0) {
-              for (const re of [CLAUDE_AGENT_PERSONA_JA_RE, CLAUDE_AGENT_PERSONA_EN_RE]) {
-                for (const match of prompt.matchAll(re)) {
-                  const name = match[1];
-                  if (name && !found.has(name.toLowerCase())) {
-                    found.add(name.toLowerCase());
-                    events.push({ name, source: "subagent", ts, args: desc });
-                  }
+          if (found.size === 0) {
+            for (const re of [CLAUDE_AGENT_PERSONA_JA_RE, CLAUDE_AGENT_PERSONA_EN_RE]) {
+              for (const match of prompt.matchAll(re)) {
+                const name = match[1];
+                if (name && !found.has(name.toLowerCase())) {
+                  found.add(name.toLowerCase());
+                  events.push({ name, source: "subagent", ts, args: desc });
                 }
               }
             }
-            if (found.size === 0 && typeof input.subagent_type === "string") {
-              // Last-resort: when the user templated a custom agent via
-              // `subagent_type: "<skill>"` directly. Registry filter
-              // drops the built-in "general-purpose" / "Explore" values.
-              events.push({
-                name: input.subagent_type,
-                source: "subagent",
-                ts,
-                args: desc,
-              });
-            }
+          }
+          if (found.size === 0 && typeof input.subagent_type === "string") {
+            // Last-resort: when the user templated a custom agent via
+            // `subagent_type: "<skill>"` directly. Registry filter
+            // drops the built-in "general-purpose" / "Explore" values.
+            events.push({
+              name: input.subagent_type,
+              source: "subagent",
+              ts,
+              args: desc,
+            });
           }
         }
       }
     }
   }
-  return aggregate(events);
 }
 
 // ---------------------------------------------------------------------------

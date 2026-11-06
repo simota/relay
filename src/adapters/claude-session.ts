@@ -4,7 +4,11 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { resolveRepoForCwd } from "../lib/repo-from-cwd.js";
 import { compileExcludePatterns, toSessionRow, truncate } from "../lib/session-helpers.js";
-import { distinctSkillNames, extractClaudeSkills } from "../lib/session-skills.js";
+import {
+  createClaudeSkillCollector,
+  distinctSkillNames,
+  forEachJsonObjectLine,
+} from "../lib/session-skills.js";
 import { detectClaudeSessionStatus } from "../lib/session-status.js";
 import type { Adapter, AdapterContext, SessionStatus, TaskInput } from "../types.js";
 
@@ -324,58 +328,53 @@ async function pickWithinLookback(
  * Pure with respect to I/O — all file reading happens in the caller.
  */
 export function extractToolEvents(text: string): { cwd: string | null; events: ToolEvent[] } {
-  const lines = text.split("\n");
-  let cwd: string | null = null;
-  const events: ToolEvent[] = [];
+  const acc: ToolEventAccumulator = { cwd: null, events: [] };
+  forEachJsonObjectLine(text, (obj) => addToolEvents(obj, acc));
+  return acc;
+}
 
-  for (const line of lines) {
-    if (!line) continue;
-    let evt: unknown;
-    try {
-      evt = JSON.parse(line);
-    } catch {
-      continue;
-    }
-    if (!evt || typeof evt !== "object") continue;
-    const obj = evt as Record<string, unknown>;
+interface ToolEventAccumulator {
+  cwd: string | null;
+  events: ToolEvent[];
+}
 
-    if (!cwd && typeof obj.cwd === "string" && obj.cwd) {
-      cwd = obj.cwd;
-    }
+/** One parsed JSONL event's contribution to `extractToolEvents`. */
+function addToolEvents(obj: Record<string, unknown>, acc: ToolEventAccumulator): void {
+  const events = acc.events;
+  if (!acc.cwd && typeof obj.cwd === "string" && obj.cwd) {
+    acc.cwd = obj.cwd;
+  }
 
-    for (const block of getToolUseBlocks(obj)) {
-      if (block.name === "TaskCreate") {
-        const subject = typeof block.input.subject === "string" ? block.input.subject : "";
-        if (subject) {
-          events.push({ kind: "TaskCreate", subject });
-        }
-      } else if (block.name === "TaskUpdate") {
-        const taskId = block.input.taskId;
-        const status = block.input.status;
-        if (typeof taskId === "string" && typeof status === "string") {
-          events.push({ kind: "TaskUpdate", taskId, status });
-        }
-      } else if (block.name === "TodoWrite") {
-        const todos = block.input.todos;
-        if (Array.isArray(todos)) {
-          const items: TodoItem[] = [];
-          for (const todo of todos as unknown[]) {
-            // One malformed item must not abort the whole session (or sync).
-            if (!isRecord(todo)) continue;
-            const id = typeof todo.id === "string" ? todo.id : String(todo.id ?? "");
-            const content = typeof todo.content === "string" ? todo.content : "";
-            const status = typeof todo.status === "string" ? todo.status : "pending";
-            if (id && content) {
-              items.push({ id, content, status });
-            }
+  for (const block of getToolUseBlocks(obj)) {
+    if (block.name === "TaskCreate") {
+      const subject = typeof block.input.subject === "string" ? block.input.subject : "";
+      if (subject) {
+        events.push({ kind: "TaskCreate", subject });
+      }
+    } else if (block.name === "TaskUpdate") {
+      const taskId = block.input.taskId;
+      const status = block.input.status;
+      if (typeof taskId === "string" && typeof status === "string") {
+        events.push({ kind: "TaskUpdate", taskId, status });
+      }
+    } else if (block.name === "TodoWrite") {
+      const todos = block.input.todos;
+      if (Array.isArray(todos)) {
+        const items: TodoItem[] = [];
+        for (const todo of todos as unknown[]) {
+          // One malformed item must not abort the whole session (or sync).
+          if (!isRecord(todo)) continue;
+          const id = typeof todo.id === "string" ? todo.id : String(todo.id ?? "");
+          const content = typeof todo.content === "string" ? todo.content : "";
+          const status = typeof todo.status === "string" ? todo.status : "pending";
+          if (id && content) {
+            items.push({ id, content, status });
           }
-          events.push({ kind: "TodoWrite", todos: items });
         }
+        events.push({ kind: "TodoWrite", todos: items });
       }
     }
   }
-
-  return { cwd, events };
 }
 
 /**
@@ -431,7 +430,14 @@ async function parseSession(
   skillsUsed: string[];
 }> {
   const text = await readFile(path, "utf8");
-  const { cwd, events } = extractToolEvents(text);
+  // One JSON.parse pass feeds both the todo-event scan and skill detection.
+  const toolEvents: ToolEventAccumulator = { cwd: null, events: [] };
+  const skills = createClaudeSkillCollector();
+  forEachJsonObjectLine(text, (obj) => {
+    addToolEvents(obj, toolEvents);
+    skills.add(obj);
+  });
+  const { cwd, events } = toolEvents;
   // Each non-empty line in a Claude JSONL is one event (user prompt, assistant
   // reply, tool use, etc). Used as `message_count` in the sessions table —
   // not a strict "messages only" count, but close enough for /insights ordering.
@@ -443,7 +449,7 @@ async function parseSession(
   // string keeps this cheap (one extra tail walk, no second readFile).
   const status = detectClaudeSessionStatus(text);
   const lastMessageText = extractLastMessageText(text);
-  const skillsUsed = distinctSkillNames(extractClaudeSkills(text));
+  const skillsUsed = distinctSkillNames(skills.finish());
   return {
     cwd,
     sessionTasks: reduceEvents(events),
