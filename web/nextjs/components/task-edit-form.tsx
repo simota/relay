@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Kbd } from "@/components/ui/kbd";
 import type { EditableField, Task, TaskEditInput, WaitOn } from "@/lib/types";
+import { isPresetRecurrence, RECURRENCE_PRESETS } from "@/lib/recurrence";
 
 const WAIT_ON: ReadonlyArray<{ value: WaitOn; label: string }> = [
   { value: "self", label: "self — I act next" },
@@ -25,6 +26,7 @@ const FIELD_LABEL: Record<EditableField, string> = {
   due_at: "due",
   wait_on: "wait on",
   repo: "repo",
+  recurrence: "repeat",
 };
 
 interface Draft {
@@ -36,6 +38,8 @@ interface Draft {
   files: string;
   body: string;
   repo: string;
+  /** Canonical rule, a custom rule being typed, or "" for one-off. */
+  recurrence: string;
 }
 
 /** `<input type="date">` value (local calendar day) for a stored due_at. */
@@ -56,6 +60,7 @@ function draftOf(task: Task): Draft {
     files: task.files.join("\n"),
     body: task.body,
     repo: task.repo,
+    recurrence: task.recurrence ?? "",
   };
 }
 
@@ -76,6 +81,7 @@ function diff(task: Task, draft: Draft): TaskEditInput {
   if (JSON.stringify(files) !== JSON.stringify(task.files)) out.files = files;
   if (draft.body.trim() !== task.body.trim()) out.body = draft.body;
   if (task.source_type === "manual" && draft.repo.trim() !== task.repo) out.repo = draft.repo.trim();
+  if (draft.recurrence.trim() !== (task.recurrence ?? "")) out.recurrence = draft.recurrence.trim() || null;
   return out;
 }
 
@@ -94,6 +100,7 @@ export function TaskEditForm({
   onCancel: () => void;
 }) {
   const [draft, setDraft] = useState<Draft>(() => draftOf(task));
+  const [customRecurrence, setCustomRecurrence] = useState(() => !isPresetRecurrence(task.recurrence));
   const [reset, setReset] = useState<EditableField[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -214,6 +221,35 @@ export function TaskEditForm({
               <option key={w.value} value={w.value}>{w.label}</option>
             ))}
           </select>
+        </Field>
+        <Field label="repeat" htmlFor="edit-recurrence">
+          <div className="flex items-center gap-1.5">
+            <select
+              id="edit-recurrence"
+              value={customRecurrence ? "custom" : draft.recurrence}
+              onChange={(e) => {
+                const value = e.target.value;
+                setCustomRecurrence(value === "custom");
+                if (value !== "custom") set("recurrence", value);
+              }}
+              className="h-8 min-w-0 flex-1 px-2 rounded-[var(--radius)] bg-transparent border border-[var(--color-border)] text-[13px] text-[var(--color-fg)] ring-focus"
+            >
+              {RECURRENCE_PRESETS.map((p) => (
+                <option key={p.value} value={p.value}>{p.label}</option>
+              ))}
+              <option value="custom">custom…</option>
+            </select>
+            {customRecurrence && (
+              <Input
+                id="edit-recurrence-custom"
+                aria-label="Custom repeat rule"
+                value={draft.recurrence}
+                onChange={(e) => set("recurrence", e.target.value)}
+                placeholder="3d · 2w · mon,thu"
+                className="w-28 font-mono"
+              />
+            )}
+          </div>
         </Field>
         {isManual && (
           <Field label="repo" htmlFor="edit-repo">

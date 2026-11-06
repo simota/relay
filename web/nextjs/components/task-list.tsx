@@ -8,6 +8,7 @@ import { StatusDot, Badge } from "@/components/ui/badge";
 import { Kbd } from "@/components/ui/kbd";
 import { useHotkeys } from "@/hooks/use-hotkeys";
 import type { Assignee, Task } from "@/lib/types";
+import { describeRecurrence } from "@/lib/recurrence";
 
 const ASSIGNEES: Assignee[] = ["claude-code", "codex", "antigravity", "self", "human-review"];
 import type { Filtered } from "@/lib/fuzzy";
@@ -344,6 +345,16 @@ function TaskRow({
       <span className={cn("flex-1 truncate min-w-[96px]", selected && "text-[var(--color-fg)]")}>
         {row.titleIndices.length ? highlight(t.title, row.titleIndices) : t.title}
       </span>
+      {t.recurrence && (
+        <span
+          role="img"
+          aria-label={`repeats ${describeRecurrence(t.recurrence)}`}
+          title={`repeats ${describeRecurrence(t.recurrence)}`}
+          className="shrink-0 text-[11px] leading-none text-[var(--color-fg-dim)]"
+        >
+          ↻
+        </span>
+      )}
       {(t.tags?.length ?? 0) > 0 && (
         // Tags yield space to the title: the strip shrinks first, and chips
         // that no longer fit wrap onto a clipped second line (whole chips

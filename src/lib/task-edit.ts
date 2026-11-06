@@ -3,6 +3,7 @@
 
 import { EDITABLE_FIELDS, WaitOn, type EditableField, type Task, type TaskEdit } from "../types.js";
 import { parseWhenInput, WHEN_INPUT_HINT } from "./due-date.js";
+import { normalizeRecurrence, RECURRENCE_HINT } from "./recurrence.js";
 
 export type ParsedTaskEdit =
   | { ok: true; patch: TaskEdit; reset: EditableField[] }
@@ -103,6 +104,12 @@ export function parseTaskEdit(
     const repo = typeof body.repo === "string" ? body.repo.trim() : "";
     if (!repo) return { ok: false, error: "repo must be a non-empty string" };
     patch.repo = repo;
+  }
+
+  if ("recurrence" in body) {
+    const rule = normalizeRecurrence(body.recurrence);
+    if (rule === undefined) return { ok: false, error: `recurrence must be ${RECURRENCE_HINT}, or null to stop repeating` };
+    patch.recurrence = rule;
   }
 
   let reset: EditableField[] = [];

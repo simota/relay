@@ -44,6 +44,27 @@ export function createQueueApi() {
     return c.json({ id }, 201);
   });
 
+  // Retry what broke: queue every not-done task whose latest run failed or
+  // was interrupted (`relay queue add --failed` parity). Already-queued
+  // tasks are not duplicated. `{ front: true }` puts them at the head.
+  app.post("/retry-failed", async (c) => {
+    const body = (await c.req.json().catch(() => null)) as { front?: unknown } | null;
+    const front = body?.front === true;
+    using db = new RelayDB();
+    const queued = new Set(db.listQueueItems().map((item) => item.task_id));
+    const ids = db.failedTaskIds().filter((id) => !queued.has(id));
+    for (const taskId of front ? [...ids].reverse() : ids) db.addQueueItem(taskId, { front });
+    return c.json({ ok: true, count: ids.length, task_ids: ids });
+  });
+
+  // How many failed runs could be retried (drives the tray's retry button).
+  app.get("/retry-failed", (c) => {
+    using db = new RelayDB();
+    const queued = new Set(db.listQueueItems().map((item) => item.task_id));
+    const ids = db.failedTaskIds().filter((id) => !queued.has(id));
+    return c.json({ count: ids.length, task_ids: ids });
+  });
+
   // Re-order: `{ direction: "up" | "down" | "front" }`.
   app.post("/items/:id/move", async (c) => {
     const id = Number(c.req.param("id"));

@@ -161,6 +161,9 @@ export const Task = z.object({
   // User tags (schema v12), normalized by `normalizeTag`. Always populated
   // when read from the DB; adapters never set them, so sync keeps them.
   tags: z.array(z.string()).optional(),
+  // Repeat rule (schema v13, src/lib/recurrence.ts). NULL = one-off.
+  // User-owned: adapters never set it.
+  recurrence: z.string().nullable().optional(),
 });
 export type Task = z.infer<typeof Task>;
 
@@ -171,6 +174,7 @@ export const TaskInput = Task.omit({
   closed_at: true,
   user_overrides: true,
   tags: true,
+  recurrence: true,
 });
 
 /**
@@ -188,6 +192,7 @@ export const EDITABLE_FIELDS = [
   "due_at",
   "wait_on",
   "repo",
+  "recurrence",
 ] as const;
 export type EditableField = (typeof EDITABLE_FIELDS)[number];
 
@@ -200,6 +205,7 @@ export interface TaskEdit {
   due_at?: string | null;
   wait_on?: WaitOn;
   repo?: string;
+  recurrence?: string | null;
 }
 export type TaskInput = z.infer<typeof TaskInput>;
 

@@ -114,6 +114,7 @@ $ relay run 42
 | `closed_at` | TEXT NULL | ISO8601 |
 | `user_overrides` | TEXT NULL | JSON array。ユーザーが `relay edit` / `PATCH /api/tasks/:id` で編集したフィールド名 (`title` / `body` / `priority` / `prompt` / `files` / `due_at` / `wait_on` / `repo`)。adapter 再 ingest はこれらのフィールドを上書きしない。schema_version 11 で追加 |
 | `tags` | TEXT NULL | JSON array。ユーザーが付けたタグ (小文字に正規化、先頭の `#` は除去、1〜40 文字の英数字/かな漢字と `. _ / : -`、1 タスク最大 20 個)。adapter ingest は書き込まないので再 sync で消えない。schema_version 12 で追加 |
+| `recurrence` | TEXT NULL | 繰り返しルール (正規形: `daily` \| `weekdays` \| `weekly` \| `biweekly` \| `monthly` \| `every:<N>d` \| `every:<N>w` \| `days:mon,thu`)。NULL = 単発。tags 同様ユーザー所有で adapter は書かない。schema_version 13 で追加 |
 
 UNIQUE: `(source_type, source_id)` で adapter 再 ingest を冪等化。
 
@@ -144,6 +145,16 @@ PK `(task_id, depends_on_id)`、`CHECK (task_id != depends_on_id)`、両 FK と�
 - `repo` の編集は `manual` タスクのみ (adapter タスクの repo は source の所在から決まる)。`status` / `assignee` は専用エンドポイントを使う。
 - 編集は undo_log に `op_kind = 'edit'` (変更フィールドの before/after と override 集合) として記録され、⌘Z / `relay undo` で戻せる。
 - snapshot export / import は `user_overrides` も運ぶ。
+
+### 繰り返しタスク (schema_version 13)
+
+- 設定: `relay add --every weekly` / `relay edit <id> --every mon,thu` (`--every none` で解除) / `POST /api/tasks {"recurrence": "weekly"}` / `PATCH /api/tasks/:id {"recurrence": "3d" | null}` / Web の新規作成ダイアログ・編集フォームの「repeat」。入力は `daily` / `weekdays` / `weekly` / `biweekly` / `monthly` / `3d` / `2w` / `every 3 days` / `mon,thu` などを受け付け、正規形で保存する。`recurrence` を変えても `user_overrides` にはロックを記録しない (adapter が書かない列のため)。
+- 繰り返しタスクを close すると (`relay close` / `relay run --close-on-success` / `queue run --close-on-success` / `POST /api/tasks/:id/close` / bulk close)、**次回分を新しい `manual` タスクとして生成**し、`status = 'snoozed'`・`due_at = 次回日時` にする。snooze 自動復帰でその日に open へ戻る。完了した回は done のまま残るので standup / digest / insights の履歴は失われない。
+- 次回日時: 元タスクに `due_at` があればその時刻を保ったまま 1 周期進め、なければ当日ローカル 0:00 起点。過ぎた周期は飛ばし、常に未来の 1 件だけを作る (3 日遅れで daily を閉じても overdue のコピーは作らない)。`monthly` は月末にクランプ (1/31 → 2/28 → 3/31)。
+- 引き継ぐフィールド: repo / title / body / assignee / priority / prompt / files / wait_on / tags / recurrence。依存関係・session・context は引き継がない。
+- 生成タスクの `source_id` は `recur:<root>:<YYYY-MM-DD>` (`<root>` は最初に繰り返し設定したタスクの id)。`INSERT OR IGNORE` で同じ系列・同じ日付は 1 件だけになるため、close → reopen → close や複数画面からの close でも重複しない。
+- undo: close の undo_log 行は `payload.respawn` (元タスク id) と `inverse.drop` (生成タスク id) を持つ。undo は生成タスクを、まだ手付かず (snoozed のまま・未編集・run なし) の場合に限り削除し、redo で再生成する。`POST /api/tasks/:id/close` のレスポンスは `next_occurrence: {id, due_at}` を含み、Web のトーストに「↻ next …」と出る。
+- snapshot export / import は `recurrence` を運ぶ (古い snapshot はローカル値を保持)。
 
 ### snooze と自動復帰
 
@@ -188,6 +199,13 @@ Today 画面は `wait_on='self'` を上段に常に展開、それ以外を下�
 | `ended_at` | TEXT NULL |
 | `status` | TEXT — `running` \| `success` \| `failed` \| `interrupted` |
 | `output_summary` | TEXT NULL |
+| `head_before` | TEXT NULL — run 開始直前の HEAD (schema_version 13) |
+| `head_after` | TEXT NULL — run 終了時の HEAD |
+| `changes` | TEXT NULL — JSON `{commits, files: [{path, added, removed}], more}` |
+
+**変更キャプチャ (schema_version 13)**: `relay run` / `relay queue run` (対話・headless とも) は起動直前に repo の HEAD・`git diff --numstat HEAD`・untracked 一覧を記録し、終了後に「作業ツリー vs 起動前 HEAD」の numstat と比較する。起動前から dirty で run 中に変化しなかったファイルは除外し、agent が触ったファイル (コミット済み・未コミット・新規) と agent のコミット数を `changes` に保存する (最大 50 ファイル、残りは `more`)。git 管理外の repo では NULL。`relay runs` の各行・`relay show`・`relay runs --log` のヘッダ・Web 詳細の agent runs に「N files +a −r · k commits」を表示し、`relay runs --diff <run-id>` で起動前 HEAD からの patch を表示する (HEAD がその後動いていれば `head_before..head_after` のみ)。
+
+**失敗 run の再キュー**: `relay queue add --failed [--since 24h|3d|1w]` / `POST /api/queue/retry-failed` (件数は `GET /api/queue/retry-failed`) は、最新 run が `failed` / `interrupted` で未完了のタスクを、古い失敗順に queue に積む (既に queue にあるものは重複させない)。Web の queue tray には該当があるとき「retry N failed」ボタンが出る。
 
 ## 6. Source Adapters
 
@@ -205,7 +223,7 @@ Today 画面は `wait_on='self'` を上段に常に展開、それ以外を下�
 | `claude-session` | `~/.claude/projects/**/*.jsonl` | session 終了 hook / daemon 1min | jsonl parser, TodoWrite block 抽出 |
 | `cursor-session` | `~/.cursor/plans/*.plan.md` (frontmatter `todos:`) + `~/.cursor/chats/<md5(cwd)>/<agentId>/store.db` | sync 時 / daemon 5min | YAML frontmatter parser + `bun:sqlite` read-only。default **OFF** (privacy) |
 | `agents-note` | `<repo>/.agents/*.md` | sync 時 / daemon 5min | checkbox `- [ ]` 行抽出 |
-| `manual` | `relay add` | 即時 | CLI (sync 経路では fetch しない — no-op adapter として登録、`precheck` で常に SKIPPED) |
+| `manual` | `relay add` | 即時 | CLI (sync 経路では fetch しない — no-op adapter として登録、`precheck` で常に SKIPPED)。`source_id` は `manual:<epoch-ms>:<rand6>`、繰り返しタスクの生成分は `recur:<root-task-id>:<YYYY-MM-DD>` (schema_version 13) |
 
 `fetch` と `fetchResolved` が同じ全 scan から導出される adapter
 (`git-interrupted` / `git-stash` / `git-dirty-worktree` / `orphan-branch` /
@@ -791,12 +809,12 @@ merged/closed PR は `--state open` フィルタで外れるため、上記の�
 
 | Command | 説明 |
 |---|---|
-| `relay add [--repo X --title ... --assignee A --prompt ... --files a,b --due <when> --wait-on W --priority N --body ... --tags a,b --blocked-by 1,2]` | 手動追加 (引数省略で interactive)。作成した `#id` を表示 |
+| `relay add [--repo X --title ... --assignee A --prompt ... --files a,b --due <when> --wait-on W --priority N --body ... --tags a,b --blocked-by 1,2 --every R]` | 手動追加 (引数省略で interactive)。作成した `#id` を表示 |
 | `relay tag <id> [tag... ^tag...] [--ids 3,4] [--clear]` | タグの表示 / 追加 / 削除 (`^tag` か `-- -tag` で削除、`--ids` で一括)。undo 可 |
 | `relay block <id> <blocker...>` / `relay unblock <id> [blocker...]` | 依存関係の追加 / 削除 (blocker 省略で全解除)。循環は拒否。undo 可 |
 | `relay assign <id> <agent>` | 担当変更 (`claude-code` / `codex` / `antigravity` / `self` / `human-review`) |
-| `relay close <id>` / `relay snooze <id> [--until <when>]` / `relay reopen <id>` | 状態遷移 (`--until` 付き snooze は自動復帰) |
-| `relay edit <id> [--title --body --priority --prompt --files --due --wait-on --repo --clear-due --clear-prompt --reset F]` | フィールド編集 (`PATCH /api/tasks/:id`)。編集フィールドは sync で保持 |
+| `relay close <ids...>` / `relay snooze <ids...> [--until <when>]` / `relay reopen <ids...>` | 状態遷移 (複数 id 可、まとめて 1 つの undo。`--until` 付き snooze は自動復帰。繰り返しタスクの close は次回分を生成) |
+| `relay edit <id> [--title --body --priority --prompt --files --due --wait-on --repo --every R --clear-due --clear-prompt --reset F]` | フィールド編集 (`PATCH /api/tasks/:id`)。編集フィールドは sync で保持。`--every none` で繰り返し解除 |
 | `relay undo [--redo] [--list]` | undo_log の取り消し / やり直し (`POST /api/undo`) |
 | `relay focus [id] [--clear]` | フォーカス set/show/clear |
 | `relay forget <sessionId> [--source claude_session_todo] [--yes]` | セッション由来タスクの物理削除 |

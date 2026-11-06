@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { RECURRENCE_PRESETS } from "@/lib/recurrence";
 import { Plus, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
@@ -41,6 +42,7 @@ export function NewTaskDialog({ open, onClose }: NewTaskDialogProps) {
   const [priority, setPriority] = useState("50");
   const [tags, setTags] = useState("");
   const [blockedBy, setBlockedBy] = useState("");
+  const [recurrence, setRecurrence] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -58,6 +60,7 @@ export function NewTaskDialog({ open, onClose }: NewTaskDialogProps) {
     if (!open) {
       setRepo("");
       setTitle("");
+      setRecurrence("");
       setBody("");
       setAssignee("claude-code");
       setPrompt("");
@@ -106,6 +109,7 @@ export function NewTaskDialog({ open, onClose }: NewTaskDialogProps) {
         priority: parsePriority(priority),
         tags: tags.split(/[\s,]+/).map((t) => t.trim()).filter(Boolean),
         blocked_by: blockerIds,
+        ...(recurrence ? { recurrence } : {}),
       });
       await mutate((key) => typeof key === "string" && key.startsWith("/api/"));
       onClose();
@@ -269,6 +273,19 @@ export function NewTaskDialog({ open, onClose }: NewTaskDialogProps) {
               />
             </Field>
           </div>
+
+          <Field label="repeat">
+            <select
+              value={recurrence}
+              onChange={(e) => setRecurrence(e.target.value)}
+              aria-label="Repeat"
+              className="h-8 px-2 rounded-[var(--radius)] bg-transparent border border-[var(--color-border)] outline-none text-[13px] ring-focus font-mono w-full"
+            >
+              {RECURRENCE_PRESETS.map((p) => (
+                <option key={p.value} value={p.value} className="bg-[var(--color-bg-elev)]">{p.label}</option>
+              ))}
+            </select>
+          </Field>
 
           {error && (
             <div className="text-[12px] text-[var(--color-critical)] font-mono">{error}</div>

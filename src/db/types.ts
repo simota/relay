@@ -27,6 +27,8 @@ export interface SnapshotRow {
   user_overrides?: string[];
   /** User tags (schema v12); older snapshots omit it. */
   tags?: string[];
+  /** Repeat rule (schema v13); undefined = older snapshot (keep local). */
+  recurrence?: string | null;
 }
 
 export interface UpsertResult {

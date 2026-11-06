@@ -34,6 +34,8 @@ import { loadConfig, resolveScanRoots } from "../config.js";
 import { parseWhenInput, WHEN_INPUT_HINT } from "../lib/due-date.js";
 import { MAX_TAGS_PER_TASK, normalizeTag, normalizeTags } from "../lib/tags.js";
 import { resolveRepoPath } from "../repo-resolver.js";
+import { spawnAfterClose } from "../lib/recurrence-close.js";
+import { normalizeRecurrence, RECURRENCE_HINT } from "../lib/recurrence.js";
 import { Assignee, WaitOn } from "../types.js";
 import {
   createRepoPathLookup,
@@ -303,6 +305,12 @@ export function buildApp(opts: BuildAppOptions = {}) {
       if (normalized.tags.length > MAX_TAGS_PER_TASK) return c.json({ error: `at most ${MAX_TAGS_PER_TASK} tags per task` }, 400);
       tags = normalized.tags;
     }
+    let recurrence: string | null = null;
+    if (body.recurrence !== undefined && body.recurrence !== null && body.recurrence !== "") {
+      const rule = normalizeRecurrence(body.recurrence);
+      if (rule === undefined) return c.json({ error: `recurrence must be ${RECURRENCE_HINT}` }, 400);
+      recurrence = rule;
+    }
     let blockedBy: number[] = [];
     if (body.blocked_by !== undefined) {
       const list = Array.isArray(body.blocked_by) ? body.blocked_by : [body.blocked_by];
@@ -343,6 +351,7 @@ export function buildApp(opts: BuildAppOptions = {}) {
     if (!found) return c.json({ error: "insert failed" }, 500);
     // A brand-new task has no dependents, so these edges cannot form a cycle.
     if (tags.length > 0) db.setTags(found.id, tags);
+    if (recurrence) db.editTask(found.id, { recurrence }, { lock: false });
     for (const blocker of blockedBy) db.addDependency(found.id, blocker);
     return c.json(db.getTask(found.id) ?? found, 201);
   });
@@ -656,14 +665,17 @@ function transitionStatus(c: Context, status: string) {
   }
   db.setStatus(id, status);
   const updated = db.getTask(id);
+  const recur = status === "done" ? spawnAfterClose(db, [id]) : null;
   if (updated) {
     db.recordUndo({
       op_kind: opKindForStatus(status),
-      payload: { tasks: [snapshotTask(updated)] },
-      inverse: { tasks: [snapshotTask(task)] },
+      payload: { tasks: [snapshotTask(updated)], ...recur?.payload },
+      inverse: { tasks: [snapshotTask(task)], ...recur?.inverse },
     });
   }
-  return c.json(updated);
+  // `next_occurrence` lets the UI say "next: Mon" after closing a recurring task.
+  const next = recur?.spawned[0];
+  return c.json(next && updated ? { ...updated, next_occurrence: { id: next.id, due_at: next.due_at } } : updated);
 }
 
 const ASSIGNEES = new Set([

@@ -61,6 +61,13 @@ export interface Task {
   user_overrides?: EditableField[];
   /** User tags (lowercase); never overwritten by sync. */
   tags?: string[];
+  /**
+   * Repeat rule (schema v13): daily | weekdays | weekly | biweekly |
+   * monthly | every:<N>d | every:<N>w | days:mon,thu. null = one-off.
+   */
+  recurrence?: string | null;
+  /** Only on close responses: the occurrence a recurring close scheduled. */
+  next_occurrence?: { id: number; due_at: string };
 }
 
 export interface TagCount {
@@ -86,7 +93,8 @@ export type EditableField =
   | "files"
   | "due_at"
   | "wait_on"
-  | "repo";
+  | "repo"
+  | "recurrence";
 
 export interface TaskEditInput {
   title?: string;
@@ -97,6 +105,8 @@ export interface TaskEditInput {
   due_at?: string | null;
   wait_on?: WaitOn;
   repo?: string;
+  /** Repeat rule input (e.g. "weekly", "3d", "mon,thu"); null stops repeating. */
+  recurrence?: string | null;
   reset?: EditableField[];
 }
 
@@ -107,6 +117,24 @@ export interface TaskRun {
   ended_at: string | null;
   status: string;
   output_summary: string | null;
+  /** What the run changed in the repo (schema v13); null when unknown. */
+  changes?: RunChanges | null;
+}
+
+export interface RunChangedFile {
+  path: string;
+  /** Lines added / removed; null for binary files. */
+  added: number | null;
+  removed: number | null;
+}
+
+export interface RunChanges {
+  head_before: string | null;
+  head_after: string | null;
+  commits: number;
+  files: RunChangedFile[];
+  /** Files beyond the stored list (the list is capped). */
+  more: number;
 }
 
 export interface ResumeBriefReason {

@@ -16,6 +16,8 @@ export interface EditOptions {
   clearDue?: boolean;
   clearPrompt?: boolean;
   reset?: string;
+  /** Repeat rule (schema v13); "none" stops repeating. */
+  every?: string;
 }
 
 /**
@@ -36,6 +38,7 @@ export function runEdit(id: number, opts: EditOptions): void {
   if (opts.waitOn !== undefined) body.wait_on = opts.waitOn;
   if (opts.repo !== undefined) body.repo = opts.repo;
   if (opts.reset !== undefined) body.reset = opts.reset;
+  if (opts.every !== undefined) body.recurrence = opts.every;
 
   const db = new RelayDB();
   const task = db.getTask(id);
@@ -51,7 +54,7 @@ export function runEdit(id: number, opts: EditOptions): void {
     if (parsed.error === "nothing to change") {
       console.log(
         chalk.gray(
-          "  flags: --title --body --priority --prompt --files --due --wait-on --repo --clear-due --clear-prompt --reset <fields>",
+          "  flags: --title --body --priority --prompt --files --due --wait-on --repo --every --clear-due --clear-prompt --reset <fields>",
         ),
       );
     }
@@ -94,7 +97,8 @@ function fmt(value: unknown): string {
 }
 
 /** `relay snooze <id> [--until <when>]`. */
-export function runSnoozeUntil(id: number, untilRaw: string | undefined): void {
+export function runSnoozeUntil(ids: number | number[], untilRaw: string | undefined): void {
+  const list = [...new Set(Array.isArray(ids) ? ids : [ids])];
   let until: string | null = null;
   if (untilRaw !== undefined) {
     until = parseWhenInput(untilRaw);
@@ -108,30 +112,39 @@ export function runSnoozeUntil(id: number, untilRaw: string | undefined): void {
     }
   }
   const db = new RelayDB();
-  const task = db.getTask(id);
-  if (!task) {
+  const before: Task[] = [];
+  let failed = false;
+  for (const id of list) {
+    const task = db.getTask(id);
+    if (!task) {
+      console.log(chalk.red(`task #${id} not found`));
+      failed = true;
+      continue;
+    }
+    if (task.status === "snoozed" && (until === null || task.due_at === until)) {
+      console.log(chalk.gray(`#${id} already snoozed`));
+      continue;
+    }
+    before.push(task);
+  }
+  if (failed && list.length === 1) {
     db.close();
-    console.log(chalk.red(`task #${id} not found`));
     process.exit(1);
   }
-  if (task.status === "snoozed" && (until === null || task.due_at === until)) {
-    db.close();
-    console.log(chalk.gray(`#${id} already snoozed`));
-    return;
-  }
-  db.snoozeTask(id, until);
-  const after = db.getTask(id);
-  if (after) {
+  for (const task of before) db.snoozeTask(task.id, until);
+  const after = db.getTasksByIds(before.map((task) => task.id));
+  if (after.length > 0) {
     db.recordUndo({
-      op_kind: "snooze",
-      payload: { tasks: [statusSnapshot(after)] },
-      inverse: { tasks: [statusSnapshot(task)] },
+      op_kind: after.length > 1 ? "bulk_snooze" : "snooze",
+      payload: { tasks: after.map(statusSnapshot) },
+      inverse: { tasks: before.map(statusSnapshot) },
     });
   }
   db.close();
   const suffix = until ? ` until ${new Date(until).toLocaleString()}` : "";
-  console.log(chalk.yellow(`⏸ snoozed #${id}${suffix}: ${task.title}`));
-  if (until) console.log(chalk.gray("  it reopens on its own once that time passes"));
+  for (const task of before) console.log(chalk.yellow(`⏸ snoozed #${task.id}${suffix}: ${task.title}`));
+  if (until && before.length > 0) console.log(chalk.gray("  it reopens on its own once that time passes"));
+  if (failed) process.exitCode = 1;
 }
 
 function statusSnapshot(task: Task) {

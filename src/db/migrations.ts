@@ -68,6 +68,17 @@ export function runColumnMigrations(db: Database): void {
   if (!taskCols.some((c) => c.name === "tags")) {
     db.exec(`ALTER TABLE tasks ADD COLUMN tags TEXT`);
   }
+  // schema_version 13: tasks.recurrence (NULL = one-off) and the runs
+  // change-capture columns. All nullable, so existing rows need no backfill.
+  if (!taskCols.some((c) => c.name === "recurrence")) {
+    db.exec(`ALTER TABLE tasks ADD COLUMN recurrence TEXT`);
+  }
+  const runCols = db.prepare(`PRAGMA table_info(runs)`).all() as Array<{ name: string }>;
+  if (runCols.length > 0) {
+    for (const col of ["head_before", "head_after", "changes"]) {
+      if (!runCols.some((c) => c.name === col)) db.exec(`ALTER TABLE runs ADD COLUMN ${col} TEXT`);
+    }
+  }
 
   // schema_version 4: sessions.status. Pre-v4 DBs already have the sessions
   // table from v3 but no status column; backfill defaults all existing rows

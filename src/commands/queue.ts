@@ -59,9 +59,22 @@ function unmetBlockers(db: RelayDB, taskId: number, satisfied: ReadonlySet<numbe
 export interface QueueAddOptions {
   front?: boolean;
   assign?: string;
+  /** Also queue every not-done task whose latest run failed / was interrupted. */
+  failed?: boolean;
+  /** With `failed`: only failures in this window (e.g. 24h, 3d, 1w). */
+  since?: string;
+}
+
+/** "24h" / "3d" / "1w" → ISO instant that far back; null when malformed. */
+export function sinceToIso(value: string, now: Date = new Date()): string | null {
+  const m = /^(\d{1,4})\s*(h|d|w)$/i.exec(value.trim());
+  if (!m) return null;
+  const hours = Number(m[1]) * ({ h: 1, d: 24, w: 168 } as const)[(m[2] ?? "h").toLowerCase() as "h" | "d" | "w"];
+  return new Date(now.getTime() - hours * 3_600_000).toISOString();
 }
 
 export function runQueueAdd(ids: number[], options: QueueAddOptions = {}): void {
+  ids = [...ids];
   let assignee: Assignee | undefined;
   if (options.assign) {
     const parsed = Assignee.safeParse(options.assign);
@@ -72,6 +85,23 @@ export function runQueueAdd(ids: number[], options: QueueAddOptions = {}): void 
     assignee = parsed.data;
   }
   using db = new RelayDB();
+  if (options.failed) {
+    let sinceIso: string | undefined;
+    if (options.since) {
+      const parsed = sinceToIso(options.since);
+      if (!parsed) {
+        console.log(chalk.red(`invalid --since: ${options.since} (e.g. 24h, 3d, 1w)`));
+        process.exit(1);
+      }
+      sinceIso = parsed;
+    }
+    const retry = db.failedTaskIds(sinceIso).filter((id) => !ids.includes(id));
+    if (retry.length === 0 && ids.length === 0) {
+      console.log(chalk.gray("no failed runs to retry" + (options.since ? ` in the last ${options.since}` : "")));
+      return;
+    }
+    ids = [...ids, ...retry];
+  }
   const reassigned: Array<{ id: number; before: string; after: string }> = [];
   let failed = false;
   // --front keeps the given order at the head of the queue: insert in reverse.

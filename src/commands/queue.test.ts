@@ -318,3 +318,96 @@ describe("headless commands", () => {
     expect(result.summary).toContain("timed out");
   });
 });
+
+describe("run change capture end-to-end", () => {
+  test("a headless queue run records the files and commits the agent produced", async () => {
+    const { spawnSync } = await import("node:child_process");
+    const { executePrepared, prepareRun } = await import("./run.js");
+    const repoRoot = join(ROOT, "qchanges");
+    mkdirSync(repoRoot, { recursive: true });
+    const sh = (...args: string[]) => spawnSync("git", args, { cwd: repoRoot, encoding: "utf8" });
+    sh("init", "-q");
+    sh("config", "user.email", "t@example.com");
+    sh("config", "user.name", "t");
+    sh("config", "commit.gpgsign", "false");
+    writeFileSync(join(repoRoot, "README.md"), "hello\n");
+    sh("add", ".");
+    sh("commit", "-q", "-m", "init");
+
+    const binDir = mkdtempSync(join(tmpdir(), "relay-agent-bin-"));
+    const bin = join(binDir, "fake-claude");
+    writeFileSync(
+      bin,
+      "#!/bin/sh\necho 'more' >> README.md\ngit commit -q -am 'agent edit'\necho 'x' > NEW.md\necho done\n",
+    );
+    chmodSync(bin, 0o755);
+    const runCfg = ConfigSchema.parse({ scan: { roots: [ROOT] }, agents: { claude_bin: bin } });
+
+    const id = seed("change capture", "claude-code", "qchanges");
+    const task = (() => {
+      using db = new RelayDB();
+      return db.getTask(id)!;
+    })();
+    const prep = (() => {
+      using db = new RelayDB();
+      return prepareRun(db, task, runCfg, { noTemplate: true });
+    })();
+    if (!prep.ok) throw new Error(prep.error);
+    const result = await executePrepared(prep.prepared, runCfg, { headless: true, echo: false });
+    expect(result.status).toBe("success");
+    expect(result.changes?.commits).toBe(1);
+    expect(result.changes?.files.map((f) => f.path)).toEqual(["NEW.md", "README.md"]);
+
+    using db = new RelayDB();
+    const run = db.getRun(result.runId)!;
+    expect(run.changes?.commits).toBe(1);
+    expect(run.changes?.head_before).toBeTruthy();
+    expect(db.listRunsForTask(id)[0]?.changes?.files).toHaveLength(2);
+  });
+});
+
+describe("retry failed runs", () => {
+  test("failedTaskIds: latest run failed/interrupted and task not done; --failed and the API queue them", async () => {
+    const { runQueueAdd, sinceToIso } = await import("./queue.js");
+    const { createQueueApi } = await import("../api/queue.js");
+    const failed = seed("broke");
+    const recovered = seed("broke then fixed");
+    const interrupted = seed("ctrl-c");
+    const closed = seed("failed but closed");
+    {
+      using db = new RelayDB();
+      db.finishRun(db.insertRun(failed, "claude-code"), "failed", "boom");
+      db.finishRun(db.insertRun(recovered, "claude-code"), "failed", "boom");
+      db.finishRun(db.insertRun(recovered, "claude-code"), "success");
+      db.finishRun(db.insertRun(interrupted, "claude-code"), "interrupted");
+      db.finishRun(db.insertRun(closed, "claude-code"), "failed");
+      db.setStatus(closed, "done");
+      const ids = db.failedTaskIds();
+      expect(ids).toContain(failed);
+      expect(ids).toContain(interrupted);
+      expect(ids).not.toContain(recovered);
+      expect(ids).not.toContain(closed);
+      expect(db.failedTaskIds(new Date(Date.now() + 60_000).toISOString())).toEqual([]);
+    }
+
+    const app = createQueueApi();
+    const preview = (await (await app.request("/retry-failed")).json()) as { count: number };
+    expect(preview.count).toBeGreaterThanOrEqual(2);
+
+    const log = console.log;
+    console.log = () => {};
+    try {
+      runQueueAdd([], { failed: true, since: "1d" });
+    } finally {
+      console.log = log;
+    }
+    expect(queueTaskIds()).toContain(failed);
+    expect(queueTaskIds()).toContain(interrupted);
+    // already queued → the API adds nothing new
+    const res = await app.request("/retry-failed", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+    expect(((await res.json()) as { count: number }).count).toBe(0);
+
+    expect(sinceToIso("bogus")).toBeNull();
+    expect(Date.parse(sinceToIso("2h")!)).toBeLessThan(Date.now());
+  });
+});

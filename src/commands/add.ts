@@ -8,6 +8,7 @@ import { WaitOn } from "../types.js";
 import { resolveRepoPath } from "../repo-resolver.js";
 import type { Assignee, TaskInput } from "../types.js";
 import { normalizeTags } from "../lib/tags.js";
+import { describeRecurrence, normalizeRecurrence, RECURRENCE_HINT } from "../lib/recurrence.js";
 
 const ASSIGNEES: Assignee[] = ["claude-code", "codex", "antigravity", "self", "human-review"];
 
@@ -25,6 +26,8 @@ export interface AddOptions {
   tags?: string;
   /** Comma-separated task ids this new task waits on. */
   blockedBy?: string;
+  /** Repeat rule (schema v13), e.g. weekly / weekdays / 3d / mon,thu. */
+  every?: string;
 }
 
 export async function runAdd(opts: AddOptions): Promise<void> {
@@ -105,6 +108,16 @@ export async function runAdd(opts: AddOptions): Promise<void> {
     process.exit(1);
   }
 
+  let recurrence: string | null = null;
+  if (opts.every !== undefined) {
+    const rule = normalizeRecurrence(opts.every);
+    if (rule === undefined) {
+      console.log(chalk.red(`invalid --every: ${opts.every}`) + chalk.gray(`  (use ${RECURRENCE_HINT})`));
+      process.exit(1);
+    }
+    recurrence = rule;
+  }
+
   const repoPath = resolveRepoPath(repo, cfg);
   if (!repoPath) {
     console.log(chalk.yellow(`! warning: '${repo}' not found under scan.roots or scan.tracked_repos`));
@@ -140,6 +153,7 @@ export async function runAdd(opts: AddOptions): Promise<void> {
   const created = db.getTaskBySourceId("manual", task.source_id);
   if (created) {
     if (tags.length > 0) db.setTags(created.id, tags);
+    if (recurrence) db.editTask(created.id, { recurrence }, { lock: false });
     // A brand-new task has no dependents, so these edges cannot form a cycle.
     for (const blocker of new Set(blockedBy)) db.addDependency(created.id, blocker);
   }
@@ -158,6 +172,7 @@ export async function runAdd(opts: AddOptions): Promise<void> {
   if (files.length) console.log(chalk.gray(`  files:    ${files.join(", ")}`));
   if (task.due_at) console.log(chalk.gray(`  due:      ${task.due_at}`));
   if (tags.length) console.log(chalk.gray(`  tags:     ${tags.map((t) => `#${t}`).join(" ")}`));
+  if (recurrence) console.log(chalk.gray(`  repeats:  ${describeRecurrence(recurrence)} (closing it schedules the next one)`));
   if (blockedBy.length) console.log(chalk.gray(`  blocked:  by ${[...new Set(blockedBy)].map((id) => `#${id}`).join(" ")}`));
 }
 

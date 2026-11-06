@@ -43,6 +43,12 @@ CREATE TABLE IF NOT EXISTS tasks (
   -- ingest never writes it, so tags survive every re-sync. ALTERed onto
   -- pre-v12 DBs in runColumnMigrations().
   tags          TEXT,
+  -- recurrence: schema v13 canonical repeat rule (daily | weekdays |
+  -- weekly | biweekly | monthly | every:<N>d | every:<N>w | days:mon,thu).
+  -- NULL = one-off. User-owned like tags: closing a recurring task spawns
+  -- the next occurrence (src/lib/recurrence.ts). ALTERed onto pre-v13 DBs
+  -- in runColumnMigrations().
+  recurrence    TEXT,
   UNIQUE (source_type, source_id)
 );
 
@@ -112,7 +118,15 @@ CREATE TABLE IF NOT EXISTS runs (
   started_at      TEXT    NOT NULL,
   ended_at        TEXT,
   status          TEXT    NOT NULL DEFAULT 'running',
-  output_summary  TEXT
+  output_summary  TEXT,
+  -- schema v13: what the run changed in the repo. head_before/head_after
+  -- are the commits around the run; changes is a JSON
+  -- {files:[{path,added,removed}],commits:N,untracked:N} summary of files
+  -- the agent touched (pre-existing dirty files are excluded). NULL when
+  -- the repo is not a git work tree or the run predates v13.
+  head_before     TEXT,
+  head_after      TEXT,
+  changes         TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_runs_task ON runs (task_id);
@@ -219,6 +233,8 @@ INSERT OR IGNORE INTO schema_version (version, applied_at)
   VALUES (11, datetime('now'));
 INSERT OR IGNORE INTO schema_version (version, applied_at)
   VALUES (12, datetime('now'));
+INSERT OR IGNORE INTO schema_version (version, applied_at)
+  VALUES (13, datetime('now'));
 `;
 
 export interface UndoLogRow {

@@ -77,6 +77,9 @@ relay run <task-id>                        # 該当 repo に agent を起動 (Cl
 - **Snooze until** — `relay snooze --until tomorrow|+3d|fri|YYYY-MM-DD` / Web の snooze メニュー・`⇧S`。期限が来ると自動で open に復帰
 - **AI ジョブキュー** — `relay queue add/run` と Web の queue tray が同じキューを共有。`relay queue run --headless` で claude-code / codex タスクを無人で順次実行し、出力は run ごとにログ保存 (`relay runs --log`、Web 詳細で展開)。Web から一括 queue / 一括 assign、tray で並べ替え
 - **タグと依存関係** (schema v12) — `relay tag` / Web の詳細パネル・bulk `# tag…` で repo 横断タグを付け、`relay ls --tag` / `tag:` / サイドバー / 保存ビューで絞り込み (sync で消えない)。`relay block <id> <blocker>` / Web の「+ blocked by…」で依存を張ると、blocker 完了まで Today から隠れ、`relay queue run` は依存順に実行し、agent prompt に前提タスクが入る。循環は拒否、⌘Z / `relay undo` 可、export/import も対応
+- **繰り返しタスク** (schema v13) — `relay add --every weekly` / `relay edit --every mon,thu` / Web の「repeat」。close すると次回分が snooze 状態で自動生成され期日に戻ってくる (完了履歴は残る、⌘Z で生成ごと取り消し)。queue と組み合わせて定期メンテを agent に回せる
+- **run の変更キャプチャ** (schema v13) — 各 agent run が触ったファイル (+/− 行数) とコミット数を記録し、`relay runs` / `relay show` / Web の agent runs に表示。`relay runs --diff <run>` で patch を確認、`relay queue add --failed` / tray の「retry N failed」で失敗分を一括再キュー
+- **一括ライフサイクル** — `relay close|snooze|reopen <ids...>` を 1 つの undo でまとめて実行
 - **検索と履歴** — `relay ls -q` と ⌘K パレットで done / snoozed を含む全タスクをサーバー側全文検索、`relay show` と Web 詳細にエージェント run 履歴
 
 ## Accessibility
