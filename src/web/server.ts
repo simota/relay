@@ -32,6 +32,7 @@ import { pruneMissingRepos } from "../commands/prune.js";
 import { runSync } from "../commands/sync.js";
 import { loadConfig, resolveScanRoots } from "../config.js";
 import { parseWhenInput, WHEN_INPUT_HINT } from "../lib/due-date.js";
+import { MAX_TAGS_PER_TASK, normalizeTag, normalizeTags } from "../lib/tags.js";
 import { resolveRepoPath } from "../repo-resolver.js";
 import { Assignee, WaitOn } from "../types.js";
 import {
@@ -239,15 +240,33 @@ export function buildApp(opts: BuildAppOptions = {}) {
     const context = c.req.query("context");
     const session = c.req.query("session_id");
     const q = c.req.query("q")?.trim() || undefined;
+    const rawTag = c.req.query("tag")?.trim();
+    const tag = rawTag ? normalizeTag(rawTag) : undefined;
+    if (rawTag && !tag) return c.json({ error: "invalid tag" }, 400);
+    const blockedQ = c.req.query("blocked");
+    const blocked = blockedQ === "1" || blockedQ === "true" ? true : blockedQ === "0" || blockedQ === "false" ? false : undefined;
     const limitQ = Number(c.req.query("limit") ?? "");
     const limit = Number.isFinite(limitQ) && limitQ > 0 ? Math.min(2000, Math.round(limitQ)) : 500;
 
     using db = new RelayDB();
-    const hasFilter = Boolean(status || repo || source || assignee || context || session || age || q);
+    const hasFilter = Boolean(status || repo || source || assignee || context || session || age || q || tag || blocked !== undefined);
     const tasks = hasFilter
-      ? db.listTasks({ status, repo, source, assignee, context, session, age, q, limit })
+      ? db.listTasks({ status, repo, source, assignee, context, session, age, q, tag: tag ?? undefined, blocked, limit })
       : db.listTasks({ limit });
     return c.json(tasks);
+  });
+
+  // --- Tags / dependency overview (schema v12) ---------------------------
+  app.get("/api/tags", (c) => {
+    using db = new RelayDB();
+    return c.json(db.listTagCounts());
+  });
+
+  // { "<task id>": [open blocker ids] } for every not-done task that is
+  // waiting on an unfinished dependency — the list view badges these.
+  app.get("/api/deps/blocked", (c) => {
+    using db = new RelayDB();
+    return c.json(Object.fromEntries(db.openBlockerMap()));
   });
 
   app.post("/api/tasks", async (c) => {
@@ -275,6 +294,26 @@ export function buildApp(opts: BuildAppOptions = {}) {
       return c.json({ error: `wait_on must be one of: ${WaitOn.options.join(", ")}` }, 400);
     }
 
+    let tags: string[] = [];
+    if (body.tags !== undefined) {
+      if (!Array.isArray(body.tags) || body.tags.some((t) => typeof t !== "string")) {
+        return c.json({ error: "tags must be an array of strings" }, 400);
+      }
+      const normalized = normalizeTags(body.tags as string[]);
+      if (normalized.invalid.length > 0) return c.json({ error: `invalid tag(s): ${normalized.invalid.join(", ")}` }, 400);
+      if (normalized.tags.length > MAX_TAGS_PER_TASK) return c.json({ error: `at most ${MAX_TAGS_PER_TASK} tags per task` }, 400);
+      tags = normalized.tags;
+    }
+    let blockedBy: number[] = [];
+    if (body.blocked_by !== undefined) {
+      const list = Array.isArray(body.blocked_by) ? body.blocked_by : [body.blocked_by];
+      const ids = list.map((v) => (typeof v === "number" ? v : Number(v)));
+      if (ids.some((v) => !Number.isInteger(v) || v <= 0)) {
+        return c.json({ error: "blocked_by must be task ids" }, 400);
+      }
+      blockedBy = Array.from(new Set(ids));
+    }
+
     const task = {
       source_type: "manual" as const,
       source_id: `manual:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`,
@@ -298,10 +337,15 @@ export function buildApp(opts: BuildAppOptions = {}) {
     };
 
     using db = new RelayDB();
+    const missingBlocker = blockedBy.find((id) => !db.getTask(id));
+    if (missingBlocker) return c.json({ error: `blocked_by task #${missingBlocker} not found` }, 404);
     db.upsertTasks([task]);
     const found = db.getTaskBySourceId("manual", task.source_id);
     if (!found) return c.json({ error: "insert failed" }, 500);
-    return c.json(found, 201);
+    // A brand-new task has no dependents, so these edges cannot form a cycle.
+    if (tags.length > 0) db.setTags(found.id, tags);
+    for (const blocker of blockedBy) db.addDependency(found.id, blocker);
+    return c.json(db.getTask(found.id) ?? found, 201);
   });
 
   app.get("/api/tasks/:id", (c) => {

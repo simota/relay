@@ -158,6 +158,9 @@ export const Task = z.object({
   // user's value for these instead of overwriting them. Always populated
   // when read from the DB; optional so adapter/test literals can omit it.
   user_overrides: z.array(z.string()).optional(),
+  // User tags (schema v12), normalized by `normalizeTag`. Always populated
+  // when read from the DB; adapters never set them, so sync keeps them.
+  tags: z.array(z.string()).optional(),
 });
 export type Task = z.infer<typeof Task>;
 
@@ -167,6 +170,7 @@ export const TaskInput = Task.omit({
   updated_at: true,
   closed_at: true,
   user_overrides: true,
+  tags: true,
 });
 
 /**

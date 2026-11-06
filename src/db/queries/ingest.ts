@@ -5,6 +5,7 @@ import type { Database } from "bun:sqlite";
 import type { TaskInput } from "../../types.js";
 import type { SnapshotRow, UpsertResult } from "../types.js";
 import { parseOverrides, serialize } from "../internal.js";
+import { normalizeTags } from "../../lib/tags.js";
 
 interface ExistingSyncFields {
   repo: string;
@@ -218,14 +219,15 @@ export function upsertSnapshot(
     INSERT INTO tasks (
       source_type, source_id, repo, title, body, status, assignee,
       priority, prompt, files, context_hash, session_id, due_at,
-      wait_on, created_at, updated_at, closed_at, user_overrides
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      wait_on, created_at, updated_at, closed_at, user_overrides, tags
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const updateStmt = db.prepare(`
     UPDATE tasks SET
       repo = ?, title = ?, body = ?, status = ?, assignee = ?, priority = ?,
       prompt = ?, files = ?, session_id = ?, due_at = ?, wait_on = ?,
-      updated_at = ?, closed_at = ?, user_overrides = ?
+      updated_at = ?, closed_at = ?, user_overrides = ?,
+      tags = COALESCE(?, tags)
     WHERE id = ?
   `);
 
@@ -254,6 +256,7 @@ export function upsertSnapshot(
           r.updated_at,
           r.closed_at,
           overridesJson(r.user_overrides),
+          snapshotTagsJson(r.tags) ?? null,
         );
         result.inserted++;
         continue;
@@ -274,6 +277,8 @@ export function upsertSnapshot(
           r.updated_at,
           r.closed_at,
           overridesJson(r.user_overrides),
+          // undefined (pre-v12 snapshot) keeps local tags; [] clears them.
+          r.tags === undefined ? null : JSON.stringify(normalizeTags(r.tags).tags),
           existing.id,
         );
         result.updated++;
@@ -284,6 +289,12 @@ export function upsertSnapshot(
   });
   tx(rows);
   return result;
+}
+
+function snapshotTagsJson(tags: string[] | undefined): string | null {
+  if (!tags) return null;
+  const normalized = normalizeTags(tags).tags;
+  return normalized.length > 0 ? JSON.stringify(normalized) : null;
 }
 
 function overridesJson(fields: string[] | undefined): string | null {

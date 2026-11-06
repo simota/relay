@@ -25,6 +25,8 @@ export interface SnapshotRow {
   closed_at: string | null;
   /** Hand-edited fields (schema v11); older snapshots omit it. */
   user_overrides?: string[];
+  /** User tags (schema v12); older snapshots omit it. */
+  tags?: string[];
 }
 
 export interface UpsertResult {
@@ -90,6 +92,8 @@ export interface ViewFilter {
   repo?: string;
   source?: string;
   age?: string;
+  /** Normalized tag (schema v12); matches tasks carrying it. */
+  tag?: string;
 }
 
 export interface SavedView {

@@ -6,6 +6,7 @@ import { effectivePrioritySqlExpr } from "../../lib/priority.js";
 import type { SourceType, Task } from "../../types.js";
 import type { HeatmapData, ReviewTasks } from "../types.js";
 import { hydrate, lastNDays } from "../internal.js";
+import { HAS_OPEN_BLOCKER_SQL } from "./links.js";
 
 /**
  * Today queue, ordered by effective (decayed) priority. See SPEC §15 Q4.
@@ -25,6 +26,7 @@ export function today(
     SELECT * FROM tasks
     WHERE status IN ('open', 'in_progress')
       AND (due_at IS NULL OR due_at <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+1 day'))
+      AND NOT ${HAS_OPEN_BLOCKER_SQL}
       ${excludeClause}
     ORDER BY
       ${effective} DESC,
@@ -40,7 +42,7 @@ export function today(
 export function viewCounts(
   db: Database,
   excludeRepos: string[] = [],
-): { today: number; open: number; snoozed: number; done: number } {
+): { today: number; open: number; snoozed: number; done: number; dep_blocked: number } {
   const excludeClause =
     excludeRepos.length > 0
       ? `WHERE repo NOT IN (${excludeRepos.map(() => "?").join(", ")})`
@@ -50,7 +52,10 @@ export function viewCounts(
       `SELECT
          SUM(CASE WHEN status IN ('open','in_progress')
                    AND (due_at IS NULL OR due_at <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now','+1 day'))
+                   AND NOT ${HAS_OPEN_BLOCKER_SQL}
                    THEN 1 ELSE 0 END) AS today,
+         SUM(CASE WHEN status IN ('open','in_progress') AND ${HAS_OPEN_BLOCKER_SQL}
+                   THEN 1 ELSE 0 END) AS dep_blocked_c,
          SUM(CASE WHEN status IN ('open','in_progress') THEN 1 ELSE 0 END) AS open_c,
          SUM(CASE WHEN status = 'snoozed' THEN 1 ELSE 0 END) AS snoozed_c,
          SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END) AS done_c
@@ -62,12 +67,15 @@ export function viewCounts(
     open_c: number | null;
     snoozed_c: number | null;
     done_c: number | null;
+    dep_blocked_c: number | null;
   };
   return {
     today: row.today ?? 0,
     open: row.open_c ?? 0,
     snoozed: row.snoozed_c ?? 0,
     done: row.done_c ?? 0,
+    // Open tasks waiting on an unfinished dependency (hidden from Today).
+    dep_blocked: row.dep_blocked_c ?? 0,
   };
 }
 
@@ -446,6 +454,7 @@ export function selfDrivenTasks(
     SELECT * FROM tasks
     WHERE status IN ('open', 'in_progress')
       AND wait_on = 'self'
+      AND NOT ${HAS_OPEN_BLOCKER_SQL}
       ${excludeClause}
     ORDER BY priority DESC, updated_at DESC
     LIMIT ?
@@ -464,7 +473,7 @@ export function blockedTasks(db: Database, limit: number, excludeRepos: string[]
   const sql = `
     SELECT * FROM tasks
     WHERE status IN ('open', 'in_progress')
-      AND wait_on IN ('reviewer', 'external')
+      AND (wait_on IN ('reviewer', 'external') OR ${HAS_OPEN_BLOCKER_SQL})
       ${excludeClause}
     ORDER BY updated_at DESC
     LIMIT ?

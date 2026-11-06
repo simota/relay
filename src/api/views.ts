@@ -55,5 +55,6 @@ function parseFilter(value: unknown): ViewFilter | null {
     repo: typeof record.repo === "string" ? record.repo : undefined,
     source: typeof record.source === "string" ? record.source : undefined,
     age: typeof record.age === "string" ? record.age : undefined,
+    tag: typeof record.tag === "string" ? record.tag : undefined,
   };
 }

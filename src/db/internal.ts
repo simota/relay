@@ -2,6 +2,7 @@
 // state; query modules and the RelayDB facade import them as needed.
 
 import { normalizeDueAt } from "../lib/due-date.js";
+import { normalizeTag } from "../lib/tags.js";
 import type { Task, TaskInput } from "../types.js";
 import type { ContextGraphData, RelayContext, SavedView, ViewFilter } from "./types.js";
 
@@ -96,10 +97,11 @@ export function hydrate(row: Record<string, unknown>): Task {
     updated_at: row.updated_at as string,
     closed_at: (row.closed_at as string | null) ?? null,
     user_overrides: parseOverrides(row.user_overrides),
+    tags: parseOverrides(row.tags),
   };
 }
 
-/** Decode tasks.user_overrides (JSON array or NULL) defensively. */
+/** Decode a JSON string-array column (tasks.user_overrides / tasks.tags) or NULL defensively. */
 export function parseOverrides(value: unknown): string[] {
   if (typeof value !== "string" || !value) return [];
   try {
@@ -116,6 +118,8 @@ export function normalizeViewFilter(filter: ViewFilter): ViewFilter {
   if (filter.repo?.trim()) normalized.repo = filter.repo.trim();
   if (filter.source?.trim()) normalized.source = filter.source.trim();
   if (filter.age?.trim()) normalized.age = filter.age.trim();
+  const tag = filter.tag ? normalizeTag(filter.tag) : null;
+  if (tag) normalized.tag = tag;
   return normalized;
 }
 
@@ -127,6 +131,7 @@ export function parseViewFilter(value: string): ViewFilter {
     return normalizeViewFilter({
       status: typeof record.status === "string" ? record.status : undefined,
       repo: typeof record.repo === "string" ? record.repo : undefined,
+      tag: typeof record.tag === "string" ? record.tag : undefined,
       source: typeof record.source === "string" ? record.source : undefined,
       age: typeof record.age === "string" ? record.age : undefined,
     });

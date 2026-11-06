@@ -59,6 +59,24 @@ import {
 } from "./queries/edits.js";
 export type { TaskEditSnapshot, TaskRunRow } from "./queries/edits.js";
 export type { RunListRow } from "./queries/runs.js";
+export type { AddDependencyResult, DependencyEdge, DependencyInfo, TagChange, TagCount } from "./queries/links.js";
+import {
+  addDependency as _addDependency,
+  applyTagLists as _applyTagLists,
+  blockerIdsOf as _blockerIdsOf,
+  bulkEditTags as _bulkEditTags,
+  dependencyInfo as _dependencyInfo,
+  listAllDependencies as _listAllDependencies,
+  listTagCounts as _listTagCounts,
+  openBlockerMap as _openBlockerMap,
+  removeDependency as _removeDependency,
+  setTags as _setTags,
+  type AddDependencyResult,
+  type DependencyEdge,
+  type DependencyInfo,
+  type TagChange,
+  type TagCount,
+} from "./queries/links.js";
 export { closedSnapshots } from "./queries/tasks.js";
 import {
   countForViewFilter as _countForViewFilter,
@@ -314,10 +332,56 @@ export class RelayDB {
     context?: string;
     session?: string;
     age?: string;
+    tag?: string;
+    blocked?: boolean;
     q?: string;
     limit?: number;
   }): Task[] {
     return _listTasks(this.db, filters);
+  }
+
+  // --- Tags (schema v12) -------------------------------------------------
+
+  setTags(id: number, tags: readonly string[]): TagChange | null {
+    return _setTags(this.db, id, tags);
+  }
+
+  bulkEditTags(ids: readonly number[], edit: { add?: readonly string[]; remove?: readonly string[] }): TagChange[] {
+    return _bulkEditTags(this.db, ids, edit);
+  }
+
+  applyTagLists(lists: ReadonlyArray<{ id: number; tags: string[] }>): number {
+    return _applyTagLists(this.db, lists);
+  }
+
+  listTagCounts(): TagCount[] {
+    return _listTagCounts(this.db);
+  }
+
+  // --- Dependencies (schema v12) -----------------------------------------
+
+  addDependency(taskId: number, dependsOnId: number): AddDependencyResult {
+    return _addDependency(this.db, taskId, dependsOnId);
+  }
+
+  removeDependency(taskId: number, dependsOnId: number): boolean {
+    return _removeDependency(this.db, taskId, dependsOnId);
+  }
+
+  blockerIdsOf(taskId: number): number[] {
+    return _blockerIdsOf(this.db, taskId);
+  }
+
+  dependencyInfo(taskId: number): DependencyInfo {
+    return _dependencyInfo(this.db, taskId);
+  }
+
+  openBlockerMap(): Map<number, number[]> {
+    return _openBlockerMap(this.db);
+  }
+
+  listAllDependencies(): DependencyEdge[] {
+    return _listAllDependencies(this.db);
   }
 
   setStatus(id: number, status: string): void {
@@ -452,6 +516,7 @@ export class RelayDB {
     open: number;
     snoozed: number;
     done: number;
+    dep_blocked: number;
   } {
     return _viewCounts(this.db, excludeRepos);
   }

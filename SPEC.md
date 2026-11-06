@@ -113,8 +113,29 @@ $ relay run 42
 | `updated_at` | TEXT | ISO8601 |
 | `closed_at` | TEXT NULL | ISO8601 |
 | `user_overrides` | TEXT NULL | JSON array。ユーザーが `relay edit` / `PATCH /api/tasks/:id` で編集したフィールド名 (`title` / `body` / `priority` / `prompt` / `files` / `due_at` / `wait_on` / `repo`)。adapter 再 ingest はこれらのフィールドを上書きしない。schema_version 11 で追加 |
+| `tags` | TEXT NULL | JSON array。ユーザーが付けたタグ (小文字に正規化、先頭の `#` は除去、1〜40 文字の英数字/かな漢字と `. _ / : -`、1 タスク最大 20 個)。adapter ingest は書き込まないので再 sync で消えない。schema_version 12 で追加 |
 
 UNIQUE: `(source_type, source_id)` で adapter 再 ingest を冪等化。
+
+### `task_deps` テーブル (schema_version 12)
+
+| Column | Type | Notes |
+|---|---|---|
+| `task_id` | INTEGER FK → tasks | このタスクが… |
+| `depends_on_id` | INTEGER FK → tasks | …このタスクの完了を待つ ("blocked by") |
+| `created_at` | TEXT | ISO8601 |
+
+PK `(task_id, depends_on_id)`、`CHECK (task_id != depends_on_id)`、両 FK とも `ON DELETE CASCADE`。
+
+### タグと依存関係 (schema_version 12)
+
+- **タグ**: `relay tag <id> billing ^later` / `relay tag <id> --ids 3,4 ops` (一括) / `relay add --tags a,b` / Web 詳細パネルのタグ欄 / 一覧の bulk `# tag…`。`relay ls --tag x` / `GET /api/tasks?tag=x` / Web の `tag:x` / 保存ビュー (`filter.tag`) / サイドバーの Tags セクションで絞り込む。`relay tags` / `GET /api/tags` は使用中タグと open / total 件数。
+- **依存関係**: `relay block <id> <blocker...>` / `relay unblock <id> [blocker...]` / `relay add --blocked-by 1,2` / Web 詳細パネル「+ blocked by…」/ `POST /api/tasks/:id/deps {"depends_on": id|[ids]}` / `DELETE /api/tasks/:id/deps/:dep`。自己依存は 400、循環は 409 (循環経路を返す) で拒否。
+- 未完了 (`status != 'done'`) の blocker を 1 つでも持つタスクは **dependency-blocked**: Today (`relay today` / `/api/today`) と `/api/counts.today` から除外され (`/api/counts.dep_blocked` に件数)、standup では blockers 側に出る。`relay ls --blocked|--ready` / `?blocked=1|0` / Web の `is:blocked` / `is:ready` で絞り込める。blocker を close すると自動で Today に戻る。
+- `relay queue run` は依存順に実行する: 先頭から見て未充足の blocker が無い最初の item を選ぶ。blocker は done になるか、同じ queue run 内で成功 (dry-run では planned) すれば充足。失敗した blocker の dependent は起動せず `skipped: blocked by #N` で queue に残る。
+- `relay run` / `queue run` の agent prompt には `# Prerequisite tasks` 節として blocker の一覧 (状態・repo 付き) が入る (resume 時は付かない)。未完了 blocker があるタスクを `relay run` すると警告を出した上で起動する。
+- タグ・依存の変更は undo_log に `op_kind = 'tags'` (タスクごとの完全なタグ列) / `'deps'` (`add` / `remove` の辺リスト。inverse は入れ替え) で記録され、⌘Z / `relay undo` で戻せる。
+- snapshot export / import は `tags` と `dependencies` (`(source_type, source_id)` キー) を運ぶ。import 時に循環になる辺はスキップ。
 
 ### ユーザー編集と再 sync (schema_version 11)
 
@@ -752,15 +773,18 @@ merged/closed PR は `--state open` フィルタで外れるため、上記の�
 | `relay agenda [--days 7\|14\|30]` | 期日 / scheduled カレンダー + Overdue |
 | `relay standup [--since 24h\|48h\|7d\|14d\|30d]` | 昨日の close + 今日の自走 + ブロッカー |
 | `relay digest [--since 7d] [--out PATH] [--format md\|json]` | 区間サマリ |
-| `relay ls [--repo X] [--source Y] [--status Z\|all] [--agent W] [-q TEXT] [-n N]` | フィルタ一覧。`-q` は title / body / prompt / repo / source_id の AND 全文検索 (`GET /api/tasks?q=`) |
-| `relay show <id>` | タスク詳細 (prompt / wait_on / 編集済みフィールド / 直近 5 件の run 履歴) |
+| `relay ls [--repo X] [--source Y] [--status Z\|all] [--agent W] [-q TEXT] [-t TAG] [--blocked\|--ready] [-n N]` | フィルタ一覧。`-q` は title / body / prompt / repo / source_id の AND 全文検索 (`GET /api/tasks?q=`)。`-t` はタグ、`--blocked` / `--ready` は依存待ちの有無。行にタグと `⛓ ← #blocker` を表示 |
+| `relay show <id>` | タスク詳細 (prompt / wait_on / タグ / 編集済みフィールド / blocked by・blocks / 直近 5 件の run 履歴) |
+| `relay tags [--json]` | 使用中タグと open / total 件数 |
 | `relay watch <repo> [--interval 5s\|10s\|30s\|1m]` | repo の更新を tail |
 
 ### Lifecycle
 
 | Command | 説明 |
 |---|---|
-| `relay add [--repo X --title ... --assignee A --prompt ... --files a,b --due <when> --wait-on W --priority N --body ...]` | 手動追加 (引数省略で interactive) |
+| `relay add [--repo X --title ... --assignee A --prompt ... --files a,b --due <when> --wait-on W --priority N --body ... --tags a,b --blocked-by 1,2]` | 手動追加 (引数省略で interactive)。作成した `#id` を表示 |
+| `relay tag <id> [tag... ^tag...] [--ids 3,4] [--clear]` | タグの表示 / 追加 / 削除 (`^tag` か `-- -tag` で削除、`--ids` で一括)。undo 可 |
+| `relay block <id> <blocker...>` / `relay unblock <id> [blocker...]` | 依存関係の追加 / 削除 (blocker 省略で全解除)。循環は拒否。undo 可 |
 | `relay assign <id> <agent>` | 担当変更 (`claude-code` / `codex` / `antigravity` / `self` / `human-review`) |
 | `relay close <id>` / `relay snooze <id> [--until <when>]` / `relay reopen <id>` | 状態遷移 (`--until` 付き snooze は自動復帰) |
 | `relay edit <id> [--title --body --priority --prompt --files --due --wait-on --repo --clear-due --clear-prompt --reset F]` | フィールド編集 (`PATCH /api/tasks/:id`)。編集フィールドは sync で保持 |
@@ -857,7 +881,7 @@ Next.js 15 + React 19。ルートは path-based:
 
 - `relay queue add <ids...> [--front] [--assign <agent>]` — 同じ task は重複登録しない (`--front` 指定時は先頭へ移動)。`--assign` の担当変更は 1 件の undo entry
 - `relay queue rm <ids...>` / `relay queue clear` / `relay queue [ls]`
-- `relay queue run` — 先頭から順に §10 / §10.2 のフローで起動。成功した item は queue から外れ (`--keep` で残す)、失敗で停止 (`--continue-on-error` で続行)。`done` の task は除去、headless 非対応 agent はスキップして queue に残す。queue は毎回読み直すので実行中に Web から追加した item も拾う (1 回の実行で各 item は最大 1 回)。`--dry-run` / `--limit N` / `--close-on-success` / `--timeout` / `--no-template` / `--no-resume`
+- `relay queue run` — 先頭から順に §10 / §10.2 のフローで起動。成功した item は queue から外れ (`--keep` で残す)、失敗で停止 (`--continue-on-error` で続行)。`done` の task は除去、headless 非対応 agent はスキップして queue に残す。queue は毎回読み直すので実行中に Web から追加した item も拾う (1 回の実行で各 item は最大 1 回)。依存関係 (§5 `task_deps`) を尊重し、未充足 blocker のある item は blocker の成功後に起動、blocker が失敗・未完了なら `skipped: blocked by #N` として queue に残す。`--dry-run` / `--limit N` / `--close-on-success` / `--timeout` / `--no-template` / `--no-resume`
 - API: `GET /api/queue`, `POST /api/queue/items` (`{task_id}` or `{task_ids: [...], front?}`), `POST /api/queue/items/:id/move` (`{direction: "up"|"down"|"front"}`), `DELETE /api/queue/items/:id`, `DELETE /api/queue`
 
 ### 10.4 Run history (`relay runs`)
@@ -869,7 +893,7 @@ Next.js 15 + React 19。ルートは path-based:
 
 ### 10.1 Repo-scoped prompt template (`.agents/RELAY_PROMPT.md`)
 
-リポごとに固定の前置きを `<repo>/.agents/RELAY_PROMPT.md` に置くと、`claude-code` / `codex` / `antigravity` 起動時の prompt 先頭に自動挿入される。プロンプト合成順は **`repo template` → `context preamble` → `task.prompt`** (各セクション間は `---` 区切り)。
+リポごとに固定の前置きを `<repo>/.agents/RELAY_PROMPT.md` に置くと、`claude-code` / `codex` / `antigravity` 起動時の prompt 先頭に自動挿入される。プロンプト合成順は **`repo template` → `context preamble` → `prerequisite tasks` (依存 blocker 一覧、schema v12) → `task.prompt`** (各セクション間は `---` 区切り)。
 
 - 適用条件: `relay run <id>` 実行時に `<repo>/.agents/RELAY_PROMPT.md` が存在し、`--no-template` が指定されていないこと。空ファイルは無視される。
 - 適用された場合は実行ログに `+ .agents/RELAY_PROMPT.md applied` を表示する (透明性確保)。

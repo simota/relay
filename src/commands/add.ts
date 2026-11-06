@@ -7,6 +7,7 @@ import { parseWhenInput, WHEN_INPUT_HINT } from "../lib/due-date.js";
 import { WaitOn } from "../types.js";
 import { resolveRepoPath } from "../repo-resolver.js";
 import type { Assignee, TaskInput } from "../types.js";
+import { normalizeTags } from "../lib/tags.js";
 
 const ASSIGNEES: Assignee[] = ["claude-code", "codex", "antigravity", "self", "human-review"];
 
@@ -20,6 +21,10 @@ export interface AddOptions {
   due?: string;
   waitOn?: string;
   priority?: string | number;
+  /** Comma-separated tags (schema v12). */
+  tags?: string;
+  /** Comma-separated task ids this new task waits on. */
+  blockedBy?: string;
 }
 
 export async function runAdd(opts: AddOptions): Promise<void> {
@@ -84,6 +89,22 @@ export async function runAdd(opts: AddOptions): Promise<void> {
     process.exit(1);
   }
 
+  const tagInput = (opts.tags ?? "").split(",").map((t) => t.trim()).filter(Boolean);
+  const { tags, invalid: invalidTags } = normalizeTags(tagInput);
+  if (invalidTags.length > 0) {
+    console.log(chalk.red(`invalid --tags: ${invalidTags.join(", ")}`));
+    process.exit(1);
+  }
+  const blockedBy = (opts.blockedBy ?? "")
+    .split(",")
+    .map((v) => v.trim().replace(/^#/, ""))
+    .filter(Boolean)
+    .map(Number);
+  if (blockedBy.some((id) => !Number.isInteger(id) || id <= 0)) {
+    console.log(chalk.red(`invalid --blocked-by: ${opts.blockedBy} (comma-separated task ids)`));
+    process.exit(1);
+  }
+
   const repoPath = resolveRepoPath(repo, cfg);
   if (!repoPath) {
     console.log(chalk.yellow(`! warning: '${repo}' not found under scan.roots or scan.tracked_repos`));
@@ -107,14 +128,28 @@ export async function runAdd(opts: AddOptions): Promise<void> {
   };
 
   const db = new RelayDB();
+  const missingBlocker = blockedBy.find((id) => !db.getTask(id));
+  if (missingBlocker !== undefined) {
+    db.close();
+    console.log(chalk.red(`--blocked-by: task #${missingBlocker} not found`));
+    process.exit(1);
+  }
   const before = db.viewCounts().open;
   db.upsertTasks([task]);
   const after = db.viewCounts().open;
+  const created = db.getTaskBySourceId("manual", task.source_id);
+  if (created) {
+    if (tags.length > 0) db.setTags(created.id, tags);
+    // A brand-new task has no dependents, so these edges cannot form a cycle.
+    for (const blocker of new Set(blockedBy)) db.addDependency(created.id, blocker);
+  }
   db.close();
 
   const isNew = after > before;
   console.log(
-    isNew ? chalk.green("✓ added") : chalk.gray("- already exists (no change)"),
+    isNew
+      ? chalk.green(`✓ added${created ? ` #${created.id}` : ""}`)
+      : chalk.gray("- already exists (no change)"),
   );
   console.log(chalk.gray(`  repo:     ${repo}`));
   console.log(chalk.gray(`  title:    ${title}`));
@@ -122,6 +157,8 @@ export async function runAdd(opts: AddOptions): Promise<void> {
   if (prompt) console.log(chalk.gray(`  prompt:   ${prompt.slice(0, 60)}${prompt.length > 60 ? "…" : ""}`));
   if (files.length) console.log(chalk.gray(`  files:    ${files.join(", ")}`));
   if (task.due_at) console.log(chalk.gray(`  due:      ${task.due_at}`));
+  if (tags.length) console.log(chalk.gray(`  tags:     ${tags.map((t) => `#${t}`).join(" ")}`));
+  if (blockedBy.length) console.log(chalk.gray(`  blocked:  by ${[...new Set(blockedBy)].map((id) => `#${id}`).join(" ")}`));
 }
 
 function normalizeDue(due: string | null | undefined): string | null {

@@ -8,6 +8,7 @@ import {
   priorityHistory,
 } from "../lib/priority.js";
 import { buildResumeBrief, type ResumeBriefCandidate } from "../lib/resume-brief.js";
+import { normalizeTag } from "../lib/tags.js";
 import { displayWidth, padEndDisplay } from "../lib/text-width.js";
 import { findMissingRepos } from "../repo-metadata.js";
 import type { SourceType, Task } from "../types.js";
@@ -20,6 +21,10 @@ export interface ListFilters {
   agent?: string;
   /** Free-text search; spans every status unless `status` is given. */
   q?: string;
+  /** Only tasks carrying this tag. */
+  tag?: string;
+  /** true → only dependency-blocked tasks; false → hide them. */
+  blocked?: boolean;
   limit?: number;
 }
 
@@ -91,33 +96,52 @@ export function runToday(opts: { limit?: number } = {}): void {
       summary: firstLine(ctx.summary),
     });
   }
+  const depBlocked = db.viewCounts(missing).dep_blocked;
   db.close();
   if (brief?.candidate) {
     printResumeBrief(brief.candidate);
     console.log("");
   }
   printTable(tasks, cues);
+  if (depBlocked > 0) {
+    console.log(
+      chalk.gray(`\n⛓ ${depBlocked} task(s) hidden: waiting on an unfinished dependency — \`relay ls --blocked\``),
+    );
+  }
 }
 
 export function runList(filters: ListFilters): void {
   const db = new RelayDB();
   reportWoken(db.wakeSnoozed());
   const q = filters.q?.trim() || undefined;
+  let tag: string | undefined;
+  if (filters.tag !== undefined) {
+    const normalized = normalizeTag(filters.tag);
+    if (!normalized) {
+      db.close();
+      console.log(chalk.red(`invalid tag: ${filters.tag}`));
+      process.exit(1);
+    }
+    tag = normalized;
+  }
   const tasks = db.listTasks({
     repo: filters.repo,
     source: filters.source,
     status: filters.status ?? (q ? "all" : undefined),
     assignee: filters.agent,
     q,
+    tag,
+    blocked: filters.blocked,
     limit: filters.limit,
   });
+  const blockers = db.openBlockerMap();
   db.close();
 
   if (tasks.length === 0) {
     console.log(chalk.gray("no tasks match."));
     return;
   }
-  printTable(tasks);
+  printTable(tasks, undefined, blockers);
 }
 
 export function runShow(id: number): void {
@@ -125,6 +149,7 @@ export function runShow(id: number): void {
   db.wakeSnoozed();
   const task = db.getTask(id);
   const runs = task ? db.listRunsForTask(id, 5) : [];
+  const deps = task ? db.dependencyInfo(id) : null;
   db.close();
 
   if (!task) {
@@ -154,11 +179,27 @@ export function runShow(id: number): void {
   }
   if (task.session_id) console.log(chalk.gray(`session:  ${task.session_id}`));
   if (task.files.length) console.log(chalk.gray(`files:    ${task.files.join(", ")}`));
+  if (task.tags?.length) console.log(chalk.gray(`tags:     `) + task.tags.map((t) => chalk.magenta(`#${t}`)).join(" "));
   if (task.prompt) console.log(chalk.gray(`prompt:   ${task.prompt.replace(/\s+/g, " ").slice(0, 120)}${task.prompt.length > 120 ? "…" : ""}`));
   if (task.user_overrides?.length && task.source_type !== "manual") {
     console.log(
       chalk.gray(`edited:   ${task.user_overrides.join(", ")} (kept across sync; \`relay edit ${task.id} --reset <fields>\` to release)`),
     );
+  }
+  if (deps && (deps.blocked_by.length > 0 || deps.blocks.length > 0)) {
+    console.log("");
+    if (deps.blocked_by.length > 0) {
+      const waiting = deps.open_blocker_ids.length;
+      console.log(
+        chalk.gray("blocked by:") +
+          (waiting > 0 ? chalk.yellow(` (${waiting} unfinished — hidden from today, deferred by queue run)`) : chalk.green(" (all done — ready)")),
+      );
+      for (const b of deps.blocked_by) console.log(`  ${statusMarker(b.status)} ${chalk.gray(`#${b.id}`)} ${chalk.cyan(b.repo)}  ${truncate(b.title, 60)}`);
+    }
+    if (deps.blocks.length > 0) {
+      console.log(chalk.gray("blocks:"));
+      for (const b of deps.blocks) console.log(`  ${statusMarker(b.status)} ${chalk.gray(`#${b.id}`)} ${chalk.cyan(b.repo)}  ${truncate(b.title, 60)}`);
+    }
   }
   if (runs.length) {
     console.log("");
@@ -193,6 +234,7 @@ export function runShow(id: number): void {
 function printTable(
   tasks: Task[],
   cues?: Map<number, { age: string; summary: string }>,
+  blockers?: Map<number, number[]>,
 ): void {
   const idW = Math.max(2, ...tasks.map((t) => String(t.id).length));
   const repoW = Math.max(4, ...tasks.map((t) => displayWidth(t.repo)));
@@ -203,9 +245,12 @@ function printTable(
     const repo = padEndDisplay(t.repo, repoW);
     const agent = t.assignee.padEnd(agentW);
     const title = truncate(t.title, 60);
-    const marker = statusMarker(t.status);
+    const waitingOn = blockers?.get(t.id);
+    const marker = waitingOn ? chalk.yellow("⛓") : statusMarker(t.status);
+    const tags = t.tags?.length ? " " + t.tags.map((tag) => chalk.magenta(`#${tag}`)).join(" ") : "";
+    const waiting = waitingOn ? chalk.yellow(` ← ${waitingOn.map((b) => `#${b}`).join(" ")}`) : "";
     console.log(
-      `${chalk.gray(`#${id}`)} ${marker} ${chalk.cyan(repo)}  ${chalk.dim(agent)}  ${title}`,
+      `${chalk.gray(`#${id}`)} ${marker} ${chalk.cyan(repo)}  ${chalk.dim(agent)}  ${title}${tags}${waiting}`,
     );
     const cue = cues?.get(t.id);
     if (cue) {

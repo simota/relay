@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { RelayDB } from "../db/client.js";
 import { parseWhenInput, WHEN_INPUT_HINT } from "../lib/due-date.js";
 import { parseTaskEdit } from "../lib/task-edit.js";
+import { MAX_TAGS_PER_TASK, normalizeTags } from "../lib/tags.js";
 import { Assignee, type Task } from "../types.js";
 
 interface BulkBody {
@@ -132,6 +133,98 @@ export function createTasksApi() {
     return c.json(updated);
   });
 
+  // --- Tags (schema v12) -------------------------------------------------
+  // PUT replaces the full tag list; bulk/tags adds and/or removes tags on
+  // many tasks. Both record one `tags` undo entry with exact before-lists.
+  app.put("/:id/tags", async (c) => {
+    const id = parseId(c.req.param("id"));
+    if (!id) return c.json({ error: "bad id" }, 400);
+    const body = (await c.req.json().catch(() => null)) as { tags?: unknown } | null;
+    const raw = parseStringList(body?.tags);
+    if (!raw) return c.json({ error: "tags must be an array of strings" }, 400);
+    const { tags, invalid } = normalizeTags(raw);
+    if (invalid.length > 0) return c.json({ error: `invalid tag(s): ${invalid.join(", ")}`, invalid }, 400);
+    if (tags.length > MAX_TAGS_PER_TASK) return c.json({ error: `at most ${MAX_TAGS_PER_TASK} tags per task` }, 400);
+    using db = new RelayDB();
+    const change = db.setTags(id, tags);
+    if (!change) return c.json({ error: "not found" }, 404);
+    if (change.before !== change.after) {
+      db.recordUndo({
+        op_kind: "tags",
+        payload: { tasks: [{ id, tags: change.after }] },
+        inverse: { tasks: [{ id, tags: change.before }] },
+      });
+    }
+    return c.json(db.getTask(id));
+  });
+
+  app.post("/bulk/tags", async (c) => {
+    const body = (await c.req.json().catch(() => null)) as (BulkBody & { add?: unknown; remove?: unknown }) | null;
+    const ids = parseIds(body?.ids);
+    if (!ids) return c.json({ error: "ids must be positive integers" }, 400);
+    const add = body?.add === undefined ? [] : parseStringList(body.add);
+    const remove = body?.remove === undefined ? [] : parseStringList(body.remove);
+    if (!add || !remove) return c.json({ error: "add / remove must be arrays of strings" }, 400);
+    const invalid = [...normalizeTags(add).invalid, ...normalizeTags(remove).invalid];
+    if (invalid.length > 0) return c.json({ error: `invalid tag(s): ${invalid.join(", ")}`, invalid }, 400);
+    if (add.length === 0 && remove.length === 0) return c.json({ error: "add or remove required" }, 400);
+    using db = new RelayDB();
+    const changes = db.bulkEditTags(ids, { add, remove });
+    if (changes.length > 0) {
+      db.recordUndo({
+        op_kind: "tags",
+        payload: { tasks: changes.map((change) => ({ id: change.id, tags: change.after })) },
+        inverse: { tasks: changes.map((change) => ({ id: change.id, tags: change.before })) },
+      });
+    }
+    return c.json({ ok: true, count: changes.length });
+  });
+
+  // --- Dependencies (schema v12) -----------------------------------------
+  // "/:id is blocked by depends_on". Cycles and self-edges are rejected
+  // with 409 / 400 so the UI can explain why.
+  app.get("/:id/deps", (c) => {
+    const id = parseId(c.req.param("id"));
+    if (!id) return c.json({ error: "bad id" }, 400);
+    using db = new RelayDB();
+    if (!db.getTask(id)) return c.json({ error: "not found" }, 404);
+    return c.json(db.dependencyInfo(id));
+  });
+
+  app.post("/:id/deps", async (c) => {
+    const id = parseId(c.req.param("id"));
+    if (!id) return c.json({ error: "bad id" }, 400);
+    const body = (await c.req.json().catch(() => null)) as { depends_on?: unknown } | null;
+    const raw = body?.depends_on;
+    const blockers = parseIds(Array.isArray(raw) ? raw : raw === undefined ? null : [raw]);
+    if (!blockers || blockers.length === 0) return c.json({ error: "depends_on must be a task id or an array of ids" }, 400);
+    using db = new RelayDB();
+    if (!db.getTask(id)) return c.json({ error: "not found" }, 404);
+    const added: Array<{ task_id: number; depends_on_id: number }> = [];
+    for (const blocker of blockers) {
+      const result = db.addDependency(id, blocker);
+      if (!result.ok) {
+        if (added.length > 0) recordDepsUndo(db, added, []);
+        const status = result.error === "cycle" ? 409 : result.error === "not_found" ? 404 : 400;
+        return c.json({ error: result.message, code: result.error, path: result.path, added: added.length }, status);
+      }
+      if (result.added) added.push({ task_id: id, depends_on_id: blocker });
+    }
+    if (added.length > 0) recordDepsUndo(db, added, []);
+    return c.json({ ...db.dependencyInfo(id), added: added.length });
+  });
+
+  app.delete("/:id/deps/:dep", (c) => {
+    const id = parseId(c.req.param("id"));
+    const dep = parseId(c.req.param("dep"));
+    if (!id || !dep) return c.json({ error: "bad id" }, 400);
+    using db = new RelayDB();
+    if (!db.getTask(id)) return c.json({ error: "not found" }, 404);
+    const removed = db.removeDependency(id, dep);
+    if (removed) recordDepsUndo(db, [], [{ task_id: id, depends_on_id: dep }]);
+    return c.json({ ...db.dependencyInfo(id), removed });
+  });
+
   // --- Run history ------------------------------------------------------
   app.get("/:id/runs", (c) => {
     const id = parseId(c.req.param("id"));
@@ -169,4 +262,17 @@ function parseIds(value: unknown): number[] | null {
   const ids = value.map((id) => (typeof id === "number" ? id : Number(id)));
   if (ids.some((id) => !Number.isInteger(id) || id <= 0)) return null;
   return Array.from(new Set(ids));
+}
+
+function parseStringList(value: unknown): string[] | null {
+  if (!Array.isArray(value) || value.length > 200) return null;
+  if (value.some((item) => typeof item !== "string")) return null;
+  return value as string[];
+}
+
+type DepEdge = { task_id: number; depends_on_id: number };
+
+/** One `deps` undo entry; the inverse swaps add/remove. */
+export function recordDepsUndo(db: RelayDB, add: DepEdge[], remove: DepEdge[]): void {
+  db.recordUndo({ op_kind: "deps", payload: { add, remove }, inverse: { add: remove, remove: add } });
 }

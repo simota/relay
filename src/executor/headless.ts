@@ -54,7 +54,7 @@ export function resolveHeadlessCommand(
         const prompt = task.prompt ?? `Continue working on: ${task.title}`;
         return { bin, args: ["-p", ...extra, "--resume", task.session_id as string, prompt] };
       }
-      const prompt = buildPrompt(task.prompt ?? fallbackPrompt(task), opts.contextPreamble, opts.repoTemplate);
+      const prompt = buildPrompt(task.prompt ?? fallbackPrompt(task), opts.contextPreamble, opts.repoTemplate, opts.prerequisites);
       return { bin, args: ["-p", ...extra, prompt as string] };
     }
     case "codex": {
@@ -64,7 +64,7 @@ export function resolveHeadlessCommand(
         const prompt = task.prompt ?? `Continue working on: ${task.title}`;
         return { bin, args: ["exec", ...extra, "resume", task.session_id as string, prompt] };
       }
-      const prompt = buildPrompt(task.prompt ?? fallbackPrompt(task), opts.contextPreamble, opts.repoTemplate);
+      const prompt = buildPrompt(task.prompt ?? fallbackPrompt(task), opts.contextPreamble, opts.repoTemplate, opts.prerequisites);
       return { bin, args: ["exec", ...extra, prompt as string] };
     }
     default:

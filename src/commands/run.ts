@@ -5,7 +5,7 @@ import chalk from "chalk";
 import { loadConfig, type Config as RelayConfig } from "../config.js";
 import { gitSnapshot } from "../context/git.js";
 import { RelayDB, type RelayContext } from "../db/client.js";
-import { buildPrompt, resolveReviewUrl, runTask } from "../executor/index.js";
+import { buildPrompt, formatPrerequisites, resolveReviewUrl, runTask } from "../executor/index.js";
 import { resolveHeadlessCommand, runTaskHeadless, supportsHeadless } from "../executor/headless.js";
 import { resolveRepoPath } from "../repo-resolver.js";
 import type { SessionType, Task } from "../types.js";
@@ -44,6 +44,10 @@ export interface PreparedRun {
   repoRoot: string;
   preamble?: string;
   repoTemplate?: string;
+  /** "Prerequisite tasks" prompt section (task dependencies, schema v12). */
+  prerequisites?: string;
+  /** Blockers that are not done yet — `relay run` warns before launching. */
+  openBlockers: Array<Pick<Task, "id" | "title" | "status">>;
   context: RelayContext | null;
   willResume: boolean;
 }
@@ -89,7 +93,15 @@ export function prepareRun(
       if (body.length > 0) repoTemplate = body;
     }
   }
-  return { ok: true, prepared: { task, repoRoot, preamble, repoTemplate, context, willResume } };
+  const blockers = db.dependencyInfo(task.id).blocked_by;
+  const prerequisites = willResume ? undefined : formatPrerequisites(blockers, task.repo) || undefined;
+  const openBlockers = blockers
+    .filter((b) => b.status !== "done")
+    .map((b) => ({ id: b.id, title: b.title, status: b.status }));
+  return {
+    ok: true,
+    prepared: { task, repoRoot, preamble, repoTemplate, prerequisites, openBlockers, context, willResume },
+  };
 }
 
 /**
@@ -157,6 +169,7 @@ export async function executePrepared(
     antigravityBin: cfg.agents.antigravity_bin,
     contextPreamble: prepared.preamble,
     repoTemplate: prepared.repoTemplate,
+    prerequisites: prepared.prerequisites,
     noResume: options.noResume,
   };
 
@@ -220,13 +233,14 @@ function statusSnapshot(task: Task) {
 
 /** The exact prompt the agent receives (null = none / resume without a prompt). */
 export function previewPrompt(prepared: PreparedRun, headless: boolean, noResume = false): string | null {
-  const { task, willResume, preamble, repoTemplate } = prepared;
+  const { task, willResume, preamble, repoTemplate, prerequisites } = prepared;
   if (headless && supportsHeadless(task.assignee)) {
     const { args } = resolveHeadlessCommand(task, {
       task,
       repoRoot: prepared.repoRoot,
       contextPreamble: preamble,
       repoTemplate,
+      prerequisites,
       noResume,
     });
     return args[args.length - 1] ?? null;
@@ -239,7 +253,7 @@ export function previewPrompt(prepared: PreparedRun, headless: boolean, noResume
     ? task.assignee === "codex"
       ? task.prompt
       : null
-    : buildPrompt(task.prompt, preamble, repoTemplate);
+    : buildPrompt(task.prompt, preamble, repoTemplate, prerequisites);
 }
 
 export async function runRun(id: number, options: RunRunOptions = {}): Promise<void> {
@@ -262,6 +276,15 @@ export async function runRun(id: number, options: RunRunOptions = {}): Promise<v
   const prepared = prep.prepared;
   const { repoRoot, preamble, repoTemplate, context, willResume } = prepared;
   db.close();
+  if (prepared.openBlockers.length > 0) {
+    // An explicit `relay run` is honoured, but say what it is jumping ahead of.
+    console.log(
+      chalk.yellow(
+        `⚠ #${task.id} is blocked by ${prepared.openBlockers.map((b) => `#${b.id} (${b.status})`).join(", ")}` +
+          chalk.gray(" — running anyway; `relay unblock` to drop the dependency"),
+      ),
+    );
+  }
 
   const dryRun = Boolean(options.dryRun);
   const ask = Boolean(options.ask);

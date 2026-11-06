@@ -3,6 +3,7 @@ import { extname } from "node:path";
 import chalk from "chalk";
 import { RelayDB, type SnapshotRow } from "../db/client.js";
 import type { TaskInput } from "../types.js";
+import type { SnapshotDependency } from "./export.js";
 
 export type ImportKind = "linear" | "things" | "notion" | "generic" | "relay";
 
@@ -132,7 +133,9 @@ function runRelaySnapshotImport(raw: string, opts: ImportOptions): void {
     user_overrides: Array.isArray(t.user_overrides)
       ? (t.user_overrides as unknown[]).filter((f): f is string => typeof f === "string")
       : [],
+    tags: Array.isArray(t.tags) ? (t.tags as unknown[]).filter((f): f is string => typeof f === "string") : undefined,
   }));
+  const dependencies = parseSnapshotDependencies((parsed as Record<string, unknown>).dependencies);
 
   if (opts.dryRun) {
     const db = new RelayDB();
@@ -187,14 +190,49 @@ function runRelaySnapshotImport(raw: string, opts: ImportOptions): void {
 
   const db = new RelayDB();
   const result = db.upsertSnapshot(rows);
+  // Dependencies resolve by (source_type, source_id) after the rows exist.
+  // Edges are additive and idempotent; ones that would close a cycle with
+  // local edges are skipped rather than failing the whole import.
+  let depsAdded = 0;
+  let depsSkipped = 0;
+  for (const dep of dependencies) {
+    const task = db.getTaskBySourceId(dep.task.source_type, dep.task.source_id);
+    const on = db.getTaskBySourceId(dep.depends_on.source_type, dep.depends_on.source_id);
+    if (!task || !on) {
+      depsSkipped++;
+      continue;
+    }
+    const added = db.addDependency(task.id, on.id);
+    if (added.ok && added.added) depsAdded++;
+    else if (!added.ok) depsSkipped++;
+  }
   db.close();
   const tag = opts.readOnly ? "read-only " : "";
   console.log(
     chalk.green(`✓ imported ${tag}snapshot from ${env.machine_hostname ?? "?"}: `) +
       chalk.gray(
-        `${result.inserted} new, ${result.updated} updated (remote newer), ${result.conflicted} kept (local same-or-newer)`,
+        `${result.inserted} new, ${result.updated} updated (remote newer), ${result.conflicted} kept (local same-or-newer)` +
+          (dependencies.length > 0 ? ` · ${depsAdded} dependencies added${depsSkipped ? `, ${depsSkipped} skipped` : ""}` : ""),
       ),
   );
+}
+
+function parseSnapshotDependencies(value: unknown): SnapshotDependency[] {
+  if (!Array.isArray(value)) return [];
+  const key = (v: unknown): { source_type: string; source_id: string } | null => {
+    if (!v || typeof v !== "object") return null;
+    const r = v as Record<string, unknown>;
+    return typeof r.source_type === "string" && typeof r.source_id === "string"
+      ? { source_type: r.source_type, source_id: r.source_id }
+      : null;
+  };
+  return value.flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const r = item as Record<string, unknown>;
+    const task = key(r.task);
+    const on = key(r.depends_on);
+    return task && on ? [{ task, depends_on: on }] : [];
+  });
 }
 
 function parseAndMap(raw: string, ext: string, kind: ImportKind): NormalizedRow[] {
