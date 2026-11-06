@@ -42,6 +42,7 @@ import {
   createRepoPathLookup,
   deriveGithubUrlFromSourceId,
   findMissingRepos,
+  prefetchRepoMetadata,
   readRepoMetadata,
 } from "../repo-metadata.js";
 
@@ -408,17 +409,30 @@ export function buildApp(opts: BuildAppOptions = {}) {
   app.route("/api", createScanApi());
 
   // --- Repos / Contexts ------------------------------------------------
-  app.get("/api/repos", (c) => {
-    using db = new RelayDB();
-    const stats = db.repoStats();
-    const githubSourceIds = db.firstGithubSourceIdPerRepo();
-    const myOpenPrs = db.myOpenPrCountPerRepo();
+  app.get("/api/repos", async (c) => {
+    // Read the rows first and close the connection before awaiting git.
+    const { stats, githubSourceIds, myOpenPrs } = (() => {
+      using db = new RelayDB();
+      return {
+        stats: db.repoStats(),
+        githubSourceIds: db.firstGithubSourceIdPerRepo(),
+        myOpenPrs: db.myOpenPrCountPerRepo(),
+      };
+    })();
     const cfg = loadConfig();
 
     // Tracked pins win over scan.roots (createRepoPathLookup), so out-of-tree
     // (scan.roots-外) repos get their metadata, and tracked repos with zero
     // tasks are surfaced below as "added but empty" entries.
     const repoPathOf = createRepoPathLookup(cfg);
+
+    // Warm the git metadata cache for every repo below in parallel; the
+    // readRepoMetadata calls that follow then hit the cache.
+    const knownNamesForPrefetch = new Set(stats.map((r) => r.name));
+    await prefetchRepoMetadata([
+      ...cfg.scan.tracked_repos.filter((p) => !knownNamesForPrefetch.has(basename(p))),
+      ...stats.map((r) => repoPathOf(r.name)),
+    ]);
 
     // Synthesize zero-stats rows for tracked repos that haven't produced any
     // tasks yet — `relay sync` may still find none (no TODOs, no .agents/*.md,
