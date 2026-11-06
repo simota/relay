@@ -9,6 +9,7 @@ import { basename, dirname, extname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { RelayDB } from "../db/client.js";
 import { createQueueApi } from "../api/queue.js";
+import { createRulesApi } from "../api/rules.js";
 import { createRunsApi } from "../api/runs.js";
 import { createAgendaApi } from "../api/agenda.js";
 import { createClientErrorsApi } from "../api/client-errors.js";
@@ -389,6 +390,7 @@ export function buildApp(opts: BuildAppOptions = {}) {
 
   // --- Run Queue -------------------------------------------------------
   app.route("/api/queue", createQueueApi());
+  app.route("/api/rules", createRulesApi());
 
   // --- Runs (agent run history + headless logs) -----------------------
   app.route("/api/runs", createRunsApi());

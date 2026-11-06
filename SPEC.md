@@ -156,6 +156,48 @@ PK `(task_id, depends_on_id)`、`CHECK (task_id != depends_on_id)`、両 FK と�
 - undo: close の undo_log 行は `payload.respawn` (元タスク id) と `inverse.drop` (生成タスク id) を持つ。undo は生成タスクを、まだ手付かず (snoozed のまま・未編集・run なし) の場合に限り削除し、redo で再生成する。`POST /api/tasks/:id/close` のレスポンスは `next_occurrence: {id, due_at}` を含み、Web のトーストに「↻ next …」と出る。
 - snapshot export / import は `recurrence` を運ぶ (古い snapshot はローカル値を保持)。
 
+### タスクノート (schema_version 14)
+
+`task_notes (id, task_id → tasks ON DELETE CASCADE, body, created_at)`。ユーザーが書く追記型の進捗ログで、adapter は書かない (sync で消えない)。
+
+- 追加 / 一覧 / 削除: `relay note <id> "text"` (`-` で stdin) / `relay note <id>` / `relay note <id> --rm <noteId>`、`GET|POST /api/tasks/:id/notes` (`{body, queue?}`)、`DELETE /api/tasks/:id/notes/:noteId`、Web 詳細パネルの "notes" (`m` で入力欄へ、`⌘↵` 保存)。本文は trim、空は拒否、4000 文字で切り詰め。
+- **agent prompt への注入**: 次の `relay run` / `relay queue run` (対話・headless とも) は最新 10 件を古い順に "Notes from the user" セクションとして prompt の**最後**に入れる (§10.1)。resume 時も follow-up prompt に付ける (codex resume / headless resume)。対話 claude の resume は prompt を取らないため送られず、`relay run` が警告する。
+- **retry with feedback**: `relay note <id> "..." --queue [--front]` / `POST {queue: true}` / Web の「note & retry」(`⇧⌘↵`) はノート保存と queue 投入を 1 操作で行う (done は投入しない)。
+- undo: `op_kind = "notes"`、`{add: [note], remove: [note]}` (inverse は入れ替え)。削除したノートは元の id・時刻で復元される。
+- snapshot export / import は `notes` を `(source_type, source_id)` キーで運び、`(task, body, created_at)` が同じものは再 import しない (冪等)。
+
+### トリアージルール (`[[rules]]`)
+
+`~/.relay/config.toml` の `[[rules]]` で、sync が**新規に取り込んだ**タスク (sync 開始前の `MAX(id)` より大きい id) を自動で仕分ける。既存タスクには `relay rules apply` で明示的に適用する。
+
+| key | 種別 | 意味 |
+|---|---|---|
+| `name` | string | 表示名 (省略時 `rule N`) |
+| `enabled` | bool | `false` で無効 (default true) |
+| `repo` | glob or list | repo 名の glob (`billing-*`、大小無視) |
+| `source` | string or list | source type (§6) |
+| `title` / `body` | regex | 大小無視の正規表現 |
+| `tag` | string or list | 追加するタグ (union) |
+| `assign` | string | 担当 (`claude-code` / `codex` / `antigravity` / `self` / `human-review`) |
+| `priority` | 0–100 | 優先度 (`relay edit` と同じく `user_overrides` でロック → 再 sync で戻らない) |
+| `wait_on` | string | `self` / `reviewer` / `external` / `scheduled` (ロック) |
+| `queue` | bool | AI job queue に投入 |
+| `stop` | bool | マッチしたら後続ルールを評価しない |
+
+- match 条件は AND。マッチした全ルールを config 順に適用し、スカラーは後勝ち、タグは union。done タスクは対象外。既に満たされている変更は no-op なので何度適用しても冪等。
+- 不正なルール (正規表現エラー、未知の source / assignee / wait_on、条件なし、アクションなし) はルール単位でスキップして報告する (他のコマンドは壊れない)。
+- `relay rules [--json]` / `GET /api/rules`: ルール・エラー・現在マッチする open 件数。`relay rules apply [--dry-run] [--json]` / `POST /api/rules/apply {dry_run}`: 全 open タスクに適用。実適用は 1 件の undo (`op_kind = "rules_apply"`, `{tags, reassign, edit}`) で、queue 投入のみ undo 対象外。Web は `/sync` の "Triage rules" カード (Preview / Apply)。
+- sync の自動適用は undo_log を書かない (ingest 自体と同じ扱い)。結果は `SyncReport.rules` と `⚙ rules: triaged N new task(s)` ログに出る。
+
+### 重複マージ
+
+`relay merge <keep> <dup...>` / `POST /api/tasks/:id/merge {ids}` / Web `/insights` の "Possible duplicates" で「keep this, merge others」。
+
+- dup を done にし (繰り返しの次回生成はしない)、queue から外す。
+- dup のタグを keep に union、dup の未完了 blocker を keep の blocker に、dup を待っていた未完了タスクを keep 待ちに付け替える (循環になる辺はスキップ)。
+- dup のノートを `[from #N]` 付きで keep にコピーし、マージ内容を記録したノートを 1 件追加 (次の agent run が経緯を読める)。
+- undo: 1 件 (`op_kind = "merge"`, `{tasks, tags, deps, notes}`)。queue からの除去のみ戻らない。
+
 ### snooze と自動復帰
 
 - snoozed タスクの `due_at` は「起床日時」。`relay snooze --until <when>` / `POST /api/tasks/:id/snooze {"until": ...}` / bulk snooze で設定する。
@@ -815,6 +857,9 @@ merged/closed PR は `--state open` フィルタで外れるため、上記の�
 | `relay assign <id> <agent>` | 担当変更 (`claude-code` / `codex` / `antigravity` / `self` / `human-review`) |
 | `relay close <ids...>` / `relay snooze <ids...> [--until <when>]` / `relay reopen <ids...>` | 状態遷移 (複数 id 可、まとめて 1 つの undo。`--until` 付き snooze は自動復帰。繰り返しタスクの close は次回分を生成) |
 | `relay edit <id> [--title --body --priority --prompt --files --due --wait-on --repo --every R --clear-due --clear-prompt --reset F]` | フィールド編集 (`PATCH /api/tasks/:id`)。編集フィールドは sync で保持。`--every none` で繰り返し解除 |
+| `relay note <id> [text] [--rm <noteId>] [--queue] [--front] [--json]` | タスクノートの追加 / 一覧 / 削除。次の agent run の prompt に入る。`--queue` で retry with feedback (§5 タスクノート) |
+| `relay merge <keep> <dup...>` | 重複タスクを統合 (dup を close、タグ / 依存 / ノートを keep へ)。undo 可 |
+| `relay rules [--json]` / `relay rules apply [--dry-run]` | トリアージルールの一覧 / 全 open タスクへの適用 (§5 トリアージルール) |
 | `relay undo [--redo] [--list]` | undo_log の取り消し / やり直し (`POST /api/undo`) |
 | `relay focus [id] [--clear]` | フォーカス set/show/clear |
 | `relay forget <sessionId> [--source claude_session_todo] [--yes]` | セッション由来タスクの物理削除 |
@@ -920,7 +965,7 @@ Next.js 15 + React 19。ルートは path-based:
 
 ### 10.1 Repo-scoped prompt template (`.agents/RELAY_PROMPT.md`)
 
-リポごとに固定の前置きを `<repo>/.agents/RELAY_PROMPT.md` に置くと、`claude-code` / `codex` / `antigravity` 起動時の prompt 先頭に自動挿入される。プロンプト合成順は **`repo template` → `context preamble` → `prerequisite tasks` (依存 blocker 一覧、schema v12) → `task.prompt`** (各セクション間は `---` 区切り)。
+リポごとに固定の前置きを `<repo>/.agents/RELAY_PROMPT.md` に置くと、`claude-code` / `codex` / `antigravity` 起動時の prompt 先頭に自動挿入される。プロンプト合成順は **`repo template` → `context preamble` → `prerequisite tasks` (依存 blocker 一覧、schema v12) → `task.prompt` → `notes from the user` (タスクノート、schema v14)** (各セクション間は `---` 区切り)。
 
 - 適用条件: `relay run <id>` 実行時に `<repo>/.agents/RELAY_PROMPT.md` が存在し、`--no-template` が指定されていないこと。空ファイルは無視される。
 - 適用された場合は実行ログに `+ .agents/RELAY_PROMPT.md applied` を表示する (透明性確保)。

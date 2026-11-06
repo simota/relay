@@ -35,3 +35,16 @@ github_issue = true
 github_pr = true
 claude_session = true
 agents_note = true
+
+# Triage rules — applied to every task a sync newly ingests (and to all
+# open tasks via `relay rules apply`). Match fields AND together; actions
+# from every matching rule apply in order. `relay rules` validates them.
+# [[rules]]
+# name     = "security fixmes → codex"
+# repo     = ["billing-*"]          # glob(s) on the repo name
+# source   = "code_todo"             # source type(s), see SPEC.md §6
+# title    = "FIXME|security"        # case-insensitive regex (body = "..." too)
+# tag      = ["security"]
+# assign   = "codex"
+# priority = 80
+# queue    = true                    # put it on the AI job queue

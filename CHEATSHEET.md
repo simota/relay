@@ -53,6 +53,8 @@ CLI と Web UI の早見表。インストールは `INSTALL.md`、Web UI 詳細
 | `relay close <ids...>` | done に (複数 id 可、1 回の undo でまとめて戻る)。繰り返しタスクは次回分を snooze 状態で自動生成 (期日に open へ復帰)。 |
 | `relay snooze <ids...> [--until <when>]` | snooze に。`--until` 指定時はその日時を過ぎると自動で open に戻る。 |
 | `relay reopen <ids...>` | snooze / done → open に戻す。 |
+| `relay note <id> ["text"\|-] [--queue [--front]] [--rm <noteId>] [--json]` | タスクノート。テキストなしで一覧。ノートは次の agent run の prompt 末尾に入る。`--queue` で「ノート付きで再キュー」(失敗した run の retry with feedback)。⌘Z / `relay undo` 可。 |
+| `relay merge <keep> <dup...>` | 重複タスクを `<keep>` に統合: dup を close し、タグ・依存関係・ノートを引き継ぐ (1 回の undo で戻る)。 |
 | `relay focus [id] [--clear]` | 今フォーカス中のタスクを set / show / clear。 |
 | `relay undo [--redo] [--list]` | 直前の変更 (close / snooze / reopen / assign / edit / tag / block / bulk / prune) を取り消し。Web の ⌘Z と同じ undo log。 |
 | `relay forget <sessionId> [--source claude_session_todo] [--yes]` * | 特定セッションから入ったタスクを物理削除。 |
@@ -90,6 +92,27 @@ Web の queue tray (`a` / bulk `a`) と共有。
 
 headless の権限は `~/.relay/config.toml` の `[agents]` で: `claude_headless_args = ["--permission-mode", "acceptEdits"]`, `codex_headless_args = ["--full-auto"]`, `headless_timeout_min = 30`。
 
+## Triage rules (`[[rules]]`)
+
+sync が新規に取り込んだタスクへ自動適用。`~/.relay/config.toml` に書く:
+
+```toml
+[[rules]]
+name   = "security fixmes → codex"
+repo   = ["billing-*"]        # glob
+source = "code_todo"           # source type(s)
+title  = "FIXME|security"      # 正規表現 (大小無視)。body = "..." も可
+tag    = ["security"]
+assign = "codex"
+priority = 80                  # wait_on = "external" も可
+queue  = true                  # AI job queue へ投入。stop = true で後続ルール停止
+```
+
+| Command | 用途 |
+|---|---|
+| `relay rules [--json]` | ルール一覧・設定エラー・現在マッチする open 件数。 |
+| `relay rules apply [--dry-run] [--json]` | 既存の open タスク全体に適用 (1 回の undo で戻る)。Web は `/sync` の Triage rules カード。 |
+
 ## Context (repo snapshot)
 
 | Command | 用途 |
@@ -125,6 +148,7 @@ Web UI のキーバインドは `HOTKEYS.md`。最頻出だけ抜粋:
 | `/` | filter focus (`repo:x tag:billing is:ready is:blocked age>7 source:code_todo`) |
 | `r` / `s` / `c` / `o` / `a` | run コピー / snooze / close / reopen / queue 追加 |
 | `e` / `⇧S` | 選択タスクを編集 / 明日まで snooze |
+| `m` | 詳細パネルのノート入力へ (`⌘↵` 保存 / `⇧⌘↵` note & retry) |
 | `R` | sync |
 | `⌘K` / `Ctrl+K` | command palette |
 

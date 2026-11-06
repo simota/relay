@@ -5,6 +5,7 @@ import { Assignee, type Task } from "../types.js";
 import { runSnoozeUntil } from "./edit.js";
 import { spawnAfterClose } from "../lib/recurrence-close.js";
 import { describeRecurrence } from "../lib/recurrence.js";
+import { mergeTasks } from "../lib/merge.js";
 
 export function deriveCloseHint(
   task: Pick<Task, "source_type" | "source_id">,
@@ -163,4 +164,30 @@ export function runAssign(id: number, raw: string): void {
   console.log(
     chalk.green(`✓ reassigned #${id}: ${task.assignee} → ${assignee}`),
   );
+}
+
+/**
+ * `relay merge <keep> <dups...>` — close duplicates into one survivor,
+ * moving their tags, dependencies and notes onto it (one undo entry).
+ */
+export function runMerge(keepId: number, dupIds: number[]): void {
+  using db = new RelayDB();
+  const result = mergeTasks(db, keepId, dupIds);
+  if (!result.ok) {
+    console.log(chalk.red(result.error));
+    process.exitCode = 1;
+    return;
+  }
+  const keep = db.getTask(result.keep);
+  console.log(
+    chalk.green(`✓ merged ${result.merged.map((id) => `#${id}`).join(", ")} into #${result.keep}`) +
+      (keep ? `: ${keep.title}` : ""),
+  );
+  const details: string[] = [];
+  if (result.tags_added.length) details.push(`tags +${result.tags_added.join(" +")}`);
+  if (result.deps_moved) details.push(`${result.deps_moved} dependency edge(s) moved`);
+  if (result.notes_copied) details.push(`${result.notes_copied} note(s) copied`);
+  if (result.dequeued) details.push(`${result.dequeued} queue item(s) dropped`);
+  if (details.length) console.log(chalk.gray(`  ${details.join(" · ")}`));
+  console.log(chalk.gray("  duplicates closed — relay undo reverts the merge"));
 }

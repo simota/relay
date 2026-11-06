@@ -12,7 +12,7 @@ import { createWriteStream, existsSync, mkdirSync, readFileSync, statSync } from
 import { join } from "node:path";
 import { RELAY_HOME } from "../paths.js";
 import type { Assignee, Task } from "../types.js";
-import { buildPrompt, runResultFromExit, type RunOptions, type RunResult } from "./index.js";
+import { buildPrompt, fallbackPrompt, runResultFromExit, withResumeNotes, type RunOptions, type RunResult } from "./index.js";
 
 /** Assignees that have a non-interactive mode relay knows how to drive. */
 export const HEADLESS_ASSIGNEES: ReadonlySet<Assignee> = new Set(["claude-code", "codex"]);
@@ -27,19 +27,7 @@ export interface HeadlessOptions extends RunOptions {
   codexHeadlessArgs?: string[];
 }
 
-/**
- * Prompt used when a task has none of its own. Interactive launches can
- * open an empty agent session, but a headless run needs instructions, so
- * describe the task from the fields relay already has.
- */
-export function fallbackPrompt(task: Task): string {
-  const lines = [`Work on this task in the current repository: ${task.title}`];
-  const body = task.body.trim();
-  if (body) lines.push("", body);
-  if (task.files.length > 0) lines.push("", `Relevant files: ${task.files.join(", ")}`);
-  if (task.source_type !== "manual") lines.push("", `(source: ${task.source_type} ${task.source_id})`);
-  return lines.join("\n");
-}
+export { fallbackPrompt } from "./index.js";
 
 export function resolveHeadlessCommand(
   task: Task,
@@ -51,20 +39,20 @@ export function resolveHeadlessCommand(
       const bin = opts.claudeBin ?? "claude";
       const extra = opts.claudeHeadlessArgs ?? [];
       if (canResume) {
-        const prompt = task.prompt ?? `Continue working on: ${task.title}`;
+        const prompt = withResumeNotes(task.prompt ?? `Continue working on: ${task.title}`, opts.notes) as string;
         return { bin, args: ["-p", ...extra, "--resume", task.session_id as string, prompt] };
       }
-      const prompt = buildPrompt(task.prompt ?? fallbackPrompt(task), opts.contextPreamble, opts.repoTemplate, opts.prerequisites);
+      const prompt = buildPrompt(task.prompt ?? fallbackPrompt(task), opts.contextPreamble, opts.repoTemplate, opts.prerequisites, opts.notes);
       return { bin, args: ["-p", ...extra, prompt as string] };
     }
     case "codex": {
       const bin = opts.codexBin ?? "codex";
       const extra = opts.codexHeadlessArgs ?? [];
       if (canResume) {
-        const prompt = task.prompt ?? `Continue working on: ${task.title}`;
+        const prompt = withResumeNotes(task.prompt ?? `Continue working on: ${task.title}`, opts.notes) as string;
         return { bin, args: ["exec", ...extra, "resume", task.session_id as string, prompt] };
       }
-      const prompt = buildPrompt(task.prompt ?? fallbackPrompt(task), opts.contextPreamble, opts.repoTemplate, opts.prerequisites);
+      const prompt = buildPrompt(task.prompt ?? fallbackPrompt(task), opts.contextPreamble, opts.repoTemplate, opts.prerequisites, opts.notes);
       return { bin, args: ["exec", ...extra, prompt as string] };
     }
     default:
@@ -208,3 +196,4 @@ export async function runTaskHeadless(
     await new Promise<void>((resolve) => log.end(() => resolve()));
   }
 }
+

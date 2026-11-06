@@ -1,4 +1,4 @@
--- relay storage schema v13
+-- relay storage schema v14
 
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
@@ -79,6 +79,19 @@ CREATE TABLE IF NOT EXISTS task_deps (
 );
 
 CREATE INDEX IF NOT EXISTS idx_task_deps_depends_on ON task_deps (depends_on_id);
+
+-- task_notes: schema v14. User-written progress log per task ("tried X,
+-- the fixture lives in Y, try Z next"). Notes are fed into the next agent
+-- run's prompt (executor formatNotes), which turns a failed run + a note
+-- into a retry-with-feedback loop. User-owned: adapter ingest never writes.
+CREATE TABLE IF NOT EXISTS task_notes (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  task_id     INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  body        TEXT    NOT NULL,
+  created_at  TEXT    NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_task_notes_task ON task_notes (task_id, created_at);
 
 CREATE TABLE IF NOT EXISTS queue_items (
   id        INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -240,3 +253,5 @@ INSERT OR IGNORE INTO schema_version (version, applied_at)
   VALUES (12, datetime('now'));
 INSERT OR IGNORE INTO schema_version (version, applied_at)
   VALUES (13, datetime('now'));
+INSERT OR IGNORE INTO schema_version (version, applied_at)
+  VALUES (14, datetime('now'));

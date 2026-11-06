@@ -372,6 +372,50 @@ program
   });
 
 program
+  .command("note <id> [text...]")
+  .description("Add a note to a task (sent to the next agent run's prompt), or list its notes when no text is given. `-` reads the note from stdin.")
+  .option("--rm <noteId>", "delete a note (undo with `relay undo`)")
+  .option("--queue", "after adding, put the task on the AI job queue (retry with feedback)")
+  .option("--front", "with --queue: put it at the front")
+  .option("--json", "machine-readable output")
+  .action(async (id, words: string[], opts) => {
+    const { runNote } = await import("./commands/notes.js");
+    let text = (words ?? []).join(" ");
+    if (text.trim() === "-") text = await Bun.stdin.text();
+    const remove = opts.rm === undefined ? undefined : Number(String(opts.rm).replace(/^#/, ""));
+    if (remove !== undefined && (!Number.isInteger(remove) || remove <= 0)) {
+      console.log("--rm needs a note id");
+      process.exit(1);
+    }
+    runNote(Number(String(id).replace(/^#/, "")), {
+      text,
+      remove,
+      queue: Boolean(opts.queue),
+      front: Boolean(opts.front),
+      json: Boolean(opts.json),
+    });
+  });
+
+const rules = program
+  .command("rules")
+  .description("Triage rules ([[rules]] in config.toml): auto tag / assign / prioritize / queue tasks a sync ingests.")
+  .option("--json", "machine-readable output")
+  .action(async (opts) => {
+    const { runRulesList } = await import("./commands/rules.js");
+    runRulesList({ json: Boolean(opts.json) });
+  });
+
+rules
+  .command("apply")
+  .description("Apply the rules to every open task (undo with `relay undo`).")
+  .option("--dry-run", "show what would change without writing")
+  .option("--json", "machine-readable output")
+  .action(async (opts) => {
+    const { runRulesApply } = await import("./commands/rules.js");
+    runRulesApply({ dryRun: Boolean(opts.dryRun), json: Boolean(opts.json) });
+  });
+
+program
   .command("tags")
   .option("--json", "machine-readable output")
   .description("List every tag with open / total task counts.")
@@ -394,6 +438,14 @@ program
   .action(async (id, blockers: string[]) => {
     const { runUnblock } = await import("./commands/links.js");
     runUnblock(Number(id), parseIdList(blockers ?? []));
+  });
+
+program
+  .command("merge <keep> <duplicates...>")
+  .description("Merge duplicate tasks into <keep>: closes them and moves their tags, dependencies and notes onto it (one undo entry).")
+  .action(async (keep, duplicates: string[]) => {
+    const { runMerge } = await import("./commands/mutate.js");
+    runMerge(Number(String(keep).replace(/^#/, "")), parseIdList(duplicates));
   });
 
 program

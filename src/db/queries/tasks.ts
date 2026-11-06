@@ -67,6 +67,24 @@ export function getTasksByIds(db: Database, ids: number[]): Task[] {
   return rows.map(hydrate);
 }
 
+/** Highest task id so far (0 when empty) — sync's "what is new" marker. */
+export function maxTaskId(db: Database): number {
+  const row = db.prepare(`SELECT COALESCE(MAX(id), 0) AS id FROM tasks`).get() as { id: number };
+  return row.id;
+}
+
+/** Tasks inserted after {@link maxTaskId} returned `afterId`, oldest first. */
+export function tasksInsertedAfter(db: Database, afterId: number): Task[] {
+  const rows = db.prepare(`SELECT * FROM tasks WHERE id > ? ORDER BY id`).all(afterId) as Array<Record<string, unknown>>;
+  return rows.map(hydrate);
+}
+
+/** Every task that is not done — the target set of `relay rules apply`. */
+export function listNotDoneTasks(db: Database): Task[] {
+  const rows = db.prepare(`SELECT * FROM tasks WHERE status != 'done' ORDER BY id`).all() as Array<Record<string, unknown>>;
+  return rows.map(hydrate);
+}
+
 export function listTasks(
   db: Database,
   filters: {

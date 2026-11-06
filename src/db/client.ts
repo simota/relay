@@ -39,7 +39,10 @@ import {
   getTasksByIds as _getTasksByIds,
   listAllTasks as _listAllTasks,
   listOpenSourceIdsByType as _listOpenSourceIdsByType,
+  listNotDoneTasks as _listNotDoneTasks,
   listTasks as _listTasks,
+  maxTaskId as _maxTaskId,
+  tasksInsertedAfter as _tasksInsertedAfter,
   myOpenPrCountPerRepo as _myOpenPrCountPerRepo,
   restoreDeletedTasks as _restoreDeletedTasks,
   setAssignee as _setAssignee,
@@ -77,6 +80,20 @@ import {
   type TagChange,
   type TagCount,
 } from "./queries/links.js";
+import {
+  addNote as _addNote,
+  deleteNote as _deleteNote,
+  deleteNotesByIds as _deleteNotesByIds,
+  getNote as _getNote,
+  importNote as _importNote,
+  listAllNotes as _listAllNotes,
+  listNotes as _listNotes,
+  noteCounts as _noteCounts,
+  restoreNotes as _restoreNotes,
+  type TaskNote,
+} from "./queries/notes.js";
+export type { TaskNote } from "./queries/notes.js";
+export { MAX_NOTE_LENGTH, normalizeNoteBody } from "./queries/notes.js";
 export { closedSnapshots } from "./queries/tasks.js";
 import {
   countForViewFilter as _countForViewFilter,
@@ -329,6 +346,18 @@ export class RelayDB {
     return _listRunsForTask(this.db, taskId, limit);
   }
 
+  maxTaskId(): number {
+    return _maxTaskId(this.db);
+  }
+
+  tasksInsertedAfter(afterId: number): Task[] {
+    return _tasksInsertedAfter(this.db, afterId);
+  }
+
+  listNotDoneTasks(): Task[] {
+    return _listNotDoneTasks(this.db);
+  }
+
   getTasksByIds(ids: number[]): Task[] {
     return _getTasksByIds(this.db, ids);
   }
@@ -391,6 +420,43 @@ export class RelayDB {
 
   listAllDependencies(): DependencyEdge[] {
     return _listAllDependencies(this.db);
+  }
+
+  // --- Task notes (schema v14) -------------------------------------------
+  addNote(taskId: number, body: string, now?: Date): TaskNote | null {
+    return _addNote(this.db, taskId, body, now);
+  }
+
+  listNotes(taskId: number): TaskNote[] {
+    return _listNotes(this.db, taskId);
+  }
+
+  getNote(noteId: number): TaskNote | null {
+    return _getNote(this.db, noteId);
+  }
+
+  deleteNote(noteId: number): TaskNote | null {
+    return _deleteNote(this.db, noteId);
+  }
+
+  restoreNotes(notes: readonly TaskNote[]): number {
+    return _restoreNotes(this.db, notes);
+  }
+
+  deleteNotesByIds(ids: readonly number[]): number {
+    return _deleteNotesByIds(this.db, ids);
+  }
+
+  noteCounts(taskIds: readonly number[]): Map<number, number> {
+    return _noteCounts(this.db, taskIds);
+  }
+
+  listAllNotes(): TaskNote[] {
+    return _listAllNotes(this.db);
+  }
+
+  importNote(taskId: number, body: string, createdAt: string): boolean {
+    return _importNote(this.db, taskId, body, createdAt);
   }
 
   setStatus(id: number, status: string): void {

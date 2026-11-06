@@ -15,6 +15,7 @@ import { displayWidth, padEndDisplay } from "../lib/text-width.js";
 import { findMissingRepos } from "../repo-metadata.js";
 import type { SourceType, Task } from "../types.js";
 import { clearFocus, getFocus } from "./focus.js";
+import { formatNoteLines } from "./notes.js";
 
 export interface ListFilters {
   repo?: string;
@@ -152,6 +153,7 @@ export function runShow(id: number): void {
   const task = db.getTask(id);
   const runs = task ? db.listRunsForTask(id, 5) : [];
   const deps = task ? db.dependencyInfo(id) : null;
+  const notes = task ? db.listNotes(id) : [];
   db.close();
 
   if (!task) {
@@ -205,6 +207,11 @@ export function runShow(id: number): void {
       console.log(chalk.gray("blocks:"));
       for (const b of deps.blocks) console.log(`  ${statusMarker(b.status)} ${chalk.gray(`#${b.id}`)} ${chalk.cyan(b.repo)}  ${truncate(b.title, 60)}`);
     }
+  }
+  if (notes.length) {
+    console.log("");
+    console.log(chalk.gray(`notes (${notes.length}, sent to the next agent run):`));
+    for (const line of formatNoteLines(notes)) console.log(line);
   }
   if (runs.length) {
     console.log("");

@@ -1,9 +1,9 @@
 import { readFileSync } from "node:fs";
 import { extname } from "node:path";
 import chalk from "chalk";
-import { RelayDB, type SnapshotRow } from "../db/client.js";
+import { RelayDB, normalizeNoteBody, type SnapshotRow } from "../db/client.js";
 import type { TaskInput } from "../types.js";
-import type { SnapshotDependency } from "./export.js";
+import type { SnapshotDependency, SnapshotNote } from "./export.js";
 
 export type ImportKind = "linear" | "things" | "notion" | "generic" | "relay";
 
@@ -137,6 +137,7 @@ function runRelaySnapshotImport(raw: string, opts: ImportOptions): void {
     recurrence: !("recurrence" in t) ? undefined : typeof t.recurrence === "string" ? t.recurrence : null,
   }));
   const dependencies = parseSnapshotDependencies((parsed as Record<string, unknown>).dependencies);
+  const notes = parseSnapshotNotes((parsed as Record<string, unknown>).notes);
 
   if (opts.dryRun) {
     const db = new RelayDB();
@@ -207,15 +208,37 @@ function runRelaySnapshotImport(raw: string, opts: ImportOptions): void {
     if (added.ok && added.added) depsAdded++;
     else if (!added.ok) depsSkipped++;
   }
+  // Notes (schema v14): idempotent per (task, body, created_at), so
+  // re-importing the same snapshot never duplicates them.
+  let notesAdded = 0;
+  for (const note of notes) {
+    const task = db.getTaskBySourceId(note.task.source_type, note.task.source_id);
+    if (task && db.importNote(task.id, note.body, note.created_at)) notesAdded++;
+  }
   db.close();
   const tag = opts.readOnly ? "read-only " : "";
   console.log(
     chalk.green(`✓ imported ${tag}snapshot from ${env.machine_hostname ?? "?"}: `) +
       chalk.gray(
         `${result.inserted} new, ${result.updated} updated (remote newer), ${result.conflicted} kept (local same-or-newer)` +
-          (dependencies.length > 0 ? ` · ${depsAdded} dependencies added${depsSkipped ? `, ${depsSkipped} skipped` : ""}` : ""),
+          (dependencies.length > 0 ? ` · ${depsAdded} dependencies added${depsSkipped ? `, ${depsSkipped} skipped` : ""}` : "") +
+          (notes.length > 0 ? ` · ${notesAdded} note(s) added` : ""),
       ),
   );
+}
+
+function parseSnapshotNotes(value: unknown): SnapshotNote[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const r = item as Record<string, unknown>;
+    const t = r.task as Record<string, unknown> | undefined;
+    if (!t || typeof t.source_type !== "string" || typeof t.source_id !== "string") return [];
+    if (typeof r.body !== "string" || typeof r.created_at !== "string") return [];
+    const body = normalizeNoteBody(r.body);
+    if (!body || !Number.isFinite(Date.parse(r.created_at))) return [];
+    return [{ task: { source_type: t.source_type, source_id: t.source_id }, body, created_at: r.created_at }];
+  });
 }
 
 function parseSnapshotDependencies(value: unknown): SnapshotDependency[] {

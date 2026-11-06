@@ -80,6 +80,9 @@ relay run <task-id>                        # 該当 repo に agent を起動 (Cl
 - **繰り返しタスク** (schema v13) — `relay add --every weekly` / `relay edit --every mon,thu` / Web の「repeat」。close すると次回分が snooze 状態で自動生成され期日に戻ってくる (完了履歴は残る、⌘Z で生成ごと取り消し)。queue と組み合わせて定期メンテを agent に回せる
 - **run の変更キャプチャ** (schema v13) — 各 agent run が触ったファイル (+/− 行数) とコミット数を記録し、`relay runs` / `relay show` / Web の agent runs に表示。`relay runs --diff <run>` で patch を確認、`relay queue add --failed` / tray の「retry N failed」で失敗分を一括再キュー
 - **一括ライフサイクル** — `relay close|snooze|reopen <ids...>` を 1 つの undo でまとめて実行
+- **タスクノートと retry with feedback** (schema v14) — `relay note <id> "..."` / Web の notes (`m`) で進捗や「次はこう試して」を残すと、次の agent run の prompt 末尾に自動で入る。`--queue` / 「note & retry」で失敗した run をノート付きで再キュー
+- **トリアージルール** — `config.toml` の `[[rules]]` (repo glob / source / title・body 正規表現 → tag / assign / priority / wait_on / queue) を sync が新規タスクへ自動適用。`relay rules apply` / `/sync` の Triage rules カードで既存タスクにも (⌘Z 可)
+- **重複マージ** — `relay merge <keep> <dup...>` / `/insights` の重複クラスタから 1 クリックで統合 (タグ・依存・ノートを引き継ぎ、⌘Z 可)
 - **検索と履歴** — `relay ls -q` と ⌘K パレットで done / snoozed を含む全タスクをサーバー側全文検索、`relay show` と Web 詳細にエージェント run 履歴
 
 ## Accessibility

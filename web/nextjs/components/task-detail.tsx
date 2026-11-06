@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Copy, Check, RotateCcw, ExternalLink, ChevronDown, Pencil, History, Link2, X, Hash, Repeat } from "lucide-react";
+import { Copy, Check, RotateCcw, ExternalLink, ChevronDown, Pencil, History, Link2, X, Hash, Repeat, NotebookPen } from "lucide-react";
 import { describeRecurrence } from "@/lib/recurrence";
 import useSWR, { useSWRConfig } from "swr";
 import { api, type RunListItem } from "@/lib/api";
@@ -16,7 +16,7 @@ import { SnoozeMenu } from "@/components/snooze-menu";
 import { EditedChip, TaskEditForm } from "@/components/task-edit-form";
 import { useHotkeys } from "@/hooks/use-hotkeys";
 import { sourceTypeToSessionType, stripSessionIdPrefix } from "@/lib/session-link";
-import type { DependencyInfo, EditableField, RunChanges, Task, SourceType } from "@/lib/types";
+import type { DependencyInfo, EditableField, RunChanges, Task, TaskNote, SourceType } from "@/lib/types";
 
 export function TaskDetail({
   task,
@@ -248,6 +248,7 @@ export function TaskDetail({
 
         <TagEditor task={task} onChange={onChange} />
         <DependencyPanel task={task} onChange={onChange} onSelectTask={onSelectTask} />
+        <NotesPanel task={task} lastRunFailed={runs[0] ? runs[0].status !== "success" && runs[0].status !== "running" : false} />
 
         {/* Body */}
         {task.source_type === "manual" && (
@@ -423,6 +424,173 @@ function TagEditor({ task, onChange }: { task: Task; onChange?: () => void }) {
         ))}
       </datalist>
       {error && <span role="alert" className="w-full text-[11px] text-[var(--color-critical)]">{error}</span>}
+    </section>
+  );
+}
+
+/**
+ * Task notes (schema v14): the user's progress log. Every note is sent to
+ * the next agent run in a "Notes from the user" prompt section, so "note &
+ * retry" turns a failed run into a retry with feedback. ⌘Z undoes.
+ */
+const AGENT_ASSIGNEES = new Set(["claude-code", "codex", "antigravity"]);
+
+/** "5m ago", but "now" rather than "now ago" for a note just written. */
+function noteAge(iso: string): string {
+  const ago = timeAgo(iso);
+  return ago === c("common.now") ? ago : `${ago} ago`;
+}
+
+function NotesPanel({ task, lastRunFailed }: { task: Task; lastRunFailed: boolean }) {
+  const key = `/api/tasks/${task.id}/notes`;
+  const { data: notes = [], mutate } = useSWR<TaskNote[]>(key, () => api.notes(task.id));
+  const { mutate: globalMutate } = useSWRConfig();
+  const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState<string | null>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const canRetry = AGENT_ASSIGNEES.has(task.assignee) && task.status !== "done";
+
+  useEffect(() => {
+    setDraft("");
+    setError(null);
+    setStatus(null);
+  }, [task.id]);
+
+  useHotkeys([
+    {
+      key: "m",
+      handler: (e) => {
+        e.preventDefault();
+        inputRef.current?.focus();
+      },
+    },
+  ]);
+
+  const add = async (queue: boolean) => {
+    const body = draft.trim();
+    if (!body) {
+      setError("write a note first");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      const created = await api.addNote(task.id, body, { queue });
+      const note: TaskNote = { id: created.id, task_id: created.task_id, body: created.body, created_at: created.created_at };
+      await mutate([...notes, note], { revalidate: false });
+      if (created.queued) await globalMutate("/api/queue");
+      setDraft("");
+      setStatus(created.queued ? "note saved · queued for the next run" : "note saved · the next agent run will read it");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "could not save note");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const remove = async (noteId: number) => {
+    setError(null);
+    try {
+      await api.deleteNote(task.id, noteId);
+      await mutate(notes.filter((n) => n.id !== noteId), { revalidate: false });
+      setStatus("note deleted · ⌘Z restores it");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "could not delete note");
+    }
+  };
+
+  return (
+    <section aria-label="Notes" className="space-y-1.5">
+      <div className="flex items-center gap-1.5 text-[10.5px] uppercase tracking-wider text-[var(--color-fg-dim)] font-medium">
+        <NotebookPen className="w-3 h-3" aria-hidden />
+        notes
+        {notes.length > 0 && (
+          <span className="normal-case tracking-normal font-normal">
+            · {notes.length} · sent to the next agent run
+          </span>
+        )}
+      </div>
+      {notes.length > 0 && (
+        <ol className="space-y-1">
+          {notes.map((note) => (
+            <li
+              key={note.id}
+              className="group flex items-start gap-2 rounded-[var(--radius)] border border-[var(--color-border)] bg-[var(--color-bg)]/50 px-2.5 py-1.5"
+            >
+              <div className="min-w-0 flex-1">
+                <p className="whitespace-pre-wrap break-words text-[12px] leading-relaxed text-[var(--color-fg)]">{note.body}</p>
+                <time
+                  dateTime={note.created_at}
+                  title={new Date(note.created_at).toLocaleString()}
+                  className="text-[10.5px] font-mono text-[var(--color-fg-dim)]"
+                >
+                  {noteAge(note.created_at)}
+                </time>
+              </div>
+              <button
+                type="button"
+                aria-label="delete note"
+                onClick={() => { void remove(note.id); }}
+                className="rounded p-0.5 text-[var(--color-fg-dim)] opacity-60 group-hover:opacity-100 focus-visible:opacity-100 hover:text-[var(--color-critical)] ring-focus"
+              >
+                <X className="w-3 h-3" aria-hidden />
+              </button>
+            </li>
+          ))}
+        </ol>
+      )}
+      <form
+        className="space-y-1.5"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void add(false);
+        }}
+      >
+        <textarea
+          ref={inputRef}
+          value={draft}
+          rows={draft.includes("\n") ? 4 : 2}
+          disabled={saving}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+              e.preventDefault();
+              void add(e.shiftKey && canRetry);
+            }
+            if (e.key === "Escape") (e.target as HTMLTextAreaElement).blur();
+          }}
+          placeholder={
+            lastRunFailed
+              ? "why did the last run fail? what should the agent try next…"
+              : "progress note / hint for the agent…  (m to focus, ⌘↵ to save)"
+          }
+          aria-label="new note"
+          className="w-full resize-y rounded-[var(--radius)] border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 text-[12px] leading-relaxed text-[var(--color-fg)] placeholder:text-[var(--color-fg-dim)] focus:outline-none focus:border-[var(--color-border-strong)]"
+        />
+        {draft.trim() && (
+          <div className="flex flex-wrap items-center gap-2">
+            <Button size="sm" type="submit" disabled={saving}>
+              add note <Kbd className="ml-1">⌘↵</Kbd>
+            </Button>
+            {canRetry && (
+              <Button
+                size="sm"
+                type="button"
+                variant={lastRunFailed ? "primary" : undefined}
+                disabled={saving}
+                onClick={() => { void add(true); }}
+                title="Save the note and put this task on the AI job queue"
+              >
+                note &amp; retry <Kbd className="ml-1">⇧⌘↵</Kbd>
+              </Button>
+            )}
+          </div>
+        )}
+      </form>
+      {error && <p role="alert" className="text-[11px] text-[var(--color-critical)]">{error}</p>}
+      {status && !error && <p role="status" className="text-[11px] text-[var(--color-fg-dim)]">{status}</p>}
     </section>
   );
 }

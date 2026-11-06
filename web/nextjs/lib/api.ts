@@ -2,6 +2,9 @@ import type {
   AgendaReport,
   Assignee,
   DependencyInfo,
+  TaskNote,
+  RulesOverview,
+  RulesApplyResult,
   TagCount,
   Task,
   TaskEditInput,
@@ -528,6 +531,27 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ ids, ...edit }),
     }),
+  /** Merge `ids` into task `keep` (they close; tags / deps / notes move). ⌘Z undoes. */
+  mergeTasks: (keep: number, ids: number[]) =>
+    requestWithServerError<{ ok: true; keep: number; merged: number[]; tags_added: string[]; deps_moved: number; notes_copied: number }>(
+      `/api/tasks/${keep}/merge`,
+      { method: "POST", body: JSON.stringify({ ids }) },
+    ),
+  rules: () => request<RulesOverview>("/api/rules"),
+  applyRules: (dryRun: boolean) =>
+    requestWithServerError<RulesApplyResult>("/api/rules/apply", {
+      method: "POST",
+      body: JSON.stringify({ dry_run: dryRun }),
+    }),
+  notes: (id: number) => request<TaskNote[]>(`/api/tasks/${id}/notes`),
+  /** `queue: true` also puts the task on the AI job queue (retry with feedback). */
+  addNote: (id: number, body: string, opts: { queue?: boolean } = {}) =>
+    requestWithServerError<TaskNote & { queued: boolean }>(`/api/tasks/${id}/notes`, {
+      method: "POST",
+      body: JSON.stringify({ body, queue: Boolean(opts.queue) }),
+    }),
+  deleteNote: (id: number, noteId: number) =>
+    requestWithServerError<{ ok: true; removed: TaskNote }>(`/api/tasks/${id}/notes/${noteId}`, { method: "DELETE" }),
   deps: (id: number) => request<DependencyInfo>(`/api/tasks/${id}/deps`),
   addDependency: (id: number, dependsOn: number) =>
     requestWithServerError<DependencyInfo>(`/api/tasks/${id}/deps`, {

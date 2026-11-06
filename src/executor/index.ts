@@ -13,6 +13,8 @@ export interface RunOptions {
   repoTemplate?: string;     // body of <repo>/.agents/RELAY_PROMPT.md, prepended before context
   /** "Prerequisite tasks" section listing the task's dependencies (schema v12). */
   prerequisites?: string;
+  /** "Notes" section: the user's progress notes on the task (schema v14). */
+  notes?: string;
   /**
    * Force a fresh prompt-based launch even when the task has a `session_id`.
    * Useful when the CLI's resume command is broken, or the user wants to
@@ -65,7 +67,7 @@ export function resolveCommand(
     case "claude-code": {
       const bin = opts.claudeBin ?? "claude";
       if (canResume) return { bin, args: ["--resume", task.session_id as string] };
-      const prompt = buildPrompt(task.prompt, opts.contextPreamble, opts.repoTemplate, opts.prerequisites);
+      const prompt = buildPrompt(promptBody(task, opts.notes), opts.contextPreamble, opts.repoTemplate, opts.prerequisites, opts.notes);
       return { bin, args: prompt ? [prompt] : [] };
     }
     case "codex": {
@@ -75,10 +77,11 @@ export function resolveCommand(
         // The optional prompt is appended only when relay has one to inject
         // (typically null when resuming a session-derived task).
         const args = ["resume", task.session_id as string];
-        if (task.prompt) args.push(task.prompt);
+        const followUp = withResumeNotes(task.prompt, opts.notes);
+        if (followUp) args.push(followUp);
         return { bin, args };
       }
-      const prompt = buildPrompt(task.prompt, opts.contextPreamble, opts.repoTemplate, opts.prerequisites);
+      const prompt = buildPrompt(promptBody(task, opts.notes), opts.contextPreamble, opts.repoTemplate, opts.prerequisites, opts.notes);
       return { bin, args: prompt ? [prompt] : [] };
     }
     case "antigravity": {
@@ -89,7 +92,7 @@ export function resolveCommand(
       // conversationId from outside, so we degrade to a fresh prompt with
       // context preamble (same behavior as if `session_id` were null).
       // #TODO(agent): if `agy` adds `agy resume <id>`, wire it here.
-      const prompt = buildPrompt(task.prompt, opts.contextPreamble, opts.repoTemplate, opts.prerequisites);
+      const prompt = buildPrompt(promptBody(task, opts.notes), opts.contextPreamble, opts.repoTemplate, opts.prerequisites, opts.notes);
       return { bin, args: prompt ? [prompt] : [] };
     }
     case "self": {
@@ -131,19 +134,85 @@ export function resolveReviewUrl(task: Task): string | null {
   return null;
 }
 
+/**
+ * Prompt used when a task has none of its own. Interactive launches can
+ * open an empty agent session, but a headless run needs instructions, so
+ * describe the task from the fields relay already has.
+ */
+export function fallbackPrompt(task: Task): string {
+  const lines = [`Work on this task in the current repository: ${task.title}`];
+  const body = task.body.trim();
+  if (body) lines.push("", body);
+  if (task.files.length > 0) lines.push("", `Relevant files: ${task.files.join(", ")}`);
+  if (task.source_type !== "manual") lines.push("", `(source: ${task.source_type} ${task.source_id})`);
+  return lines.join("\n");
+}
+
+/**
+ * The prompt body for an interactive launch. A task without its own prompt
+ * normally launches the agent bare, but once the user left notes the agent
+ * must also be told what the task is — notes alone are not a task.
+ */
+export function promptBody(task: Task, notes: string | undefined): string | null {
+  return task.prompt ?? (notes ? fallbackPrompt(task) : null);
+}
+
 export function buildPrompt(
   prompt: string | null,
   preamble?: string,
   repoTemplate?: string,
   prerequisites?: string,
+  notes?: string,
 ): string | null {
-  if (!prompt && !preamble && !repoTemplate && !prerequisites) return null;
+  if (!prompt && !preamble && !repoTemplate && !prerequisites && !notes) return null;
   const parts: string[] = [];
   if (repoTemplate) parts.push(repoTemplate);
   if (preamble) parts.push(`# Resuming from previous session\n\n${preamble}`);
   if (prerequisites) parts.push(`# Prerequisite tasks\n\n${prerequisites}`);
   if (prompt) parts.push(prompt);
+  // Notes go last: they are the user's newest steering ("the last run
+  // failed because X — try Y"), so they should be the freshest thing the
+  // agent reads before it starts.
+  if (notes) parts.push(`# Notes from the user\n\n${notes}`);
   return parts.join("\n\n---\n\n");
+}
+
+/**
+ * A resumed session already has its history, but the user's notes may be
+ * newer than it (that is the point of "retry with feedback"), so they ride
+ * along with the follow-up prompt.
+ */
+export function withResumeNotes(prompt: string | null, notes: string | undefined): string | null {
+  if (!notes) return prompt;
+  const section = `# Notes from the user\n\n${notes}`;
+  return prompt ? `${prompt}\n\n---\n\n${section}` : section;
+}
+
+/** Newest notes kept in the prompt; older ones are summarized as a count. */
+export const PROMPT_NOTE_LIMIT = 10;
+
+/**
+ * Render a task's notes for the agent prompt, oldest first so the agent
+ * reads them as a story. Only the newest {@link PROMPT_NOTE_LIMIT} are
+ * included. Empty string when there are none.
+ */
+export function formatNotes(
+  notes: ReadonlyArray<{ body: string; created_at: string }>,
+  limit: number = PROMPT_NOTE_LIMIT,
+): string {
+  if (notes.length === 0) return "";
+  const kept = notes.slice(-limit);
+  const dropped = notes.length - kept.length;
+  const lines = kept.map((n) => {
+    const when = n.created_at.slice(0, 16).replace("T", " ");
+    const [first, ...rest] = n.body.split("\n");
+    const cont = rest.map((line) => `  ${line}`).join("\n");
+    return `- [${when}] ${first ?? ""}${cont ? `\n${cont}` : ""}`;
+  });
+  const head =
+    "The user left these notes on the task (oldest first). The newest note takes precedence when they conflict; " +
+    "they often explain why a previous attempt failed.";
+  return `${head}${dropped > 0 ? ` (${dropped} older note${dropped === 1 ? "" : "s"} omitted)` : ""}\n\n${lines.join("\n")}`;
 }
 
 /**

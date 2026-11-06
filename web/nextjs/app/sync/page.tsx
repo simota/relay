@@ -8,6 +8,7 @@ import { PageState, stateVariantFromError, useOnlineStatus } from "@/components/
 import { SkeletonBlock, SkeletonScreen } from "@/components/skeleton";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
+import { TriageRulesCard } from "@/components/triage-rules-card";
 import { formatMonthDayTime } from "@/lib/copy";
 import { cn } from "@/lib/utils";
 
@@ -97,6 +98,8 @@ export default function SyncPage() {
             ))}
           </section>
         )}
+
+        <TriageRulesCard />
 
         {!stateVariant && (
           <section>

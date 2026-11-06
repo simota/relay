@@ -253,6 +253,15 @@ function withCache<T>(c: Context, compute: () => T): T {
   return value;
 }
 
+/**
+ * Drop every cached insight. Called after a mutation an insight is the
+ * entry point for (e.g. merging a duplicate cluster), so the panel the
+ * user acted from doesn't keep showing the old state for up to a minute.
+ */
+export function invalidateInsightsCache(): void {
+  cache.clear();
+}
+
 /** Test hook: current number of cached insight responses. */
 export function insightsCacheSize(): number {
   return cache.size;

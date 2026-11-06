@@ -68,6 +68,7 @@ dependencies" link uses `is:blocked`).
 | `s` | snooze (indefinitely; the detail panel's ▾ menu picks a wake date) |
 | `Shift+S` | snooze until tomorrow — reopens on its own |
 | `e` | edit the task inline (title / priority / due / wait on / prompt / files / body). `⌘↵` saves, `Esc` cancels. Edited fields stay across sync |
+| `m` | focus the detail panel's note box. `⌘↵` saves the note, `⇧⌘↵` saves it and queues the task ("note & retry"); notes are sent to the next agent run |
 | `c` | close (mark done) |
 | `o` | reopen |
 | `a` | add the selected task (or every multi-selected task) to the run queue |
