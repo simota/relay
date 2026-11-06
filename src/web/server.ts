@@ -5,7 +5,7 @@ import { streamSSE } from "hono/streaming";
 import { createHash } from "node:crypto";
 import { isIP } from "node:net";
 import { existsSync, readFileSync } from "node:fs";
-import { basename, dirname, extname, join, resolve } from "node:path";
+import { basename, dirname, extname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { RelayDB } from "../db/client.js";
 import { createQueueApi } from "../api/queue.js";
@@ -689,7 +689,7 @@ function serveStatic(path: string): Response {
       if (existsSync(abs) && isFile(abs)) {
         const mime = MIME[extname(abs).toLowerCase()] ?? "application/octet-stream";
         return new Response(readFileSync(abs), {
-          headers: { "content-type": mime, "cache-control": "no-store" },
+          headers: { "content-type": mime, "cache-control": cacheControlFor(root, abs) },
         });
       }
     }
@@ -702,6 +702,19 @@ function serveStatic(path: string): Response {
     });
   }
   return new Response("not found", { status: 404 });
+}
+
+/**
+ * Next.js puts every build output under `_next/static/` behind a content
+ * hash or the build id, so a rebuild changes the URL and the bytes behind
+ * a URL never change: those are cached for good, as `next start` does.
+ * Everything else — the HTML that names the current chunks above all —
+ * stays `no-store`, so a rebuilt UI shows up on the next load.
+ */
+export function cacheControlFor(root: string, abs: string): string {
+  return abs.startsWith(join(root, "_next", "static") + sep)
+    ? "public, max-age=31536000, immutable"
+    : "no-store";
 }
 
 function candidatePaths(reqPath: string): string[] {

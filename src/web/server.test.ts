@@ -6,7 +6,8 @@ import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { CONFIG_PATH } from "../paths.js";
 import { RelayDB } from "../db/client.js";
 import { INSIGHTS_CACHE_MAX_ENTRIES, insightsCacheSize } from "../api/insights.js";
-import { buildApp } from "./server.js";
+import { join } from "node:path";
+import { buildApp, cacheControlFor } from "./server.js";
 
 let app: ReturnType<typeof buildApp>;
 beforeAll(() => {
@@ -334,5 +335,29 @@ describe("queue, runs, and bulk assign APIs", () => {
     expect(log.status).toBe(404);
     const badStatus = await app.request("http://127.0.0.1:7340/api/runs?status=weird");
     expect(badStatus.status).toBe(400);
+  });
+});
+
+describe("static asset caching", () => {
+  const root = "/srv/out";
+  test("content-hashed Next.js build output is cached as immutable", () => {
+    for (const rel of ["_next/static/chunks/app-3f9c1b.js", "_next/static/css/a1b2.css", "_next/static/BUILD_ID/_buildManifest.js"]) {
+      expect(cacheControlFor(root, join(root, rel))).toBe("public, max-age=31536000, immutable");
+    }
+  });
+
+  test("HTML and everything outside _next/static stays no-store", () => {
+    for (const rel of ["index.html", "sessions/index.html", "favicon.ico", "_next/staticx/a.js", "_next/data.json", "_next/static"]) {
+      expect(cacheControlFor(root, join(root, rel))).toBe("no-store");
+    }
+    // join() normalizes `..`, so an escape attempt never lands under _next/static.
+    expect(cacheControlFor(root, join(root, "_next/static/../../index.html"))).toBe("no-store");
+  });
+
+  test("pages are served no-store", async () => {
+    const res = await app.request("http://127.0.0.1:7340/", { headers: { host: "127.0.0.1:7340" } });
+    expect(res.status).toBe(200);
+    // The "frontend not built" placeholder carries no cache-control at all.
+    expect(res.headers.get("cache-control") ?? "no-store").toBe("no-store");
   });
 });

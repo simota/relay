@@ -14,7 +14,7 @@ type DoctorOptions = {
   strict?: boolean;
 };
 
-export const DOCTOR_STRICT_FLAG = "--strict";
+export { DOCTOR_STRICT_FLAG } from "./doctor-flags.js";
 
 export function runDoctor(options: DoctorOptions = {}): void {
   let failures = 0;
