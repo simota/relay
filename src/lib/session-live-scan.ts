@@ -13,8 +13,8 @@
 // (`detectClaudeSessionStatus`) the adapter uses, so server-side
 // classification stays consistent across both paths.
 
-import { existsSync } from "node:fs";
-import { readdir, readFile, stat } from "node:fs/promises";
+import { existsSync, statSync, type Stats } from "node:fs";
+import { readdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { resolveRepoForCwd } from "./repo-from-cwd.js";
@@ -88,6 +88,21 @@ export async function scanClaudeSessionsLive(opts: ScanOptions): Promise<LiveSca
   return results;
 }
 
+/**
+ * Synchronous stat: one syscall, no thread-pool round trip. A poll stats
+ * every session file but reads only the recent ones, so the per-file async
+ * hop dominated the scan. The loop still yields at each per-directory
+ * readdir / readFile await, so one synchronous stretch covers at most one
+ * directory's stats.
+ */
+function statOrNull(path: string): Stats | null {
+  try {
+    return statSync(path);
+  } catch {
+    return null;
+  }
+}
+
 async function scanFile(
   fullPath: string,
   parentId: string | null,
@@ -95,7 +110,7 @@ async function scanFile(
   cutoffMs: number,
   now: number,
 ): Promise<Omit<LiveScanResult, "id"> | null> {
-  const s = await stat(fullPath).catch(() => null);
+  const s = statOrNull(fullPath);
   if (!s) return null;
   if (s.mtimeMs < cutoffMs) return null;
 
