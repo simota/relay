@@ -3,6 +3,7 @@ import { readdir } from "node:fs/promises";
 import { spawn, spawnSync } from "node:child_process";
 import { basename, join } from "node:path";
 import type { Adapter, AdapterContext, ResolvedSource, TaskInput } from "../types.js";
+import { memoizedScan } from "./scan-memo.js";
 
 /**
  * Sweep `git stash list` across every repo under `scan.roots` (and any
@@ -103,7 +104,7 @@ export const gitStashAdapter: Adapter = {
   },
 
   async fetch(ctx: AdapterContext): Promise<TaskInput[]> {
-    const { tasks } = await scanCurrent(ctx);
+    const { tasks } = await memoizedScan(ctx, "git_stash", () => scanCurrent(ctx));
     return tasks;
   },
 
@@ -121,7 +122,7 @@ export const gitStashAdapter: Adapter = {
   async fetchResolved(ctx: AdapterContext): Promise<ResolvedSource[]> {
     if (!ctx.knownOpenSourceIds) return [];
 
-    const { liveSourceIds, scannedRepos } = await scanCurrent(ctx);
+    const { liveSourceIds, scannedRepos } = await memoizedScan(ctx, "git_stash", () => scanCurrent(ctx));
     const known = ctx.knownOpenSourceIds("git_stash");
     if (known.length === 0) return [];
 

@@ -4,6 +4,7 @@ import { readdir, stat } from "node:fs/promises";
 import { spawn, spawnSync } from "node:child_process";
 import { basename, join } from "node:path";
 import type { Adapter, AdapterContext, ResolvedSource, TaskInput } from "../types.js";
+import { memoizedScan } from "./scan-memo.js";
 
 const PRIORITY_BASE = 68;
 const PRIORITY_PER_DAY = 2;
@@ -39,12 +40,12 @@ export const gitDirtyWorktreeAdapter: Adapter = {
   },
 
   async fetch(ctx: AdapterContext): Promise<TaskInput[]> {
-    const { tasks } = await scanCurrent(ctx);
+    const { tasks } = await memoizedScan(ctx, "git_dirty_worktree", () => scanCurrent(ctx));
     return tasks;
   },
 
   async fetchResolved(ctx: AdapterContext): Promise<ResolvedSource[]> {
-    const { cleanSourceIds } = await scanCurrent(ctx);
+    const { cleanSourceIds } = await memoizedScan(ctx, "git_dirty_worktree", () => scanCurrent(ctx));
     return cleanSourceIds.map((source_id) => ({ source_type: "git_dirty_worktree", source_id }));
   },
 };

@@ -47,17 +47,26 @@ export function extractPromiseLedger(
   // can only cite evidence from tool_calls in (lastUserTs, T]. This keeps a
   // claim like "I've added the test" from being satisfied by a Bash test
   // run that happened five turns ago for a completely unrelated request.
-  const turnBoundaries = collectUserTurnBoundaries(messages);
+  //
+  // Boundaries are sorted once so each lookup is a binary search instead of
+  // a scan over every user turn; tool windows are sliced by binary search
+  // when the tool calls are already in timestamp order (the normal case)
+  // and filtered otherwise. Both give exactly what the per-message linear
+  // scans gave, and neither runs for messages without claims.
+  const turnBoundaries = collectUserTurnBoundaries(messages).sort();
+  const toolsSorted = isSortedByTimestamp(toolCalls);
 
   messages.forEach((m, idx) => {
     if (m.role !== "assistant" || !m.text) return;
+    const claims = extractClaims(m.text);
+    if (claims.length === 0) return;
     const lowerBound = priorUserTs(turnBoundaries, m.timestamp);
     const upperBound = m.timestamp;
-    const turnTools = toolCalls.filter(
-      (tc) => tc.timestamp > lowerBound && tc.timestamp <= upperBound,
-    );
+    const turnTools = toolsSorted
+      ? toolCalls.slice(upperBoundIndex(toolCalls, lowerBound), upperBoundIndex(toolCalls, upperBound))
+      : toolCalls.filter((tc) => tc.timestamp > lowerBound && tc.timestamp <= upperBound);
 
-    for (const claim of extractClaims(m.text)) {
+    for (const claim of claims) {
       const verdict = verifyClaim(claim, turnTools);
       entries.push({
         message_index: idx,
@@ -483,15 +492,47 @@ function collectUserTurnBoundaries(messages: readonly SessionMessage[]): string[
   return out;
 }
 
-function priorUserTs(boundaries: readonly string[], beforeTs: string): string {
-  // Largest boundary strictly less than beforeTs. ISO timestamps compare
-  // correctly as strings (lexicographic == chronological for fixed-format
-  // ISO8601), which both Claude and Codex emit.
-  let best = "";
-  for (const b of boundaries) {
-    if (b < beforeTs && b > best) best = b;
+function priorUserTs(sortedBoundaries: readonly string[], beforeTs: string): string {
+  // Largest boundary strictly less than beforeTs ("" when none). ISO
+  // timestamps compare correctly as strings (lexicographic == chronological
+  // for fixed-format ISO8601), which both Claude and Codex emit. Boundaries
+  // are non-empty and sorted with the default (code-unit) sort, the same
+  // order `<` uses, so this is a binary search for the last one < beforeTs.
+  let lo = 0;
+  let hi = sortedBoundaries.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if ((sortedBoundaries[mid] as string) < beforeTs) lo = mid + 1;
+    else hi = mid;
   }
-  return best;
+  return lo > 0 ? (sortedBoundaries[lo - 1] as string) : "";
+}
+
+/** True when every timestamp is a string and they never decrease. */
+function isSortedByTimestamp(toolCalls: readonly SessionToolCall[]): boolean {
+  let prev = "";
+  for (const tc of toolCalls) {
+    const ts: unknown = tc.timestamp;
+    if (typeof ts !== "string" || ts < prev) return false;
+    prev = ts;
+  }
+  return true;
+}
+
+/**
+ * First index whose timestamp is > ts (sorted.length when none). With
+ * ascending timestamps, entries in (lower, upper] are exactly
+ * slice(upperBoundIndex(lower), upperBoundIndex(upper)).
+ */
+function upperBoundIndex(sorted: readonly SessionToolCall[], ts: string): number {
+  let lo = 0;
+  let hi = sorted.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if ((sorted[mid] as SessionToolCall).timestamp <= ts) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
 }
 
 function truncate(s: string, max: number): string {

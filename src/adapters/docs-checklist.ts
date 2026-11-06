@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { basename, join, relative } from "node:path";
 import type { Adapter, AdapterContext, ResolvedSource, TaskInput } from "../types.js";
+import { memoizedScan } from "./scan-memo.js";
 
 const CHECKBOX_PATTERN = /^\s*-\s*\[\s*([ xX])\s*\]\s+(.+)$/;
 const MAX_OPEN_PER_FILE = 100;
@@ -24,12 +25,12 @@ export const docsChecklistAdapter: Adapter = {
   name: "docs_checklist",
 
   async fetch(ctx: AdapterContext): Promise<TaskInput[]> {
-    const { open } = await scanAll(ctx);
+    const { open } = await memoizedScan(ctx, "docs_checklist", () => scanAll(ctx));
     return open;
   },
 
   async fetchResolved(ctx: AdapterContext): Promise<ResolvedSource[]> {
-    const { resolved } = await scanAll(ctx);
+    const { resolved } = await memoizedScan(ctx, "docs_checklist", () => scanAll(ctx));
     return resolved;
   },
 };

@@ -3,6 +3,7 @@ import { readdir } from "node:fs/promises";
 import { spawn, spawnSync } from "node:child_process";
 import { basename, join } from "node:path";
 import type { Adapter, AdapterContext, ResolvedSource, TaskInput } from "../types.js";
+import { memoizedScan } from "./scan-memo.js";
 import { ghAuthenticated } from "./gh-auth.js";
 
 /**
@@ -149,7 +150,7 @@ export const orphanBranchAdapter: Adapter = {
   },
 
   async fetch(ctx: AdapterContext): Promise<TaskInput[]> {
-    const { tasks } = await scanCurrent(ctx);
+    const { tasks } = await memoizedScan(ctx, "orphan_branch", () => scanCurrent(ctx));
     return tasks;
   },
 
@@ -168,7 +169,7 @@ export const orphanBranchAdapter: Adapter = {
   async fetchResolved(ctx: AdapterContext): Promise<ResolvedSource[]> {
     if (!ctx.knownOpenSourceIds) return [];
 
-    const { liveSourceIds, scannedRepos } = await scanCurrent(ctx);
+    const { liveSourceIds, scannedRepos } = await memoizedScan(ctx, "orphan_branch", () => scanCurrent(ctx));
     const known = ctx.knownOpenSourceIds("orphan_branch");
     if (known.length === 0) return [];
 

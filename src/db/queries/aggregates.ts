@@ -108,6 +108,32 @@ export function sourceDelta7d(db: Database): number {
   return row.n ?? 0;
 }
 
+/**
+ * sourceCounts() and sourceDelta7d() from one scan of tasks instead of two
+ * (the headline /api/counts needs both). Same values: every not-done task
+ * lands in exactly one source_type group, and status / created_at are
+ * NOT NULL, so the per-group 7-day sums add up to sourceDelta7d().
+ */
+export function sourceCountsWithDelta7d(db: Database): { sources: Record<string, number>; delta7d: number } {
+  const rows = db
+    .prepare(
+      // NOT INDEXED for the same reason as sourceCounts().
+      `SELECT source_type, COUNT(*) AS n,
+              SUM(created_at >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now','-7 days')) AS d
+         FROM tasks NOT INDEXED
+         WHERE status != 'done'
+         GROUP BY source_type`,
+    )
+    .all() as Array<{ source_type: string; n: number; d: number | null }>;
+  const sources: Record<string, number> = {};
+  let delta7d = 0;
+  for (const r of rows) {
+    sources[r.source_type] = r.n;
+    delta7d += r.d ?? 0;
+  }
+  return { sources, delta7d };
+}
+
 export function repoNames(db: Database): string[] {
   const rows = db
     .prepare(`SELECT DISTINCT repo FROM tasks ORDER BY repo`)

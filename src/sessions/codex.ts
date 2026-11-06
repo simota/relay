@@ -22,20 +22,16 @@ export async function getCodexSession(
   opts: GetSessionOptions = {},
 ): Promise<SessionDetail | null> {
   // We don't know the y/m/d path from the id alone — walk the tree.
-  const candidates = await collectRecentJsonl(SESSIONS_ROOT, 0);
-  for (const c of candidates) {
-    if (!c.path.includes(`-${id}.jsonl`)) continue;
-    return readCodexDetail(c.path, roots, c.mtimeMs, opts);
-  }
-  return null;
+  const suffix = `-${id}.jsonl`;
+  const candidates = await collectRecentJsonl(SESSIONS_ROOT, 0, (path) => path.includes(suffix));
+  const first = candidates[0];
+  return first ? readCodexDetail(first.path, roots, first.mtimeMs, opts) : null;
 }
 
 export async function getCodexPath(id: string): Promise<string | null> {
-  const candidates = await collectRecentJsonl(SESSIONS_ROOT, 0);
-  for (const c of candidates) {
-    if (c.path.includes(`-${id}.jsonl`)) return c.path;
-  }
-  return null;
+  const suffix = `-${id}.jsonl`;
+  const candidates = await collectRecentJsonl(SESSIONS_ROOT, 0, (path) => path.includes(suffix));
+  return candidates[0]?.path ?? null;
 }
 
 interface JsonlCandidate {
@@ -43,7 +39,16 @@ interface JsonlCandidate {
   mtimeMs: number;
 }
 
-async function collectRecentJsonl(root: string, cutoffMs: number): Promise<JsonlCandidate[]> {
+/**
+ * Walk `<root>/YYYY/MM/DD/*.jsonl` in directory order. `match` filters on
+ * the full path BEFORE the stat, so an id lookup stats only the files that
+ * can match instead of every session file in the tree.
+ */
+async function collectRecentJsonl(
+  root: string,
+  cutoffMs: number,
+  match?: (path: string) => boolean,
+): Promise<JsonlCandidate[]> {
   const out: JsonlCandidate[] = [];
   const years = await readdir(root).catch(() => []);
   for (const y of years) {
@@ -58,6 +63,7 @@ async function collectRecentJsonl(root: string, cutoffMs: number): Promise<Jsonl
         for (const f of files) {
           if (!f.endsWith(".jsonl")) continue;
           const full = join(root, y, m, d, f);
+          if (match && !match(full)) continue;
           const s = await stat(full).catch(() => null);
           if (!s || s.mtimeMs < cutoffMs) continue;
           out.push({ path: full, mtimeMs: s.mtimeMs });

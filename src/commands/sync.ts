@@ -173,6 +173,9 @@ export async function runSync(opts: SyncOptions = {}): Promise<SyncReport> {
       doneStatuses: cfg.gh_project_card.done_statuses,
     },
     knownOpenSourceIds: (sourceType: SourceType) => db.listOpenSourceIdsByType(sourceType),
+    // fetch() and the resolved sweep below share one scan per adapter for
+    // this run (src/adapters/scan-memo.ts); dropped when the run ends.
+    scanMemo: new Map<string, Promise<unknown>>(),
     // Write-side handle for adapters that maintain side-car tables
     // (currently only the 4 session adapters writing to `sessions`).
     // Skipped in dry-run so previews don't mutate the DB.
@@ -316,6 +319,7 @@ export async function runSync(opts: SyncOptions = {}): Promise<SyncReport> {
       log(chalk.gray(`· pruned ${pruned} undo_log row(s) older than 7 days`));
     }
   }
+  ctx.scanMemo.clear();
   db.close();
 
   log(

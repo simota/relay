@@ -2,6 +2,7 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import { existsSync, readdirSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { Adapter, AdapterContext, ResolvedSource, TaskInput } from "../types.js";
+import { memoizedScan } from "./scan-memo.js";
 
 /**
  * Interrupted git states we surface as inbox items. Each entry maps the
@@ -80,7 +81,7 @@ export const gitInterruptedAdapter: Adapter = {
   },
 
   async fetch(ctx: AdapterContext): Promise<TaskInput[]> {
-    const { open } = await scanAll(ctx);
+    const { open } = await memoizedScan(ctx, "git_interrupted", () => scanAll(ctx));
     return open;
   },
 
@@ -93,7 +94,7 @@ export const gitInterruptedAdapter: Adapter = {
    * (`git rebase --continue` / `--abort`) gets auto-closed (undo-ably).
    */
   async fetchResolved(ctx: AdapterContext): Promise<ResolvedSource[]> {
-    const { resolved } = await scanAll(ctx);
+    const { resolved } = await memoizedScan(ctx, "git_interrupted", () => scanAll(ctx));
     return resolved;
   },
 };

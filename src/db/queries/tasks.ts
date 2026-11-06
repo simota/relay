@@ -6,7 +6,7 @@ import type { Database } from "bun:sqlite";
 import type { SessionRow, SessionType, Task } from "../../types.js";
 import type { TaskStatusSnapshot } from "../types.js";
 import { hydrate, parseAgeFilter } from "../internal.js";
-import { HAS_OPEN_BLOCKER_SQL, TAG_FILTER_SQL } from "./links.js";
+import { HAS_OPEN_BLOCKER_SQL, OPEN_BLOCKER_ID_IN_SQL, TAG_FILTER_SQL } from "./links.js";
 
 // Filesystem-bound source types — these tasks cannot exist meaningfully
 // when the local repo directory is gone. github_issue/pr live on github.com,
@@ -129,7 +129,7 @@ export function listTasks(
     where.push(TAG_FILTER_SQL);
     args.push(filters.tag);
   }
-  if (filters.blocked === true) where.push(HAS_OPEN_BLOCKER_SQL);
+  if (filters.blocked === true) where.push(OPEN_BLOCKER_ID_IN_SQL);
   if (filters.blocked === false) where.push(`NOT ${HAS_OPEN_BLOCKER_SQL}`);
   const olderThanDays = parseAgeFilter(filters.age);
   if (olderThanDays !== null) {

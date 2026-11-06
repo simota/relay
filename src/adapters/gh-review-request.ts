@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import type { Adapter, AdapterContext, ResolvedSource, TaskInput } from "../types.js";
+import { memoizedScan } from "./scan-memo.js";
 import { ghAuthenticated } from "./gh-auth.js";
 
 const SEARCH_LIMIT = "100";
@@ -14,14 +15,14 @@ export const ghReviewRequestAdapter: Adapter = {
   },
 
   async fetch(ctx: AdapterContext): Promise<TaskInput[]> {
-    const { tasks } = await scanCurrent(ctx);
+    const { tasks } = await memoizedScan(ctx, "gh_review_request", () => scanCurrent(ctx));
     return tasks;
   },
 
   async fetchResolved(ctx: AdapterContext): Promise<ResolvedSource[]> {
     // No user → scanCurrent finds nothing live; that is not "all resolved".
     if (!ctx.knownOpenSourceIds || !ctx.githubUser) return [];
-    const { liveSourceIds } = await scanCurrent(ctx);
+    const { liveSourceIds } = await memoizedScan(ctx, "gh_review_request", () => scanCurrent(ctx));
     const live = new Set(liveSourceIds);
     return ctx
       .knownOpenSourceIds("gh_review_request")
