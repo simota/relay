@@ -198,8 +198,7 @@ export function buildApp(opts: BuildAppOptions = {}) {
     }
     const repos = presentCount;
     const contexts = db.contextCount();
-    const sources = db.sourceCounts();
-    const source_delta_7d = db.sourceDelta7d();
+    const { sources, delta7d: source_delta_7d } = db.sourceCountsWithDelta7d();
     return c.json({ ...views, repos, contexts, sources, source_delta_7d });
   });
 

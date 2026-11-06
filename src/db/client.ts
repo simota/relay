@@ -133,6 +133,7 @@ import {
   selfDrivenTasks as _selfDrivenTasks,
   sourceCounts as _sourceCounts,
   sourceDelta7d as _sourceDelta7d,
+  sourceCountsWithDelta7d as _sourceCountsWithDelta7d,
   today as _today,
   viewCounts as _viewCounts,
 } from "./queries/aggregates.js";
@@ -527,6 +528,11 @@ export class RelayDB {
 
   sourceDelta7d(): number {
     return _sourceDelta7d(this.db);
+  }
+
+  /** sourceCounts() + sourceDelta7d() in one table scan (for /api/counts). */
+  sourceCountsWithDelta7d(): { sources: Record<string, number>; delta7d: number } {
+    return _sourceCountsWithDelta7d(this.db);
   }
 
   /**
