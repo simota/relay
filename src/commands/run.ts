@@ -516,10 +516,10 @@ function notesLine(prepared: PreparedRun, headless: boolean): string {
   return chalk.gray(`\n   + ${n} injected`);
 }
 
-export function printHeadlessOutcome(result: ExecuteResult): void {
+export function printHeadlessOutcome(result: ExecuteResult, log: (line: string) => void = (line) => console.log(line)): void {
   const mark =
     result.status === "success" ? chalk.green("✓") : result.status === "interrupted" ? chalk.yellow("■") : chalk.red("✗");
-  console.log(
+  log(
     `\n${mark} run #${result.runId} ${result.status} (exit ${result.exitCode})` +
       (result.closed ? chalk.green(" · task closed") : "") +
       (result.changes ? chalk.cyan(`\n   changed: ${formatChangeSummary(result.changes)}`) : "") +

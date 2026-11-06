@@ -90,6 +90,7 @@ Web の queue tray (`a` / bulk `a`) と共有。
 | `relay queue run --headless [--continue-on-error] [--close-on-success] [-n N] [--timeout <min>]` | 無人で一括実行 (claude-code / codex)。 |
 | `relay queue run --headless --verify --retries 2 --close-on-success` | 夜間バッチ: 各タスクを verify が green になるまで最大 3 attempt、green だけ close。 |
 | `relay queue run --dry-run` | 起動順と prompt だけ確認。 |
+| Web queue tray「run…」 | `relay web` 自身が headless で queue を処理 (verify gate / retries / close on success を選択、進捗と結果を tray に表示、stop は現タスク完了後)。開始できるのは relay web と同じマシンからのみ。CLI の `queue run` とはロックで排他。 |
 | `relay runs [--task <id>] [--status failed] [-n N] [--json]` | run 履歴 (所要時間・出力末尾・変更ファイル数 / コミット数)。 |
 | `relay runs --log <run-id>` | headless run の出力ログ全体 (先頭に変更ファイル一覧)。 |
 | `relay runs --diff <run-id>` | その run が repo に加えた変更の patch (起動前 HEAD との差分)。 |

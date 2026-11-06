@@ -68,6 +68,40 @@ export interface QueueItem {
   status: string;
 }
 
+/** One finished item of a queue run (src/commands/queue.ts QueueOutcome). */
+export interface QueueRunOutcome {
+  taskId: number;
+  title: string;
+  kind: "success" | "failed" | "interrupted" | "skipped" | "planned";
+  reason?: string;
+  runId?: number;
+  attempts?: number;
+  verify?: "passed" | "failed" | "missing";
+}
+
+export interface QueueRunnerOptions {
+  verify?: boolean;
+  retries?: number;
+  close_on_success?: boolean;
+  continue_on_error?: boolean;
+  limit?: number;
+}
+
+/** GET /api/queue/runner: the Web server's headless queue runner. */
+export interface QueueRunnerState {
+  status: "idle" | "running" | "stopping" | "finished" | "error";
+  started_at: string | null;
+  finished_at: string | null;
+  current: { task_id: number; title: string; repo: string; assignee: string; started_at: string } | null;
+  outcomes: QueueRunOutcome[];
+  log: string[];
+  error: string | null;
+  /** Another process (a terminal `relay queue run`) holds the queue. */
+  external: { pid: number; owner: string; started_at: string } | null;
+  /** This browser may start runs (the server only allows loopback peers). */
+  can_start: boolean;
+}
+
 /** A row of GET /api/runs: a run joined with its task. */
 export interface RunListItem extends TaskRun {
   task_id: number;
@@ -615,6 +649,15 @@ export const api = {
         method: "POST",
         body: JSON.stringify({}),
       }),
+    runner: () => request<QueueRunnerState>("/api/queue/runner"),
+    /** Start `relay queue run --headless` inside the server (loopback only). */
+    startRunner: (opts: QueueRunnerOptions) =>
+      requestWithServerError<QueueRunnerState>("/api/queue/runner", {
+        method: "POST",
+        body: JSON.stringify(opts),
+      }),
+    stopRunner: () =>
+      requestWithServerError<QueueRunnerState & { ok: boolean }>("/api/queue/runner/stop", { method: "POST" }),
   },
   views: {
     list: () => request<SavedView[]>("/api/views"),

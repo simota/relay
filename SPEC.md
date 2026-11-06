@@ -958,6 +958,8 @@ Next.js 15 + React 19。ルートは path-based:
 - `relay queue rm <ids...>` / `relay queue clear` / `relay queue [ls]`
 - `relay queue run` — 先頭から順に §10 / §10.2 のフローで起動。成功した item は queue から外れ (`--keep` で残す)、失敗で停止 (`--continue-on-error` で続行)。`done` の task は除去、headless 非対応 agent はスキップして queue に残す。queue は毎回読み直すので実行中に Web から追加した item も拾う (1 回の実行で各 item は最大 1 回)。依存関係 (§5 `task_deps`) を尊重し、未充足 blocker のある item は blocker の成功後に起動、blocker が失敗・未完了なら `skipped: blocked by #N` として queue に残す。`--dry-run` / `--limit N` / `--close-on-success` / `--timeout` / `--no-template` / `--no-resume`
 - API: `GET /api/queue`, `POST /api/queue/items` (`{task_id}` or `{task_ids: [...], front?}`), `POST /api/queue/items/:id/move` (`{direction: "up"|"down"|"front"}`), `DELETE /api/queue/items/:id`, `DELETE /api/queue`
+- **排他**: `relay queue run` (dry-run 以外) と Web runner は `~/.relay/queue-run.lock` (`{pid, owner, started_at}`, O_EXCL 作成) を取得してから動く。別プロセスが保持中なら `another queue run is in progress (...)` で起動しない (同じ item の二重起動防止)。保持プロセスが死んでいれば stale として引き継ぐ。
+- **Web runner** (`relay web` 内での `queue run --headless`): `GET /api/queue/runner` (状態 `idle|running|stopping|finished|error`、実行中タスク、各タスクの outcome (`attempts` / `verify` 付き)、出力末尾 200 行、別プロセスの lock 保持者 `external`、`can_start`)、`POST /api/queue/runner` (`{verify?, retries? (0-5), close_on_success?, continue_on_error? (default true), limit?}` → 202、空 queue / 実行中は 409)、`POST /api/queue/runner/stop` (実行中のタスクの完了後に停止)。**起動と停止は TCP peer が loopback の場合のみ** (`--host 0.0.0.0` で LAN に公開しても、コードを編集する agent を LAN から起動させない)。Web の queue tray の「run…」で verify gate / retries / close on success を選んで開始し、進捗・結果・出力を tray で追える。
 
 ### 10.5 Verify gate と自動リトライ (schema_version 15)
 

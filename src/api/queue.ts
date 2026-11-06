@@ -1,11 +1,87 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
+import { getConnInfo } from "hono/bun";
+import { QueueBusyError } from "../commands/queue.js";
 import { RelayDB } from "../db/client.js";
+import { readQueueLock } from "../lib/queue-lock.js";
+import { queueRunner, type QueueRunner } from "../lib/queue-runner.js";
 
 // Matches MAX_BULK_IDS in tasks.ts: "queue all visible" always fits.
 const MAX_QUEUE_IDS = 2000;
 
-export function createQueueApi() {
+export interface QueueApiOptions {
+  runner?: QueueRunner;
+  /**
+   * Whether a request may start agent runs. Default: the TCP peer is a
+   * loopback address. `relay web --host 0.0.0.0` exposes the API to the LAN,
+   * and starting a headless agent (which edits code with the permissions in
+   * [agents].*_headless_args) must stay a same-machine action.
+   */
+  isLocalRequest?: (c: Context) => boolean;
+}
+
+export function isLoopbackPeer(c: Context): boolean {
+  try {
+    const address = getConnInfo(c).remote.address ?? "";
+    return address === "::1" || address.startsWith("127.") || address === "::ffff:127.0.0.1" || /^::ffff:127\./.test(address);
+  } catch {
+    // No Bun server in env (e.g. app.request in tests): not provably local.
+    return false;
+  }
+}
+
+export function createQueueApi(opts: QueueApiOptions = {}) {
   const app = new Hono();
+  const runner = opts.runner ?? queueRunner;
+  const isLocal = opts.isLocalRequest ?? isLoopbackPeer;
+
+  // --- Headless runner (`relay queue run --headless` from the Web tray) ---
+  // GET reports this server's runner plus any other process holding the
+  // queue lock (a terminal `relay queue run`), so the tray can say why the
+  // run button is disabled.
+  app.get("/runner", (c) => {
+    const state = runner.snapshot();
+    const holder = runner.running ? null : readQueueLock();
+    return c.json({ ...state, external: holder, can_start: isLocal(c) });
+  });
+
+  app.post("/runner", async (c) => {
+    if (!isLocal(c)) {
+      return c.json({ error: "agent runs can only be started from this machine (loopback)" }, 403);
+    }
+    const body = ((await c.req.json().catch(() => null)) ?? {}) as Record<string, unknown>;
+    const retries = body.retries === undefined ? undefined : Number(body.retries);
+    if (retries !== undefined && (!Number.isInteger(retries) || retries < 0 || retries > 5)) {
+      return c.json({ error: "retries must be an integer 0-5" }, 400);
+    }
+    const limit = body.limit === undefined || body.limit === null ? undefined : Number(body.limit);
+    if (limit !== undefined && (!Number.isInteger(limit) || limit <= 0)) {
+      return c.json({ error: "limit must be a positive integer" }, 400);
+    }
+    {
+      using db = new RelayDB();
+      if (db.listQueueItems().length === 0) return c.json({ error: "queue is empty" }, 409);
+    }
+    try {
+      const state = runner.start({
+        verify: typeof body.verify === "boolean" ? body.verify : undefined,
+        retries,
+        closeOnSuccess: body.close_on_success === true,
+        continueOnError: body.continue_on_error !== false,
+        limit,
+      });
+      return c.json(state, 202);
+    } catch (e) {
+      if (e instanceof QueueBusyError) return c.json({ error: e.message, holder: e.holder }, 409);
+      throw e;
+    }
+  });
+
+  // Graceful stop: the agent that is running finishes, nothing new starts.
+  app.post("/runner/stop", (c) => {
+    if (!isLocal(c)) return c.json({ error: "only from this machine (loopback)" }, 403);
+    const stopped = runner.stop();
+    return c.json({ ok: stopped, ...runner.snapshot() });
+  });
 
   app.get("/", (c) => {
     using db = new RelayDB();

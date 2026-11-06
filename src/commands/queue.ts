@@ -11,6 +11,7 @@ import { loadConfig, type Config } from "../config.js";
 import { RelayDB, type QueueItem } from "../db/client.js";
 import { Assignee, type Task } from "../types.js";
 import { padEndDisplay, truncateDisplay } from "../lib/text-width.js";
+import { acquireQueueLock } from "../lib/queue-lock.js";
 import {
   executePrepared,
   executeWithRetries,
@@ -192,6 +193,22 @@ export interface QueueRunDeps {
   cfg?: Config;
   execute?: typeof executePrepared;
   log?: (line: string) => void;
+  /** Aborting stops the queue after the task that is running (Web "stop"). */
+  signal?: AbortSignal;
+  /** Install the Ctrl-C handler (default true; the Web server handles its own). */
+  handleSigint?: boolean;
+  /** Called when a task starts / finishes (Web runner progress). */
+  onTaskStart?: (info: { taskId: number; title: string; repo: string; assignee: string }) => void;
+  onTaskDone?: (outcome: QueueOutcome) => void;
+  /** Lock owner label; `false` skips the cross-process lock (tests). */
+  lockOwner?: string | false;
+}
+
+/** Thrown when another `relay queue run` (CLI or Web) is already working the queue. */
+export class QueueBusyError extends Error {
+  constructor(public readonly holder: { pid: number; owner: string; started_at: string }) {
+    super(`another queue run is in progress (${holder.owner}, pid ${holder.pid}, since ${holder.started_at})`);
+  }
 }
 
 /**
@@ -220,7 +237,25 @@ export async function processQueue(
     stopRequested = true;
     log(chalk.yellow("\n■ interrupted — the queue stops after the current task (Ctrl-C again to abort relay)"));
   };
-  if (!options.dryRun) process.on("SIGINT", onSigint);
+  const handleSigint = !options.dryRun && deps.handleSigint !== false;
+  // One runner at a time across processes: a CLI `queue run` and the Web
+  // runner would otherwise both launch the head item.
+  let releaseLock = () => {};
+  if (!options.dryRun && deps.lockOwner !== false) {
+    const lock = acquireQueueLock(deps.lockOwner ?? "cli");
+    if (!lock.ok) throw new QueueBusyError(lock.heldBy);
+    releaseLock = lock.release;
+  }
+  if (handleSigint) process.on("SIGINT", onSigint);
+  const onAbort = () => {
+    stopRequested = true;
+  };
+  deps.signal?.addEventListener("abort", onAbort);
+  if (deps.signal?.aborted) stopRequested = true;
+  const record = (outcome: QueueOutcome) => {
+    outcomes.push(outcome);
+    deps.onTaskDone?.(outcome);
+  };
 
   try {
     while (launches < limit && !stopRequested) {
@@ -241,7 +276,7 @@ export async function processQueue(
             attempted.add(candidate.id);
             const unmet = unmetBlockers(db, candidate.task_id, satisfied);
             const reason = `blocked by ${unmet.map((id) => `#${id}`).join(" ")}`;
-            outcomes.push({ taskId: candidate.task_id, title: candidate.title, kind: "skipped", reason });
+            record({ taskId: candidate.task_id, title: candidate.title, kind: "skipped", reason });
             log(chalk.yellow(`– #${candidate.task_id} skipped: ${reason}`));
           }
           break;
@@ -254,20 +289,20 @@ export async function processQueue(
         }
         if (task.status === "done") {
           if (!options.dryRun) db.deleteQueueItem(item.id);
-          outcomes.push({ taskId: task.id, title: task.title, kind: "skipped", reason: "already done" });
+          record({ taskId: task.id, title: task.title, kind: "skipped", reason: "already done" });
           log(chalk.gray(`– #${task.id} already done${options.dryRun ? "" : " — removed from queue"}`));
           continue;
         }
         const blocker = launchBlocker(task, headless);
         if (blocker) {
-          outcomes.push({ taskId: task.id, title: task.title, kind: "skipped", reason: blocker });
+          record({ taskId: task.id, title: task.title, kind: "skipped", reason: blocker });
           log(chalk.yellow(`– #${task.id} skipped: ${blocker}`));
           continue;
         }
         prep = prepareRun(db, task, cfg, { noTemplate: options.noTemplate, noResume: options.noResume });
       }
       if (!prep.ok) {
-        outcomes.push({ taskId: task.id, title: task.title, kind: "failed", reason: prep.error });
+        record({ taskId: task.id, title: task.title, kind: "failed", reason: prep.error });
         log(chalk.red(`✗ #${task.id} ${prep.error}`));
         if (!options.continueOnError) break;
         continue;
@@ -281,7 +316,7 @@ export async function processQueue(
         log(header);
         const prompt = previewPrompt(prep.prepared, headless, options.noResume);
         log(chalk.gray(prompt ? `   prompt: ${oneLine(prompt, 100)}` : "   (no prompt)"));
-        outcomes.push({ taskId: task.id, title: task.title, kind: "planned" });
+        record({ taskId: task.id, title: task.title, kind: "planned" });
         satisfied.add(task.id);
         launches += 1;
         continue;
@@ -290,6 +325,7 @@ export async function processQueue(
       log(header);
       launches += 1;
       const taskId = task.id;
+      deps.onTaskStart?.({ taskId, title: task.title, repo: task.repo, assignee: task.assignee });
       const result = await executeWithRetries(
         prep.prepared,
         cfg,
@@ -302,14 +338,14 @@ export async function processQueue(
           verify: options.verify ?? cfg.verify.auto,
           retries: headless ? options.retries ?? cfg.verify.retries : 0,
           onRetry: ({ attempt, maxAttempts, previous }) => {
-            if (headless) printHeadlessOutcome(previous);
+            if (headless) printHeadlessOutcome(previous, log);
             log(chalk.yellow(`↻ retry ${attempt}/${maxAttempts} for #${taskId} — failure output added as a task note`));
           },
         },
         execute,
       );
-      if (headless) printHeadlessOutcome(result);
-      outcomes.push({
+      if (headless) printHeadlessOutcome(result, log);
+      record({
         taskId: task.id,
         title: task.title,
         kind: result.status,
@@ -330,7 +366,9 @@ export async function processQueue(
       if (!options.continueOnError) break;
     }
   } finally {
-    if (!options.dryRun) process.off("SIGINT", onSigint);
+    if (handleSigint) process.off("SIGINT", onSigint);
+    deps.signal?.removeEventListener("abort", onAbort);
+    releaseLock();
   }
   return outcomes;
 }
@@ -341,7 +379,17 @@ function oneLine(text: string, max: number): string {
 }
 
 export async function runQueueRun(options: QueueRunOptions = {}): Promise<void> {
-  const outcomes = await processQueue(options);
+  let outcomes: QueueOutcome[];
+  try {
+    outcomes = await processQueue(options);
+  } catch (e) {
+    if (e instanceof QueueBusyError) {
+      console.log(chalk.red(`✗ ${e.message}`) + chalk.gray(" — wait for it, or stop it from the Web queue tray"));
+      process.exitCode = 1;
+      return;
+    }
+    throw e;
+  }
   if (outcomes.length === 0) {
     console.log(chalk.gray("queue is empty — nothing to run"));
     return;
