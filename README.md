@@ -81,6 +81,9 @@ relay run <task-id>                        # 該当 repo に agent を起動 (Cl
 - **run の変更キャプチャ** (schema v13) — 各 agent run が触ったファイル (+/− 行数) とコミット数を記録し、`relay runs` / `relay show` / Web の agent runs に表示。`relay runs --diff <run>` で patch を確認、`relay queue add --failed` / tray の「retry N failed」で失敗分を一括再キュー
 - **一括ライフサイクル** — `relay close|snooze|reopen <ids...>` を 1 つの undo でまとめて実行
 - **タスクノートと retry with feedback** (schema v14) — `relay note <id> "..."` / Web の notes (`m`) で進捗や「次はこう試して」を残すと、次の agent run の prompt 末尾に自動で入る。`--queue` / 「note & retry」で失敗した run をノート付きで再キュー
+- **Verify gate と自動リトライ** (schema v15) — `relay run|queue run --verify` で agent 成功後に repo の検証コマンド (`[[verify.repos]]` / `.agents/RELAY_VERIFY`) を実行し、赤なら run を failed に (close されず retry 対象に)。`--retries N` で失敗出力をノートとして agent に返し green になるまで自動再挑戦。`relay verify` で単独実行、Web の agent runs に ✓ verified / ✗ verify
+- **並列 queue 実行** — `relay queue run --headless -j N` / Web tray の parallel で別 repo のタスクを同時実行 (同 repo は直列、依存は完了待ち)
+- **Web からの queue 実行** — queue tray の「run…」で `relay web` 自身が headless 実行 (verify / retries / close on success を選択)、進捗・結果・出力を tray でライブ表示。開始は loopback からのみ、CLI の `queue run` とはロックファイルで排他 (同じタスクを二重起動しない)
 - **トリアージルール** — `config.toml` の `[[rules]]` (repo glob / source / title・body 正規表現 → tag / assign / priority / wait_on / queue) を sync が新規タスクへ自動適用。`relay rules apply` / `/sync` の Triage rules カードで既存タスクにも (⌘Z 可)
 - **重複マージ** — `relay merge <keep> <dup...>` / `/insights` の重複クラスタから 1 クリックで統合 (タグ・依存・ノートを引き継ぎ、⌘Z 可)
 - **検索と履歴** — `relay ls -q` と ⌘K パレットで done / snoozed を含む全タスクをサーバー側全文検索、`relay show` と Web 詳細にエージェント run 履歴

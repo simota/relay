@@ -75,7 +75,8 @@ export function runColumnMigrations(db: Database): void {
   }
   const runCols = db.prepare(`PRAGMA table_info(runs)`).all() as Array<{ name: string }>;
   if (runCols.length > 0) {
-    for (const col of ["head_before", "head_after", "changes"]) {
+    // schema_version 15 adds the verify-gate columns; all nullable.
+    for (const col of ["head_before", "head_after", "changes", "verify_status", "verify_command", "verify_output"]) {
       if (!runCols.some((c) => c.name === col)) db.exec(`ALTER TABLE runs ADD COLUMN ${col} TEXT`);
     }
   }

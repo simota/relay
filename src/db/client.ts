@@ -172,6 +172,8 @@ import {
   type RunListRow,
   finishRun as _finishRun,
   recordRunChanges as _recordRunChanges,
+  recordRunVerification as _recordRunVerification,
+  type RunVerification,
   failedTaskIds as _failedTaskIds,
   insertRun as _insertRun,
   lastSuccessfulSyncEndedAt as _lastSuccessfulSyncEndedAt,
@@ -905,6 +907,10 @@ export class RelayDB {
 
   recordRunChanges(runId: number, changes: RunChanges): void {
     _recordRunChanges(this.db, runId, changes);
+  }
+
+  recordRunVerification(runId: number, verify: RunVerification, summary?: string): void {
+    _recordRunVerification(this.db, runId, verify, summary);
   }
 
   finishRun(runId: number, status: string, summary?: string): void {

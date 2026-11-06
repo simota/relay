@@ -67,8 +67,16 @@ function formatRunRow(row: RunListRow): string {
     chalk.cyan(`#${row.task_id} `) +
     truncateDisplay(row.task_title, 48) +
     (row.changes ? chalk.cyan(`  ${formatChangeSummary(row.changes)}`) : "") +
+    verifyBadge(row.verify_status) +
     (summary ? chalk.gray(`\n${" ".repeat(7)}${truncateDisplay(summary, 100)}`) : "")
   );
+}
+
+/** "  ✓ verified" / "  ✗ verify" — empty when the run was not verified. */
+export function verifyBadge(status: string | null | undefined): string {
+  if (status === "passed") return chalk.green("  ✓ verified");
+  if (status === "failed") return chalk.red("  ✗ verify");
+  return "";
 }
 
 export function formatDuration(startedAt: string, endedAt: string | null): string {
@@ -95,6 +103,11 @@ function showLog(runId: number): void {
       chalk.gray(` · task #${run.task_id} ${run.task_title} · ${run.agent} · ${run.status}`),
   );
   if (run.changes) printChanges(run.changes);
+  if (run.verify_status) {
+    const tone = run.verify_status === "passed" ? chalk.green : chalk.red;
+    console.log(tone(`verify ${run.verify_status}: ${run.verify_command ?? "?"}`));
+    if (!log && run.verify_output) console.log(chalk.gray(run.verify_output));
+  }
   if (!log) {
     console.log(chalk.gray("(no captured log — only headless runs record output)"));
     if (run.output_summary) console.log(run.output_summary);

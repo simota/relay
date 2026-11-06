@@ -244,6 +244,9 @@ Today 画面は `wait_on='self'` を上段に常に展開、それ以外を下�
 | `head_before` | TEXT NULL — run 開始直前の HEAD (schema_version 13) |
 | `head_after` | TEXT NULL — run 終了時の HEAD |
 | `changes` | TEXT NULL — JSON `{commits, files: [{path, added, removed}], more}` |
+| `verify_status` | TEXT NULL — `passed` \| `failed` \| NULL (未検証) (schema_version 15) |
+| `verify_command` | TEXT NULL — 実行した verify コマンド |
+| `verify_output` | TEXT NULL — verify 出力の末尾 (≤4000 文字, ANSI 除去) |
 
 **変更キャプチャ (schema_version 13)**: `relay run` / `relay queue run` (対話・headless とも) は起動直前に repo の HEAD・`git diff --numstat HEAD`・untracked 一覧を記録し、終了後に「作業ツリー vs 起動前 HEAD」の numstat と比較する。起動前から dirty で run 中に変化しなかったファイルは除外し、agent が触ったファイル (コミット済み・未コミット・新規) と agent のコミット数を `changes` に保存する (最大 50 ファイル、残りは `more`)。git 管理外の repo では NULL。`relay runs` の各行・`relay show`・`relay runs --log` のヘッダ・Web 詳細の agent runs に「N files +a −r · k commits」を表示し、`relay runs --diff <run-id>` で起動前 HEAD からの patch を表示する (HEAD がその後動いていれば `head_before..head_after` のみ)。
 
@@ -955,6 +958,21 @@ Next.js 15 + React 19。ルートは path-based:
 - `relay queue rm <ids...>` / `relay queue clear` / `relay queue [ls]`
 - `relay queue run` — 先頭から順に §10 / §10.2 のフローで起動。成功した item は queue から外れ (`--keep` で残す)、失敗で停止 (`--continue-on-error` で続行)。`done` の task は除去、headless 非対応 agent はスキップして queue に残す。queue は毎回読み直すので実行中に Web から追加した item も拾う (1 回の実行で各 item は最大 1 回)。依存関係 (§5 `task_deps`) を尊重し、未充足 blocker のある item は blocker の成功後に起動、blocker が失敗・未完了なら `skipped: blocked by #N` として queue に残す。`--dry-run` / `--limit N` / `--close-on-success` / `--timeout` / `--no-template` / `--no-resume`
 - API: `GET /api/queue`, `POST /api/queue/items` (`{task_id}` or `{task_ids: [...], front?}`), `POST /api/queue/items/:id/move` (`{direction: "up"|"down"|"front"}`), `DELETE /api/queue/items/:id`, `DELETE /api/queue`
+- **並列実行** (`relay queue run --headless -j N` / `--parallel N`, 1-8, Web runner の `parallel`): 別 repo のタスクを最大 N 件同時に実行する。同じ repo の 2 件は同時に走らせない (1 つの work tree を 2 つの agent が編集しないため)。依存先が実行中の dependent は skip せず完了を待つ。失敗時 (`--continue-on-error` なし) は新規起動を止め、実行中の run は最後まで待つ。対話モードでは端末を共有するため常に 1 件ずつ。並列時は agent 出力を端末にミラーせず (ログファイルには全量)、結果行にタスク名を付ける。
+- **排他**: `relay queue run` (dry-run 以外) と Web runner は `~/.relay/queue-run.lock` (`{pid, owner, started_at}`, O_EXCL 作成) を取得してから動く。別プロセスが保持中なら `another queue run is in progress (...)` で起動しない (同じ item の二重起動防止)。保持プロセスが死んでいれば stale として引き継ぐ。
+- **Web runner** (`relay web` 内での `queue run --headless`): `GET /api/queue/runner` (状態 `idle|running|stopping|finished|error`、実行中タスク `active[]` (`current` は先頭)、各タスクの outcome (`attempts` / `verify` 付き)、出力末尾 200 行、別プロセスの lock 保持者 `external`、`can_start`)、`POST /api/queue/runner` (`{verify?, retries? (0-5), close_on_success?, continue_on_error? (default true), limit?, task_ids?, parallel? (1-8)}` → 202、空 queue / 実行中は 409。`task_ids` は「今すぐ実行」: 指定タスクを queue 先頭に積み、それだけを実行する (他の item は残る)。runner 実行中なら次に拾われる。headless 非対応 assignee / done は 409)、`POST /api/queue/runner/stop` (実行中のタスクの完了後に停止)。**起動と停止は TCP peer が loopback の場合のみ** (`--host 0.0.0.0` で LAN に公開しても、コードを編集する agent を LAN から起動させない)。Web の queue tray の「run…」で verify gate / retries / close on success を選んで開始し、進捗・結果・出力を tray で追える。タスク詳細の「run headless」はそのタスクだけを verify gate 付きで即実行し、完了すると agent runs が自動更新される (失敗した item は CLI と同様 queue に残る)。
+
+### 10.5 Verify gate と自動リトライ (schema_version 15)
+
+agent の exit 0 は「CLI が落ちなかった」ことしか意味しない。verify gate は run 成功後に repo 自身のチェック (テスト / 型チェック / lint) を走らせ、通ったものだけを成功とする。
+
+- **有効化**: `relay run --verify` / `relay queue run --verify`、または `[verify] auto = true` (常時)。`--no-verify` で個別に無効化。
+- **コマンド解決** (先勝ち): `[[verify.repos]]` (`repo` glob → `command`) → `<repo>/.agents/RELAY_VERIFY` (最初の非コメント行)。`sh -c` で repo root を cwd に、独立プロセスグループで実行 (`CI=1`, `RELAY_VERIFY=1`)。`[verify] timeout_min` (default 10, 0 = 無制限) で打ち切り。
+- **判定**: exit 0 → `verify_status = passed`。非 0 / timeout → `verify_status = failed` かつ run 自体を `failed` にし、`output_summary` を `verify failed (exit N): <cmd>` + 出力末尾にする。したがって `--close-on-success` は閉じず、queue は失敗扱い (停止 / `--continue-on-error`)、`relay queue add --failed` / tray の retry 対象になる。コマンド未設定の repo は run を成功のまま「unverified」と表示する。
+- headless では verify 出力も `~/.relay/runs/<run_id>.log` の末尾に追記される。
+- **自動リトライ** (`--retries N`, 0-5, headless のみ、default `[verify] retries`): 失敗 (agent 異常終了 / timeout / verify 赤) した attempt ごとに、失敗内容と出力末尾を `[relay auto-retry] attempt k/N+1 (run #id) did not pass.` で始まるタスクノートとして記録し、タスクを再 prepare して再実行する。ノートは §5 のとおり次の prompt 末尾に入るため、agent は前回何が赤かったかを読んでから再挑戦する。interrupt (Ctrl-C) と done 済みタスクは再試行しない。ノートはタスクに残り、何を agent に伝えたかが追跡できる。
+- `relay verify <id>` / `relay verify --repo <name>` でコマンドを単独実行 (exit 0 / 1、未設定は 2)、`relay verify --list [--json]` で各 repo の解決結果を一覧。
+- 表示: `relay runs` / `relay show` に `✓ verified` / `✗ verify`、`relay runs --log` に verify 結果、Web 詳細の agent runs にバッジ (クリックで出力展開)、`relay queue run` の集計に verified / unverified / retried。
 
 ### 10.4 Run history (`relay runs`)
 
@@ -1050,6 +1068,15 @@ default = "claude-code"
 claude_bin = "claude"
 codex_bin = "codex"
 antigravity_bin = "agy"
+
+[verify]                 # verify gate (§10.5)
+auto = false             # true: every run is verified (no --verify needed)
+timeout_min = 10
+retries = 0              # default --retries for headless runs
+
+[[verify.repos]]
+repo = ["billing-*"]     # glob(s) on the repo name
+command = "bun test"
 
 [ui]
 default_view = "today"

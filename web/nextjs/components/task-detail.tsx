@@ -2,10 +2,10 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Copy, Check, RotateCcw, ExternalLink, ChevronDown, Pencil, History, Link2, X, Hash, Repeat, NotebookPen } from "lucide-react";
+import { Copy, Check, RotateCcw, ExternalLink, ChevronDown, Pencil, History, Link2, X, Hash, Repeat, NotebookPen, Play } from "lucide-react";
 import { describeRecurrence } from "@/lib/recurrence";
 import useSWR, { useSWRConfig } from "swr";
-import { api, type RunListItem } from "@/lib/api";
+import { api, type QueueRunnerState, type RunListItem } from "@/lib/api";
 import { c, formatNumber } from "@/lib/copy";
 import { cn, timeAgo } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -36,16 +36,34 @@ export function TaskDetail({
     task?.context_hash ? `/api/contexts/${task.context_hash}` : null,
     () => task?.context_hash ? api.context(task.context_hash) : null,
   );
-  const { data: runs = [] } = useSWR<RunListItem[]>(
+  // Shares the queue tray's cache key: one poller for the server's runner.
+  const { data: runner, mutate: mutateRunner } = useSWR<QueueRunnerState>("/api/queue/runner", () => api.queue.runner(), {
+    refreshInterval: (state) => (state && (state.status === "running" || state.status === "stopping") ? 1500 : 20000),
+  });
+  const runningHere = Boolean(task && (runner?.active ?? []).some((t) => t.task_id === task.id));
+  const { data: runs = [], mutate: mutateRuns } = useSWR<RunListItem[]>(
     task ? `/api/runs?task_id=${task.id}` : null,
     () => (task ? api.runs({ taskId: task.id, limit: 5 }) : []),
+    { refreshInterval: runningHere ? 2000 : 0 },
   );
+  // The run this panel was watching just finished: show its outcome.
+  const wasRunningHere = useRef(false);
+  useEffect(() => {
+    if (wasRunningHere.current && !runningHere) {
+      setRunNowState(null);
+      void mutateRuns();
+      onChange?.();
+    }
+    wasRunningHere.current = runningHere;
+  }, [runningHere, mutateRuns, onChange]);
+  const [runNowState, setRunNowState] = useState<string | null>(null);
 
   // Leaving the task (j/k, list click) abandons an open edit.
   const taskId = task?.id ?? null;
   useEffect(() => {
     setEditing(false);
     setSavedNote(null);
+    setRunNowState(null);
   }, [taskId]);
 
   const snooze = async (until?: string) => {
@@ -99,6 +117,24 @@ export function TaskDetail({
       pushError(c("toast.actionFailed", { action }));
     } finally {
       setBusy(null);
+    }
+  };
+
+  const headlessCapable = task.assignee === "claude-code" || task.assignee === "codex";
+  const canRunNow = headlessCapable && task.status !== "done" && Boolean(runner?.can_start) && !runner?.external;
+  const runNow = async () => {
+    setRunNowState("starting…");
+    try {
+      const state = await api.queue.startRunner({ task_ids: [task.id], verify: true });
+      await mutateRunner(state);
+      setRunNowState(
+        !state.active.some((t) => t.task_id === task.id)
+          ? "queued — the runner picks it up as soon as a slot (and its repo) is free"
+          : "running headless — results appear under agent runs",
+      );
+    } catch (error) {
+      setRunNowState(null);
+      pushError(error instanceof Error ? error.message : String(error));
     }
   };
 
@@ -312,6 +348,16 @@ export function TaskDetail({
             <Copy className="w-3 h-3" />
             relay run {task.id}
           </Button>
+          {canRunNow && (
+            <Button
+              onClick={() => { void runNow(); }}
+              disabled={runningHere || runNowState === "starting…"}
+              title="Run this task headless now inside relay web (verify gate on; retries from [verify] retries)"
+            >
+              <Play className="w-3 h-3" />
+              {runningHere ? "running…" : "run headless"}
+            </Button>
+          )}
           {task.status !== "done" && (
             <SnoozeMenu onSnooze={snooze} disabled={busy !== null} />
           )}
@@ -329,6 +375,14 @@ export function TaskDetail({
             </Button>
           )}
         </div>
+        {runNowState && !runningHere && runNowState !== "starting…" && (
+          <p role="status" className="text-[11px] text-[var(--color-fg-dim)] -mt-3">{runNowState}</p>
+        )}
+        {runningHere && (
+          <p role="status" className="text-[11px] text-[var(--color-cool)] -mt-3">
+            ▶ running headless{runner?.status === "stopping" ? " (stopping after this task)" : ""} — the queue tray shows live output
+          </p>
+        )}
 
         {runs.length > 0 && <RunHistory runs={runs} />}
         </>)}
@@ -787,6 +841,7 @@ function fieldLabel(field: EditableField): string {
 function RunHistory({ runs }: { runs: RunListItem[] }) {
   const [openLog, setOpenLog] = useState<number | null>(null);
   const [openChanges, setOpenChanges] = useState<number | null>(null);
+  const [openVerify, setOpenVerify] = useState<number | null>(null);
   return (
     <section aria-label="Agent runs" className="space-y-1.5">
       <div className="flex items-center gap-1.5 text-[10.5px] uppercase tracking-wider text-[var(--color-fg-dim)] font-medium">
@@ -836,6 +891,21 @@ function RunHistory({ runs }: { runs: RunListItem[] }) {
                   {formatChangeSummary(run.changes)}
                 </button>
               )}
+              {run.verify_status && (
+                <button
+                  type="button"
+                  className={cn(
+                    "shrink-0 text-[11px] hover:underline ring-focus rounded-[var(--radius)]",
+                    run.verify_status === "passed" ? "text-[var(--color-accent)]" : "text-[var(--color-critical)]",
+                  )}
+                  aria-expanded={openVerify === run.id}
+                  aria-controls={`run-verify-${run.id}`}
+                  title={`Verify gate: ${run.verify_command ?? ""}`}
+                  onClick={() => setOpenVerify((current) => (current === run.id ? null : run.id))}
+                >
+                  {run.verify_status === "passed" ? "✓ verified" : "✗ verify"}
+                </button>
+              )}
               {run.has_log && (
                 <button
                   type="button"
@@ -849,6 +919,23 @@ function RunHistory({ runs }: { runs: RunListItem[] }) {
               )}
             </div>
             {openChanges === run.id && run.changes && <RunChangesView runId={run.id} changes={run.changes} />}
+            {openVerify === run.id && run.verify_status && (
+              <div
+                id={`run-verify-${run.id}`}
+                className="mt-1 rounded-[var(--radius)] border border-[var(--color-border)] bg-[var(--color-bg)]/60 px-2 py-1.5 space-y-1"
+              >
+                <p className="text-[11px] text-[var(--color-fg-muted)]">
+                  verify {run.verify_status} · <code>{run.verify_command}</code>
+                </p>
+                {run.verify_output ? (
+                  <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words text-[11px] text-[var(--color-fg-dim)]">
+                    {run.verify_output}
+                  </pre>
+                ) : (
+                  <p className="text-[11px] text-[var(--color-fg-dim)]">(no output)</p>
+                )}
+              </div>
+            )}
             {openLog === run.id && <RunLogView runId={run.id} />}
           </li>
         ))}

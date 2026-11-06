@@ -136,7 +136,13 @@ CREATE TABLE IF NOT EXISTS runs (
   -- the repo is not a git work tree or the run predates v13.
   head_before     TEXT,
   head_after      TEXT,
-  changes         TEXT
+  changes         TEXT,
+  -- schema v15: verify gate. verify_status is 'passed' / 'failed' / NULL
+  -- (not verified); verify_command is what ran and verify_output the tail
+  -- of its output. A failed verification also flips status to 'failed'.
+  verify_status   TEXT,
+  verify_command  TEXT,
+  verify_output   TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_runs_task ON runs (task_id);
@@ -255,3 +261,5 @@ INSERT OR IGNORE INTO schema_version (version, applied_at)
   VALUES (13, datetime('now'));
 INSERT OR IGNORE INTO schema_version (version, applied_at)
   VALUES (14, datetime('now'));
+INSERT OR IGNORE INTO schema_version (version, applied_at)
+  VALUES (15, datetime('now'));

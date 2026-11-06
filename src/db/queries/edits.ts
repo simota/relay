@@ -200,13 +200,18 @@ export interface TaskRunRow {
   output_summary: string | null;
   /** What the run changed in the repo (schema v13); null when unknown. */
   changes: RunChanges | null;
+  /** Verify gate (schema v15): 'passed' / 'failed' / null = not verified. */
+  verify_status: string | null;
+  verify_command: string | null;
+  verify_output: string | null;
 }
 
 /** Newest-first agent runs for one task (`relay run` history). */
 export function listRunsForTask(db: Database, taskId: number, limit = 20): TaskRunRow[] {
   return db
     .prepare(
-      `SELECT id, agent, started_at, ended_at, status, output_summary, head_before, head_after, changes
+      `SELECT id, agent, started_at, ended_at, status, output_summary, head_before, head_after, changes,
+              verify_status, verify_command, verify_output
          FROM runs WHERE task_id = ?
         ORDER BY started_at DESC, id DESC
         LIMIT ?`,

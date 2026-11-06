@@ -11,13 +11,16 @@ import { loadConfig, type Config } from "../config.js";
 import { RelayDB, type QueueItem } from "../db/client.js";
 import { Assignee, type Task } from "../types.js";
 import { padEndDisplay, truncateDisplay } from "../lib/text-width.js";
+import { acquireQueueLock } from "../lib/queue-lock.js";
 import {
   executePrepared,
+  executeWithRetries,
   launchBlocker,
   prepareRun,
   previewPrompt,
   printHeadlessOutcome,
   type ExecuteResult,
+  type PreparedRun,
 } from "./run.js";
 
 export function runQueueList(): void {
@@ -167,6 +170,14 @@ export interface QueueRunOptions {
   timeoutMin?: number;
   noTemplate?: boolean;
   noResume?: boolean;
+  /** Verify gate after each successful run (default: verify.auto). */
+  verify?: boolean;
+  /** Headless: extra attempts per failed task, with the failure fed back as a note. */
+  retries?: number;
+  /** Only work these tasks' queue items (Web "run now"); others stay queued. */
+  taskIds?: number[];
+  /** Headless: run up to N tasks at once (1-8), never two in the same repo. */
+  parallel?: number;
 }
 
 export type QueueOutcomeKind = "success" | "failed" | "interrupted" | "skipped" | "planned";
@@ -177,12 +188,32 @@ export interface QueueOutcome {
   kind: QueueOutcomeKind;
   reason?: string;
   runId?: number;
+  /** How many runs it took (1 = first try). */
+  attempts?: number;
+  /** Verify gate outcome of the final attempt. */
+  verify?: "passed" | "failed" | "missing";
 }
 
 export interface QueueRunDeps {
   cfg?: Config;
   execute?: typeof executePrepared;
   log?: (line: string) => void;
+  /** Aborting stops the queue after the task that is running (Web "stop"). */
+  signal?: AbortSignal;
+  /** Install the Ctrl-C handler (default true; the Web server handles its own). */
+  handleSigint?: boolean;
+  /** Called when a task starts / finishes (Web runner progress). */
+  onTaskStart?: (info: { taskId: number; title: string; repo: string; assignee: string }) => void;
+  onTaskDone?: (outcome: QueueOutcome) => void;
+  /** Lock owner label; `false` skips the cross-process lock (tests). */
+  lockOwner?: string | false;
+}
+
+/** Thrown when another `relay queue run` (CLI or Web) is already working the queue. */
+export class QueueBusyError extends Error {
+  constructor(public readonly holder: { pid: number; owner: string; started_at: string }) {
+    super(`another queue run is in progress (${holder.owner}, pid ${holder.pid}, since ${holder.started_at})`);
+  }
 }
 
 /**
@@ -211,102 +242,176 @@ export async function processQueue(
     stopRequested = true;
     log(chalk.yellow("\n■ interrupted — the queue stops after the current task (Ctrl-C again to abort relay)"));
   };
-  if (!options.dryRun) process.on("SIGINT", onSigint);
+  const handleSigint = !options.dryRun && deps.handleSigint !== false;
+  // One runner at a time across processes: a CLI `queue run` and the Web
+  // runner would otherwise both launch the head item.
+  let releaseLock = () => {};
+  if (!options.dryRun && deps.lockOwner !== false) {
+    const lock = acquireQueueLock(deps.lockOwner ?? "cli");
+    if (!lock.ok) throw new QueueBusyError(lock.heldBy);
+    releaseLock = lock.release;
+  }
+  if (handleSigint) process.on("SIGINT", onSigint);
+  const onAbort = () => {
+    stopRequested = true;
+  };
+  deps.signal?.addEventListener("abort", onAbort);
+  if (deps.signal?.aborted) stopRequested = true;
+  const record = (outcome: QueueOutcome) => {
+    outcomes.push(outcome);
+    deps.onTaskDone?.(outcome);
+  };
 
-  try {
-    while (launches < limit && !stopRequested) {
-      let task: Task | null;
-      let item: QueueItem | undefined;
-      let prep: ReturnType<typeof prepareRun>;
-      {
-        using db = new RelayDB();
-        const pending = db.listQueueItems().filter((candidate) => !attempted.has(candidate.id));
-        if (pending.length === 0) break;
-        // Dependency-aware pick: the first item whose blockers are all done
-        // (or satisfied earlier in this pass). A dependent queued ahead of
-        // its blocker simply waits; the scan restarts from the head after
-        // every launch, so it runs as soon as the blocker succeeds.
-        item = pending.find((candidate) => unmetBlockers(db, candidate.task_id, satisfied).length === 0);
-        if (!item) {
-          for (const candidate of pending) {
-            attempted.add(candidate.id);
-            const unmet = unmetBlockers(db, candidate.task_id, satisfied);
-            const reason = `blocked by ${unmet.map((id) => `#${id}`).join(" ")}`;
-            outcomes.push({ taskId: candidate.task_id, title: candidate.title, kind: "skipped", reason });
-            log(chalk.yellow(`– #${candidate.task_id} skipped: ${reason}`));
-          }
-          break;
-        }
-        attempted.add(item.id);
-        task = db.getTask(item.task_id);
-        if (!task) {
-          db.deleteQueueItem(item.id);
-          continue;
-        }
-        if (task.status === "done") {
-          if (!options.dryRun) db.deleteQueueItem(item.id);
-          outcomes.push({ taskId: task.id, title: task.title, kind: "skipped", reason: "already done" });
-          log(chalk.gray(`– #${task.id} already done${options.dryRun ? "" : " — removed from queue"}`));
-          continue;
-        }
-        const blocker = launchBlocker(task, headless);
-        if (blocker) {
-          outcomes.push({ taskId: task.id, title: task.title, kind: "skipped", reason: blocker });
-          log(chalk.yellow(`– #${task.id} skipped: ${blocker}`));
-          continue;
-        }
-        prep = prepareRun(db, task, cfg, { noTemplate: options.noTemplate, noResume: options.noResume });
-      }
-      if (!prep.ok) {
-        outcomes.push({ taskId: task.id, title: task.title, kind: "failed", reason: prep.error });
-        log(chalk.red(`✗ #${task.id} ${prep.error}`));
-        if (!options.continueOnError) break;
-        continue;
-      }
+  // Concurrency: headless only (interactive agents share the terminal), and
+  // never two runs in the same repo at once — they would edit one work tree.
+  const parallel = headless && !options.dryRun ? Math.max(1, Math.min(8, Math.trunc(options.parallel ?? 1))) : 1;
+  const echo = parallel === 1;
+  const active = new Map<number, Promise<void>>();
+  const busyRepos = new Set<string>();
+  let failureSeen = false;
+  let launchIndex = 0;
 
-      const header =
-        chalk.cyan(`▶ [${launches + 1}] #${task.id}`) +
-        `  ${task.title}` +
-        chalk.gray(`\n   ${prep.prepared.repoRoot}  (${task.assignee}${headless ? ", headless" : ""})`);
-      if (options.dryRun) {
-        log(header);
-        const prompt = previewPrompt(prep.prepared, headless, options.noResume);
-        log(chalk.gray(prompt ? `   prompt: ${oneLine(prompt, 100)}` : "   (no prompt)"));
-        outcomes.push({ taskId: task.id, title: task.title, kind: "planned" });
-        satisfied.add(task.id);
-        launches += 1;
-        continue;
+  const launch = (item: QueueItem, task: Task, prepared: PreparedRun): Promise<void> => {
+    const taskId = task.id;
+    deps.onTaskStart?.({ taskId, title: task.title, repo: task.repo, assignee: task.assignee });
+    return (async () => {
+      const result = await executeWithRetries(
+        prepared,
+        cfg,
+        {
+          headless,
+          echo,
+          noResume: options.noResume,
+          noTemplate: options.noTemplate,
+          timeoutMin: options.timeoutMin,
+          closeOnSuccess: options.closeOnSuccess,
+          verify: options.verify ?? cfg.verify.auto,
+          retries: headless ? options.retries ?? cfg.verify.retries : 0,
+          onRetry: ({ attempt, maxAttempts, previous }) => {
+            if (headless) printHeadlessOutcome(previous, log);
+            log(chalk.yellow(`↻ retry ${attempt}/${maxAttempts} for #${taskId} — failure output added as a task note`));
+          },
+        },
+        execute,
+      );
+      if (headless) {
+        if (parallel > 1) log(chalk.gray(`#${taskId} ${task.title}`));
+        printHeadlessOutcome(result, log);
       }
-
-      log(header);
-      launches += 1;
-      const result: ExecuteResult = await execute(prep.prepared, cfg, {
-        headless,
-        noResume: options.noResume,
-        timeoutMin: options.timeoutMin,
-        closeOnSuccess: options.closeOnSuccess,
-      });
-      if (headless) printHeadlessOutcome(result);
-      outcomes.push({
-        taskId: task.id,
+      record({
+        taskId,
         title: task.title,
         kind: result.status,
         runId: result.runId,
         reason: result.status === "success" ? undefined : result.summary ?? `exit ${result.exitCode}`,
+        attempts: result.attempts.length,
+        verify: result.verify ? result.verify.status : result.verifyMissing ? "missing" : undefined,
       });
       if (result.status === "success") {
-        satisfied.add(task.id);
+        satisfied.add(taskId);
         if (!options.keep) {
           using db = new RelayDB();
           db.deleteQueueItem(item.id);
         }
-        continue;
+        return;
       }
-      if (result.status === "interrupted") break;
-      if (!options.continueOnError) break;
+      if (result.status === "interrupted" || !options.continueOnError) failureSeen = true;
+    })();
+  };
+
+  try {
+    for (;;) {
+      // Fill free slots with eligible items.
+      while (active.size < parallel && launches < limit && !stopRequested && !failureSeen) {
+        let task: Task | null;
+        let item: QueueItem | undefined;
+        let prep: ReturnType<typeof prepareRun>;
+        {
+          using db = new RelayDB();
+          const only = options.taskIds && options.taskIds.length > 0 ? new Set(options.taskIds) : null;
+          const pending = db
+            .listQueueItems()
+            .filter((candidate) => !attempted.has(candidate.id) && (!only || only.has(candidate.task_id)));
+          if (pending.length === 0) break;
+          // Dependency-aware pick: the first item whose blockers are all done
+          // (or satisfied earlier in this pass) and whose repo is not busy. A
+          // dependent queued ahead of its blocker simply waits; the scan
+          // restarts from the head after every launch / completion.
+          item = pending.find(
+            (candidate) => !busyRepos.has(candidate.repo) && unmetBlockers(db, candidate.task_id, satisfied).length === 0,
+          );
+          if (!item) {
+            // Something running may still unblock (or free the repo of) the
+            // rest: wait for it. Otherwise what is left can never start.
+            if (active.size > 0) break;
+            for (const candidate of pending) {
+              attempted.add(candidate.id);
+              const unmet = unmetBlockers(db, candidate.task_id, satisfied);
+              const reason = `blocked by ${unmet.map((id) => `#${id}`).join(" ")}`;
+              record({ taskId: candidate.task_id, title: candidate.title, kind: "skipped", reason });
+              log(chalk.yellow(`– #${candidate.task_id} skipped: ${reason}`));
+            }
+            break;
+          }
+          attempted.add(item.id);
+          task = db.getTask(item.task_id);
+          if (!task) {
+            db.deleteQueueItem(item.id);
+            continue;
+          }
+          if (task.status === "done") {
+            if (!options.dryRun) db.deleteQueueItem(item.id);
+            record({ taskId: task.id, title: task.title, kind: "skipped", reason: "already done" });
+            log(chalk.gray(`– #${task.id} already done${options.dryRun ? "" : " — removed from queue"}`));
+            continue;
+          }
+          const blocker = launchBlocker(task, headless);
+          if (blocker) {
+            record({ taskId: task.id, title: task.title, kind: "skipped", reason: blocker });
+            log(chalk.yellow(`– #${task.id} skipped: ${blocker}`));
+            continue;
+          }
+          prep = prepareRun(db, task, cfg, { noTemplate: options.noTemplate, noResume: options.noResume });
+        }
+        if (!prep.ok) {
+          record({ taskId: task.id, title: task.title, kind: "failed", reason: prep.error });
+          log(chalk.red(`✗ #${task.id} ${prep.error}`));
+          if (!options.continueOnError) failureSeen = true;
+          continue;
+        }
+
+        launchIndex += 1;
+        const header =
+          chalk.cyan(`▶ [${launchIndex}] #${task.id}`) +
+          `  ${task.title}` +
+          chalk.gray(`\n   ${prep.prepared.repoRoot}  (${task.assignee}${headless ? ", headless" : ""})`);
+        log(header);
+        launches += 1;
+        if (options.dryRun) {
+          const prompt = previewPrompt(prep.prepared, headless, options.noResume);
+          log(chalk.gray(prompt ? `   prompt: ${oneLine(prompt, 100)}` : "   (no prompt)"));
+          record({ taskId: task.id, title: task.title, kind: "planned" });
+          satisfied.add(task.id);
+          continue;
+        }
+        const repo = task.repo;
+        const itemId = item.id;
+        busyRepos.add(repo);
+        active.set(
+          itemId,
+          launch(item, task, prep.prepared).finally(() => {
+            busyRepos.delete(repo);
+            active.delete(itemId);
+          }),
+        );
+      }
+      if (active.size === 0) break;
+      await Promise.race(active.values());
     }
   } finally {
-    if (!options.dryRun) process.off("SIGINT", onSigint);
+    if (handleSigint) process.off("SIGINT", onSigint);
+    deps.signal?.removeEventListener("abort", onAbort);
+    releaseLock();
   }
   return outcomes;
 }
@@ -317,7 +422,20 @@ function oneLine(text: string, max: number): string {
 }
 
 export async function runQueueRun(options: QueueRunOptions = {}): Promise<void> {
-  const outcomes = await processQueue(options);
+  if ((options.parallel ?? 1) > 1 && !options.headless) {
+    console.log(chalk.yellow("! --parallel needs --headless (interactive agents share this terminal) — running one at a time"));
+  }
+  let outcomes: QueueOutcome[];
+  try {
+    outcomes = await processQueue(options);
+  } catch (e) {
+    if (e instanceof QueueBusyError) {
+      console.log(chalk.red(`✗ ${e.message}`) + chalk.gray(" — wait for it, or stop it from the Web queue tray"));
+      process.exitCode = 1;
+      return;
+    }
+    throw e;
+  }
   if (outcomes.length === 0) {
     console.log(chalk.gray("queue is empty — nothing to run"));
     return;
@@ -341,6 +459,22 @@ export async function runQueueRun(options: QueueRunOptions = {}): Promise<void> 
       (count("skipped") > 0 ? `, ${count("skipped")} skipped` : "") +
       chalk.gray(` · ${remaining} left in queue`),
   );
+  const verified = outcomes.filter((o) => o.verify === "passed").length;
+  const unverified = outcomes.filter((o) => o.verify === "missing").length;
+  const retried = outcomes.filter((o) => (o.attempts ?? 1) > 1);
+  if (verified > 0 || unverified > 0) {
+    console.log(
+      chalk.gray("  verify gate: ") +
+        chalk.green(`${verified} verified`) +
+        (unverified > 0 ? chalk.yellow(`, ${unverified} with no verify command`) : ""),
+    );
+  }
+  if (retried.length > 0) {
+    console.log(
+      chalk.gray("  retried: ") +
+        retried.map((o) => `#${o.taskId}×${o.attempts}${o.kind === "success" ? chalk.green("✓") : chalk.red("✗")}`).join(" "),
+    );
+  }
   for (const outcome of outcomes.filter((o) => o.kind === "failed" || o.kind === "interrupted")) {
     console.log(
       chalk.red(`  ✗ #${outcome.taskId} ${outcome.title}`) +
