@@ -31,8 +31,11 @@ export function readRepoMetadata(repoPath: string | null): RepoMetadata {
   const defaultBranch =
     git(repoPath, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"])?.replace(/^origin\//, "") ??
     git(repoPath, ["branch", "--show-current"]);
-  const lastCommitSha = git(repoPath, ["log", "-1", "--format=%H"])?.slice(0, 10) ?? null;
-  const lastCommitUnix = git(repoPath, ["log", "-1", "--format=%ct"]);
+  // One `git log` for both fields ("<sha>\n<committer unix time>"); they
+  // succeed or fail together, as the two separate calls did.
+  const lastCommit = git(repoPath, ["log", "-1", "--format=%H%n%ct"])?.split("\n") ?? null;
+  const lastCommitSha = lastCommit?.[0]?.slice(0, 10) || null;
+  const lastCommitUnix = lastCommit?.[1] || null;
   const lastCommitAt = lastCommitUnix
     ? new Date(Number(lastCommitUnix) * 1000).toISOString()
     : null;
