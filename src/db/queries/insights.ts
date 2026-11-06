@@ -14,32 +14,83 @@ import { byteOrderSafe } from "../internal.js";
  * the 0.0-1.0 ratio (closed / (closed + opened) * active_repos /
  * repos_with_open).
  */
-export function insightsWfr(
-  db: Database,
-  periodWeeks: number,
-): Array<{
+type WfrRow = {
   wk: string;
   active_repos: number;
   repos_with_open: number;
   closed_n: number;
   opened_n: number;
-}> {
-  const rows: Array<{
-    wk: string;
-    active_repos: number;
-    repos_with_open: number;
-    closed_n: number;
-    opened_n: number;
-  }> = [];
+};
+
+export function insightsWfr(db: Database, periodWeeks: number): WfrRow[] {
+  const weeks = wfrWeeks(db, periodWeeks);
+  const reposWithOpen =
+    (db.prepare(`SELECT COUNT(DISTINCT repo) AS n FROM tasks WHERE status = 'open'`).get() as {
+      n: number | null;
+    }).n ?? 0;
+  return wfrSinglePass(db, weeks, reposWithOpen) ?? wfrPerWeek(db, weeks, reposWithOpen);
+}
+
+type WfrWeek = { d: string; start_at: unknown; end_at: unknown };
+
+function wfrWeeks(db: Database, periodWeeks: number): WfrWeek[] {
+  const weekStmt = db.prepare(
+    `SELECT date('now', ?) AS d, strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?) AS start_at, strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?) AS end_at`,
+  );
+  const weeks: WfrWeek[] = [];
+  for (let i = periodWeeks - 1; i >= 0; i--) {
+    const startExpr = `-${(i + 1) * 7} days`;
+    const endExpr = `-${i * 7} days`;
+    weeks.push(weekStmt.get(startExpr, startExpr, endExpr) as WfrWeek);
+  }
+  return weeks;
+}
+
+/**
+ * Same counts as wfrPerWeek from one scan of tasks instead of three per
+ * week: every row is tested against each week's own [start, end) bounds.
+ * Returns null (caller falls back to SQL) whenever a bound, repo or
+ * timestamp could compare or dedupe differently in JS than in SQLite.
+ */
+function wfrSinglePass(db: Database, weeks: WfrWeek[], reposWithOpen: number): WfrRow[] | null {
+  const bounds: Array<{ start: string; end: string }> = [];
+  for (const w of weeks) {
+    if (!byteOrderSafe(w.start_at) || !byteOrderSafe(w.end_at)) return null;
+    bounds.push({ start: w.start_at, end: w.end_at });
+  }
+  const active = bounds.map(() => new Set<string>());
+  const closed = bounds.map(() => 0);
+  const opened = bounds.map(() => 0);
+  const rows = db
+    .prepare(`SELECT repo, updated_at, closed_at, created_at FROM tasks NOT INDEXED`)
+    .values() as Array<[unknown, unknown, unknown, unknown]>;
+  for (const [repo, updatedAt, closedAt, createdAt] of rows) {
+    if (!byteOrderSafe(repo) || !byteOrderSafe(updatedAt) || !byteOrderSafe(createdAt)) return null;
+    if (closedAt !== null && !byteOrderSafe(closedAt)) return null;
+    for (let k = 0; k < bounds.length; k++) {
+      const { start, end } = bounds[k]!;
+      if (updatedAt >= start && updatedAt < end) active[k]!.add(repo);
+      if (closedAt !== null && closedAt >= start && closedAt < end) closed[k]!++;
+      if (createdAt >= start && createdAt < end) opened[k]!++;
+    }
+  }
+  return weeks.map((w, k) => ({
+    wk: w.d,
+    active_repos: active[k]!.size,
+    repos_with_open: reposWithOpen,
+    closed_n: closed[k]!,
+    opened_n: opened[k]!,
+  }));
+}
+
+/** Reference implementation: three aggregate queries per week. */
+function wfrPerWeek(db: Database, weeks: WfrWeek[], reposWithOpen: number): WfrRow[] {
   // NOT INDEXED: without it the planner walks idx_tasks_repo for the
   // DISTINCT and fetches every row out of order (several times slower on a
   // DB larger than the page cache). A count is order-independent.
   const activeStmt = db.prepare(
     `SELECT COUNT(DISTINCT repo) AS n FROM tasks NOT INDEXED
       WHERE updated_at >= ? AND updated_at < ?`,
-  );
-  const openReposStmt = db.prepare(
-    `SELECT COUNT(DISTINCT repo) AS n FROM tasks WHERE status = 'open'`,
   );
   const closedStmt = db.prepare(
     `SELECT COUNT(*) AS n FROM tasks
@@ -49,33 +100,22 @@ export function insightsWfr(
     `SELECT COUNT(*) AS n FROM tasks
       WHERE created_at >= ? AND created_at < ?`,
   );
+  return weeks.map((w) => ({
+    wk: w.d,
+    active_repos: (activeStmt.get(w.start_at as string, w.end_at as string) as { n: number | null }).n ?? 0,
+    repos_with_open: reposWithOpen,
+    closed_n: (closedStmt.get(w.start_at as string, w.end_at as string) as { n: number | null }).n ?? 0,
+    opened_n: (openedStmt.get(w.start_at as string, w.end_at as string) as { n: number | null }).n ?? 0,
+  }));
+}
+
+/** Test hook: the per-week SQL reference for insightsWfr. */
+export function insightsWfrPerWeek(db: Database, periodWeeks: number): WfrRow[] {
   const reposWithOpen =
-    (openReposStmt.get() as { n: number | null }).n ?? 0;
-  for (let i = periodWeeks - 1; i >= 0; i--) {
-    const startExpr = `-${(i + 1) * 7} days`;
-    const endExpr = `-${i * 7} days`;
-    const weekStartRow = db
-      .prepare(`SELECT date('now', ?) AS d, strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?) AS start_at, strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?) AS end_at`)
-      .get(startExpr, startExpr, endExpr) as {
-      d: string;
-      start_at: string;
-      end_at: string;
-    };
-    const active =
-      (activeStmt.get(weekStartRow.start_at, weekStartRow.end_at) as { n: number | null }).n ?? 0;
-    const closed =
-      (closedStmt.get(weekStartRow.start_at, weekStartRow.end_at) as { n: number | null }).n ?? 0;
-    const opened =
-      (openedStmt.get(weekStartRow.start_at, weekStartRow.end_at) as { n: number | null }).n ?? 0;
-    rows.push({
-      wk: weekStartRow.d,
-      active_repos: active,
-      repos_with_open: reposWithOpen,
-      closed_n: closed,
-      opened_n: opened,
-    });
-  }
-  return rows;
+    (db.prepare(`SELECT COUNT(DISTINCT repo) AS n FROM tasks WHERE status = 'open'`).get() as {
+      n: number | null;
+    }).n ?? 0;
+  return wfrPerWeek(db, wfrWeeks(db, periodWeeks), reposWithOpen);
 }
 
 export function insightsThroughput(

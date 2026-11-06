@@ -6,6 +6,8 @@ import {
   insightsBurndownPerDay,
   insightsDuplicates,
   insightsFlowTimeseries,
+  insightsWfr,
+  insightsWfrPerWeek,
 } from "./queries/insights.js";
 
 // The single-scan insights must reproduce the original per-day SQL (and the
@@ -128,6 +130,11 @@ describe("insights single-scan equivalence", () => {
       for (const days of [7, 30, 90]) expect(insightsBurndown(db, days)).toEqual(insightsBurndownPerDay(db, days));
     });
 
+    test(`WFR matches the per-week SQL (seed ${seed})`, () => {
+      const db = seededDb(seed);
+      for (const weeks of [8, 12]) expect(insightsWfr(db, weeks)).toEqual(insightsWfrPerWeek(db, weeks));
+    });
+
     test(`duplicates match the Set-based clustering (seed ${seed})`, () => {
       const db = seededDb(seed);
       for (const t of [0.85, 0.5, 0.3, 0]) expect(insightsDuplicates(db, t)).toEqual(duplicatesReference(db, t));
@@ -149,6 +156,7 @@ describe("insights single-scan equivalence", () => {
       expect(insightsBurndown(db, days)).toEqual(insightsBurndownPerDay(db, days));
       expect(insightsFlowTimeseries(db, days)).toEqual(flowPerDay(db, days));
     }
+    expect(insightsWfr(db, 12)).toEqual(insightsWfrPerWeek(db, 12));
     // Values JS cannot compare like SQLite (a number, a non-BMP char) force
     // the per-day fallback,
     // which must still give the same answer.
@@ -158,6 +166,7 @@ describe("insights single-scan equivalence", () => {
       expect(insightsBurndown(db, days)).toEqual(insightsBurndownPerDay(db, days));
       expect(insightsFlowTimeseries(db, days)).toEqual(flowPerDay(db, days));
     }
+    expect(insightsWfr(db, 12)).toEqual(insightsWfrPerWeek(db, 12));
     expect(insightsDuplicates(db, 0.5)).toEqual(duplicatesReference(db, 0.5));
   });
 });
