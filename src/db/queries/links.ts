@@ -119,6 +119,22 @@ export const HAS_OPEN_BLOCKER_SQL = `EXISTS (
    WHERE d.task_id = tasks.id AND b.status != 'done'
 )`;
 
+/**
+ * Same predicate as HAS_OPEN_BLOCKER_SQL, as an uncorrelated `IN` list, for
+ * the positive "only blocked tasks" filter (`relay ls --blocked`,
+ * `/api/tasks?blocked=1`). Few tasks match that filter, so the correlated
+ * form made SQLite walk every candidate row (via idx_tasks_priority) and
+ * run the subquery per row; here the set of blocked ids is built once and
+ * rows are fetched by rowid (20k tasks / 50 deps: ~20ms -> ~0.06ms).
+ * Equivalent because tasks.id is the INTEGER PRIMARY KEY and
+ * task_deps.task_id is NOT NULL. Inside NOT / CASE / OR the correlated
+ * form measured as fast or faster, so those call sites keep it.
+ */
+export const OPEN_BLOCKER_ID_IN_SQL = `tasks.id IN (
+  SELECT d.task_id FROM task_deps d JOIN tasks b ON b.id = d.depends_on_id
+   WHERE b.status != 'done'
+)`;
+
 export type AddDependencyResult =
   | { ok: true; added: boolean }
   | { ok: false; error: "self" | "not_found" | "cycle"; message: string; path?: number[] };

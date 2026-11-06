@@ -198,6 +198,41 @@ describe("dependencies", () => {
     expect(db.openBlockerMap().size).toBe(0);
   });
 
+  test("listTasks({ blocked: true }) matches the correlated open-blocker predicate", () => {
+    const open1 = insert({ title: "blocker one", priority: 10 });
+    const open2 = insert({ title: "blocker two", priority: 20 });
+    const doneBlocker = insert({ title: "finished blocker", priority: 30 });
+    const twoOpen = insert({ title: "waits on two", priority: 90 });
+    const mixed = insert({ title: "waits on open + done", priority: 80 });
+    const onlyDone = insert({ title: "waits on done only", priority: 70 });
+    const blockedDone = insert({ title: "done but blocked", priority: 60 });
+    const free = insert({ title: "free", priority: 50 });
+    using db = new RelayDB();
+    db.addDependency(twoOpen, open1);
+    db.addDependency(twoOpen, open2);
+    db.addDependency(mixed, open1);
+    db.addDependency(mixed, doneBlocker);
+    db.addDependency(onlyDone, doneBlocker);
+    db.addDependency(blockedDone, open2);
+    db.setStatus(doneBlocker, "done");
+    db.setStatus(blockedDone, "done");
+
+    // A task with two open blockers appears once; done blockers don't block;
+    // the default status filter still drops done tasks.
+    expect(db.listTasks({ blocked: true }).map((t) => t.id)).toEqual([twoOpen, mixed]);
+    expect(db.listTasks({ blocked: true, status: "all" }).map((t) => t.id)).toEqual([twoOpen, mixed, blockedDone]);
+    expect(db.listTasks({ blocked: true, q: "two", status: "all" }).map((t) => t.id)).toEqual([twoOpen]);
+    expect(db.listTasks({ blocked: true, limit: 1 }).map((t) => t.id)).toEqual([twoOpen]);
+    // blocked:true and blocked:false partition the same candidate set.
+    const all = db.listTasks({}).map((t) => t.id).sort((a, b) => a - b);
+    const split = [
+      ...db.listTasks({ blocked: true }).map((t) => t.id),
+      ...db.listTasks({ blocked: false }).map((t) => t.id),
+    ].sort((a, b) => a - b);
+    expect(split).toEqual(all);
+    expect(db.listTasks({ blocked: false }).map((t) => t.id)).toContain(free);
+  });
+
   test("deleting a task drops its edges", () => {
     const a = insert();
     const b = insert();
