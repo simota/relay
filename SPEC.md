@@ -835,8 +835,37 @@ Next.js 15 + React 19。ルートは path-based:
    - `antigravity`: `cd <repo> && agy '<prompt>'`
    - `self`: editor 起動 (`$EDITOR <repo>`)
    - `human-review`: `source_id` の URL (GitHub PR / Issue)、無ければ body 中の最初の http(s) URL を `open` (macOS) / `xdg-open` で開く。URL が無ければ起動せず失敗にする (body をそのまま渡さない)
-5. launcher プロセス終了時、`runs.ended_at` を更新
+5. launcher プロセス終了時、`runs.ended_at` を更新。run が `failed` / `interrupted` のときは task の status を起動前の値に戻す (manual task が `in_progress` に取り残されないように)。`--close-on-success` 指定時は exit 0 で task を close (undo 可)
 6. Codex / Antigravity は launcher 終了時に context snapshot を保存する。Claude Code は Stop hook で保存する。
+
+### 10.2 Headless run (`--headless`)
+
+`relay run <id> --headless` / `relay queue run --headless` は agent を非対話モードで起動する。
+
+- `claude-code`: `claude -p [claude_headless_args...] '<prompt>'`、session があれば `claude -p [...] --resume <session_id> '<prompt>'`
+- `codex`: `codex exec [codex_headless_args...] '<prompt>'`、session があれば `codex exec [...] resume <session_id> '<prompt>'`
+- `antigravity` / `self` / `human-review`: headless 非対応 (起動せずエラー / queue ではスキップ)
+- `task.prompt` が空の場合は title / body / files / source から合成した fallback prompt を使う
+- stdout / stderr は端末にミラーしつつ `~/.relay/runs/<run_id>.log` に保存し、末尾 (≤280 文字) を `runs.output_summary` に記録
+- `[agents].headless_timeout_min` (default 30, `--timeout <min>` で上書き, 0 = 無制限) を超えたらプロセスグループごと SIGTERM → 5 秒後 SIGKILL し `failed` (`timed out after Ns`)
+- agent は独立したプロセスグループで動き、Ctrl-C は agent グループへ転送される (`interrupted`)
+- 権限付与は `[agents].claude_headless_args` / `codex_headless_args` で明示する (例: `["--permission-mode", "acceptEdits"]` / `["--full-auto"]`)。relay 側でデフォルト付与はしない
+
+### 10.3 AI job queue (`relay queue`)
+
+`queue_items` は Web の queue tray (`a` キー) と CLI で共有される。順序は `added_at ASC, id ASC`。
+
+- `relay queue add <ids...> [--front] [--assign <agent>]` — 同じ task は重複登録しない (`--front` 指定時は先頭へ移動)。`--assign` の担当変更は 1 件の undo entry
+- `relay queue rm <ids...>` / `relay queue clear` / `relay queue [ls]`
+- `relay queue run` — 先頭から順に §10 / §10.2 のフローで起動。成功した item は queue から外れ (`--keep` で残す)、失敗で停止 (`--continue-on-error` で続行)。`done` の task は除去、headless 非対応 agent はスキップして queue に残す。queue は毎回読み直すので実行中に Web から追加した item も拾う (1 回の実行で各 item は最大 1 回)。`--dry-run` / `--limit N` / `--close-on-success` / `--timeout` / `--no-template` / `--no-resume`
+- API: `GET /api/queue`, `POST /api/queue/items` (`{task_id}` or `{task_ids: [...], front?}`), `POST /api/queue/items/:id/move` (`{direction: "up"|"down"|"front"}`), `DELETE /api/queue/items/:id`, `DELETE /api/queue`
+
+### 10.4 Run history (`relay runs`)
+
+- `relay runs [--task <id>] [--status s] [--agent a] [-n N] [--json]` — 全 task 横断の run 履歴 (新しい順、所要時間付き)
+- `relay runs --log <run_id>` — headless run の保存ログを表示
+- API: `GET /api/runs?status=&agent=&task_id=&limit=` (task title / repo / `has_log` 付き)、`GET /api/runs/:id/log` (末尾 256 KiB まで、`truncated` フラグ付き)
+- Web: task 詳細の "agent runs" に所要時間とログの展開表示
 
 ### 10.1 Repo-scoped prompt template (`.agents/RELAY_PROMPT.md`)
 

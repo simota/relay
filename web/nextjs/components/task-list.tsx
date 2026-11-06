@@ -7,7 +7,9 @@ import { cn, highlight, timeAgo } from "@/lib/utils";
 import { StatusDot, Badge } from "@/components/ui/badge";
 import { Kbd } from "@/components/ui/kbd";
 import { useHotkeys } from "@/hooks/use-hotkeys";
-import type { Task } from "@/lib/types";
+import type { Assignee, Task } from "@/lib/types";
+
+const ASSIGNEES: Assignee[] = ["claude-code", "codex", "antigravity", "self", "human-review"];
 import type { Filtered } from "@/lib/fuzzy";
 
 interface TaskListProps {
@@ -19,6 +21,10 @@ interface TaskListProps {
   onRangeSelect?: (ids: number[]) => void;
   onBulkSnooze?: (ids: number[]) => void;
   onBulkClose?: (ids: number[]) => void;
+  /** Add the selection to the AI job queue (run later with `relay queue run`). */
+  onBulkQueue?: (ids: number[]) => void;
+  /** Hand the selection to one agent. */
+  onBulkAssign?: (ids: number[], assignee: Assignee) => void;
   onBulkOpenChange?: (open: boolean) => void;
   showBulkBar?: boolean;
 }
@@ -32,6 +38,8 @@ export function TaskList({
   onRangeSelect,
   onBulkSnooze,
   onBulkClose,
+  onBulkQueue,
+  onBulkAssign,
   onBulkOpenChange,
   showBulkBar = true,
 }: TaskListProps) {
@@ -89,6 +97,20 @@ export function TaskList({
     setBulkMode(false);
   }, [bulkIds, onBulkClose, setBulkMode]);
 
+  const runBulkQueue = useCallback(() => {
+    if (!onBulkQueue || bulkIds.length === 0) return;
+    onBulkQueue(bulkIds);
+    setBulkMode(false);
+  }, [bulkIds, onBulkQueue, setBulkMode]);
+
+  const runBulkAssign = useCallback(
+    (assignee: Assignee) => {
+      if (!onBulkAssign || bulkIds.length === 0) return;
+      onBulkAssign(bulkIds, assignee);
+    },
+    [bulkIds, onBulkAssign],
+  );
+
   const toggleAllVisible = useCallback(() => {
     if (!onRangeSelect) return;
     if (allVisibleSelected) {
@@ -104,7 +126,7 @@ export function TaskList({
     {
       key: "b",
       handler: (event) => { event.preventDefault(); setBulkMode(true); },
-      enabled: Boolean(onBulkSnooze || onBulkClose) && bulkIds.length > 0,
+      enabled: Boolean(onBulkSnooze || onBulkClose || onBulkQueue) && bulkIds.length > 0,
     },
     {
       key: "s",
@@ -115,6 +137,11 @@ export function TaskList({
       key: "c",
       handler: (event) => { event.preventDefault(); runBulkClose(); },
       enabled: bulkOpen && Boolean(onBulkClose) && bulkIds.length > 0,
+    },
+    {
+      key: "a",
+      handler: (event) => { event.preventDefault(); runBulkQueue(); },
+      enabled: bulkOpen && Boolean(onBulkQueue) && bulkIds.length > 0,
     },
     { key: "Escape", handler: () => setBulkMode(false), enabled: bulkOpen },
   ]);
@@ -160,6 +187,35 @@ export function TaskList({
             >
               <Kbd>C</Kbd> close
             </button>
+            {onBulkQueue && (
+              <button
+                type="button"
+                className="rounded-[var(--radius)] border border-[var(--color-border)] px-2 py-1 hover:bg-[var(--color-bg)]"
+                disabled={bulkIds.length === 0}
+                onClick={runBulkQueue}
+                title="Add to the AI job queue (relay queue run)"
+              >
+                <Kbd>A</Kbd> queue
+              </button>
+            )}
+            {onBulkAssign && (
+              <select
+                aria-label="assign selected tasks to"
+                className="rounded-[var(--radius)] border border-[var(--color-border)] bg-[var(--color-bg-elev)] px-1.5 py-1 text-[12px] hover:bg-[var(--color-bg)]"
+                disabled={bulkIds.length === 0}
+                value=""
+                onChange={(event) => {
+                  const value = event.target.value as Assignee;
+                  if (value) runBulkAssign(value);
+                  event.target.blur();
+                }}
+              >
+                <option value="">assign…</option>
+                {ASSIGNEES.map((assignee) => (
+                  <option key={assignee} value={assignee}>{assignee}</option>
+                ))}
+              </select>
+            )}
             <button
               type="button"
               className="rounded-[var(--radius)] border border-[var(--color-border)] px-2 py-1 hover:bg-[var(--color-bg)]"

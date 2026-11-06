@@ -210,22 +210,85 @@ export function lastSuccessfulSyncEndedAt(db: Database, adapter: string): string
 }
 
 // --- queue_items ----------------------------------------------------------
+//
+// Queue order is `added_at ASC, id ASC`. Re-ordering rewrites added_at
+// (front = earliest - 1ms, swap = exchange timestamps) so no schema change
+// is needed. A task is queued at most once: re-adding returns the
+// existing item instead of creating a duplicate that would run twice.
 
-export function addQueueItem(db: Database, taskId: number): number | null {
+export function addQueueItem(
+  db: Database,
+  taskId: number,
+  opts: { front?: boolean } = {},
+): number | null {
   ensureQueueSchema(db);
   const taskRow = db.prepare(`SELECT 1 FROM tasks WHERE id = ? LIMIT 1`).get(taskId);
   if (!taskRow) return null;
+  const existing = db
+    .prepare(`SELECT id FROM queue_items WHERE task_id = ? ORDER BY id ASC LIMIT 1`)
+    .get(taskId) as { id: number } | undefined;
+  if (existing) {
+    if (opts.front) moveQueueItemToFront(db, existing.id);
+    return existing.id;
+  }
+  const addedAt = opts.front ? frontTimestamp(db) : new Date().toISOString();
   const info = db
     .prepare(`INSERT INTO queue_items (task_id, added_at) VALUES (?, ?)`)
-    .run(taskId, new Date().toISOString());
+    .run(taskId, addedAt);
   return Number(info.lastInsertRowid);
+}
+
+function frontTimestamp(db: Database): string {
+  const row = db.prepare(`SELECT MIN(added_at) AS first FROM queue_items`).get() as
+    | { first: string | null }
+    | undefined;
+  const first = row?.first ? Date.parse(row.first) : NaN;
+  const base = Number.isFinite(first) ? first - 1 : Date.now();
+  return new Date(base).toISOString();
+}
+
+export function moveQueueItemToFront(db: Database, id: number): boolean {
+  ensureQueueSchema(db);
+  const info = db
+    .prepare(`UPDATE queue_items SET added_at = ? WHERE id = ?`)
+    .run(frontTimestamp(db), id);
+  return Number(info.changes) > 0;
+}
+
+/**
+ * Swap an item with its neighbour ("up" = earlier, "down" = later).
+ * Returns false when the item is missing or already at that end.
+ */
+export function moveQueueItem(db: Database, id: number, direction: "up" | "down"): boolean {
+  ensureQueueSchema(db);
+  const ordered = db
+    .prepare(`SELECT id, added_at FROM queue_items ORDER BY added_at ASC, id ASC`)
+    .all() as Array<{ id: number; added_at: string }>;
+  const index = ordered.findIndex((row) => row.id === id);
+  if (index < 0) return false;
+  const otherIndex = direction === "up" ? index - 1 : index + 1;
+  const self = ordered[index];
+  const other = ordered[otherIndex];
+  if (!self || !other) return false;
+  // Equal timestamps (bulk adds in the same ms) can't be swapped by
+  // exchanging them, so renumber the whole queue 1ms apart first.
+  const tx = db.transaction(() => {
+    const update = db.prepare(`UPDATE queue_items SET added_at = ? WHERE id = ?`);
+    const base = Date.parse(ordered[0]?.added_at ?? "") || Date.now();
+    const ids = ordered.map((row) => row.id);
+    ids[index] = other.id;
+    ids[otherIndex] = self.id;
+    ids.forEach((itemId, i) => update.run(new Date(base + i).toISOString(), itemId));
+  });
+  tx();
+  return true;
 }
 
 export function listQueueItems(db: Database): QueueItem[] {
   ensureQueueSchema(db);
   const rows = db
     .prepare(
-      `SELECT q.id, q.task_id, t.repo, t.prompt, q.added_at
+      `SELECT q.id, q.task_id, t.repo, t.prompt, q.added_at, t.title, t.assignee, t.status
          FROM queue_items q
          JOIN tasks t ON t.id = q.task_id
         ORDER BY q.added_at ASC, q.id ASC`,
@@ -236,6 +299,9 @@ export function listQueueItems(db: Database): QueueItem[] {
     repo: string;
     prompt: string | null;
     added_at: string;
+    title: string;
+    assignee: string;
+    status: string;
   }>;
   return rows.map((row) => ({
     id: row.id,
@@ -243,6 +309,9 @@ export function listQueueItems(db: Database): QueueItem[] {
     repo: row.repo,
     prompt: row.prompt ?? null,
     added_at: row.added_at,
+    title: row.title,
+    assignee: row.assignee,
+    status: row.status,
   }));
 }
 
@@ -252,9 +321,76 @@ export function deleteQueueItem(db: Database, id: number): boolean {
   return Number(info.changes) > 0;
 }
 
+export function deleteQueueItemsForTask(db: Database, taskId: number): number {
+  ensureQueueSchema(db);
+  const info = db.prepare(`DELETE FROM queue_items WHERE task_id = ?`).run(taskId);
+  return Number(info.changes);
+}
+
 export function clearQueue(db: Database): void {
   ensureQueueSchema(db);
   db.prepare(`DELETE FROM queue_items`).run();
+}
+
+// --- runs listing -----------------------------------------------------------
+
+export interface RunListRow {
+  id: number;
+  task_id: number;
+  agent: string;
+  started_at: string;
+  ended_at: string | null;
+  status: string;
+  output_summary: string | null;
+  task_title: string;
+  repo: string;
+}
+
+/** Recent runs across all tasks, newest first, for `relay runs` / GET /api/runs. */
+export function listRuns(
+  db: Database,
+  filters: { status?: string; agent?: string; taskId?: number; limit?: number } = {},
+): RunListRow[] {
+  const where: string[] = [];
+  const params: Array<string | number> = [];
+  if (filters.status) {
+    where.push("r.status = ?");
+    params.push(filters.status);
+  }
+  if (filters.agent) {
+    where.push("r.agent = ?");
+    params.push(filters.agent);
+  }
+  if (filters.taskId) {
+    where.push("r.task_id = ?");
+    params.push(filters.taskId);
+  }
+  const limit = Math.min(Math.max(Math.round(filters.limit ?? 30), 1), 500);
+  params.push(limit);
+  return db
+    .prepare(
+      `SELECT r.id, r.task_id, r.agent, r.started_at, r.ended_at, r.status, r.output_summary,
+              t.title AS task_title, t.repo
+         FROM runs r
+         JOIN tasks t ON t.id = r.task_id
+        ${where.length > 0 ? `WHERE ${where.join(" AND ")}` : ""}
+        ORDER BY r.started_at DESC, r.id DESC
+        LIMIT ?`,
+    )
+    .all(...params) as RunListRow[];
+}
+
+export function getRun(db: Database, id: number): RunListRow | null {
+  const row = db
+    .prepare(
+      `SELECT r.id, r.task_id, r.agent, r.started_at, r.ended_at, r.status, r.output_summary,
+              t.title AS task_title, t.repo
+         FROM runs r
+         JOIN tasks t ON t.id = r.task_id
+        WHERE r.id = ?`,
+    )
+    .get(id) as RunListRow | undefined;
+  return row ?? null;
 }
 
 // --- undo_log -------------------------------------------------------------

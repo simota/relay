@@ -4,7 +4,7 @@ import toml from "@iarna/toml";
 import { z } from "zod";
 import { CONFIG_PATH, expandHome } from "./paths.js";
 
-const ConfigSchema = z.object({
+export const ConfigSchema = z.object({
   scan: z
     .object({
       roots: z.array(z.string()).default(["~/repos/github.com"]),
@@ -43,6 +43,15 @@ const ConfigSchema = z.object({
       claude_bin: z.string().default("claude"),
       codex_bin: z.string().default("codex"),
       antigravity_bin: z.string().default("agy"),
+      // Extra args for headless runs (`relay run --headless`, `relay queue
+      // run --headless`), inserted after `claude -p` / `codex exec`. Use
+      // them to grant the unattended agent permissions, e.g.
+      // claude_headless_args = ["--permission-mode", "acceptEdits"]
+      // codex_headless_args  = ["--full-auto"]
+      claude_headless_args: z.array(z.string()).default([]),
+      codex_headless_args: z.array(z.string()).default([]),
+      // Default wall-clock limit per headless run, in minutes (0 = none).
+      headless_timeout_min: z.number().int().nonnegative().default(30),
     })
     .default({}),
   ui: z

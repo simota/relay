@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Copy, Check, RotateCcw, ExternalLink, ChevronDown, Pencil, History } from "lucide-react";
 import useSWR from "swr";
-import { api } from "@/lib/api";
+import { api, type RunListItem } from "@/lib/api";
 import { c, formatNumber } from "@/lib/copy";
 import { cn, timeAgo } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -15,7 +15,7 @@ import { SnoozeMenu } from "@/components/snooze-menu";
 import { EditedChip, TaskEditForm } from "@/components/task-edit-form";
 import { useHotkeys } from "@/hooks/use-hotkeys";
 import { sourceTypeToSessionType, stripSessionIdPrefix } from "@/lib/session-link";
-import type { EditableField, Task, TaskRun, SourceType } from "@/lib/types";
+import type { EditableField, Task, SourceType } from "@/lib/types";
 
 export function TaskDetail({ task, onChange }: { task: Task | null; onChange?: () => void }) {
   const [busy, setBusy] = useState<string | null>(null);
@@ -26,9 +26,9 @@ export function TaskDetail({ task, onChange }: { task: Task | null; onChange?: (
     task?.context_hash ? `/api/contexts/${task.context_hash}` : null,
     () => task?.context_hash ? api.context(task.context_hash) : null,
   );
-  const { data: runs = [] } = useSWR<TaskRun[]>(
-    task ? `/api/tasks/${task.id}/runs` : null,
-    () => (task ? api.taskRuns(task.id, 5) : []),
+  const { data: runs = [] } = useSWR<RunListItem[]>(
+    task ? `/api/runs?task_id=${task.id}` : null,
+    () => (task ? api.runs({ taskId: task.id, limit: 5 }) : []),
   );
 
   // Leaving the task (j/k, list click) abandons an open edit.
@@ -320,7 +320,8 @@ function fieldLabel(field: EditableField): string {
   return field === "due_at" ? "due" : field === "wait_on" ? "wait on" : field;
 }
 
-function RunHistory({ runs }: { runs: TaskRun[] }) {
+function RunHistory({ runs }: { runs: RunListItem[] }) {
+  const [openLog, setOpenLog] = useState<number | null>(null);
   return (
     <section aria-label="Agent runs" className="space-y-1.5">
       <div className="flex items-center gap-1.5 text-[10.5px] uppercase tracking-wider text-[var(--color-fg-dim)] font-medium">
@@ -329,31 +330,81 @@ function RunHistory({ runs }: { runs: TaskRun[] }) {
       </div>
       <ul className="space-y-1 text-[12px] font-mono">
         {runs.map((run) => (
-          <li key={run.id} className="flex items-baseline gap-2 min-w-0">
-            <span
-              className={cn(
-                "shrink-0 w-[62px]",
-                run.status === "success"
-                  ? "text-[var(--color-accent)]"
-                  : run.status === "running"
-                    ? "text-[var(--color-cool)]"
-                    : "text-[var(--color-critical)]",
-              )}
-            >
-              {run.status}
-            </span>
-            <span className="shrink-0 text-[var(--color-fg-muted)]">{run.agent}</span>
-            <span className="shrink-0 text-[var(--color-fg-dim)]" title={run.started_at}>{timeAgo(run.started_at)} ago</span>
-            {run.output_summary && (
-              <span className="truncate text-[var(--color-fg-dim)]" title={run.output_summary}>
-                {run.output_summary.split("\n")[0]}
+          <li key={run.id} className="min-w-0">
+            <div className="flex items-baseline gap-2 min-w-0">
+              <span
+                className={cn(
+                  "shrink-0 w-[62px]",
+                  run.status === "success"
+                    ? "text-[var(--color-accent)]"
+                    : run.status === "running"
+                      ? "text-[var(--color-cool)]"
+                      : "text-[var(--color-critical)]",
+                )}
+              >
+                {run.status}
               </span>
-            )}
+              <span className="shrink-0 text-[var(--color-fg-muted)]">{run.agent}</span>
+              <span className="shrink-0 text-[var(--color-fg-dim)]" title={run.started_at}>{timeAgo(run.started_at)} ago</span>
+              {run.ended_at && (
+                <span className="shrink-0 text-[var(--color-fg-dim)]" title="duration">{formatRunDuration(run.started_at, run.ended_at)}</span>
+              )}
+              {run.output_summary && (
+                <span className="truncate text-[var(--color-fg-dim)]" title={run.output_summary}>
+                  {run.output_summary.split("\n").at(-1)}
+                </span>
+              )}
+              {run.has_log && (
+                <button
+                  type="button"
+                  className="ml-auto shrink-0 text-[11px] text-[var(--color-cool)] hover:underline ring-focus rounded-[var(--radius)]"
+                  aria-expanded={openLog === run.id}
+                  aria-controls={`run-log-${run.id}`}
+                  onClick={() => setOpenLog((current) => (current === run.id ? null : run.id))}
+                >
+                  {openLog === run.id ? "hide log" : "log"}
+                </button>
+              )}
+            </div>
+            {openLog === run.id && <RunLogView runId={run.id} />}
           </li>
         ))}
       </ul>
     </section>
   );
+}
+
+function RunLogView({ runId }: { runId: number }) {
+  const { data, error, isLoading } = useSWR(`/api/runs/${runId}/log`, () => api.runLog(runId));
+  return (
+    <div id={`run-log-${runId}`} className="mt-1 rounded-[var(--radius)] border border-[var(--color-border)] bg-[var(--color-bg)]/60">
+      {isLoading ? (
+        <p className="px-2 py-1.5 text-[11px] text-[var(--color-fg-dim)]">loading log…</p>
+      ) : error || !data ? (
+        <p className="px-2 py-1.5 text-[11px] text-[var(--color-critical)]">log unavailable</p>
+      ) : (
+        <>
+          {data.truncated && (
+            <p className="px-2 pt-1.5 text-[11px] text-[var(--color-fg-dim)]">
+              showing the end of {formatNumber(data.bytes)} bytes — full log: <code>relay runs --log {runId}</code>
+            </p>
+          )}
+          <pre className="max-h-[260px] overflow-auto whitespace-pre-wrap break-words px-2 py-1.5 text-[11px] leading-snug text-[var(--color-fg-muted)]">
+            {data.text}
+          </pre>
+        </>
+      )}
+    </div>
+  );
+}
+
+function formatRunDuration(startedAt: string, endedAt: string): string {
+  const ms = Date.parse(endedAt) - Date.parse(startedAt);
+  if (!Number.isFinite(ms) || ms < 0) return "";
+  const sec = Math.round(ms / 1000);
+  if (sec < 60) return `${sec}s`;
+  const min = Math.floor(sec / 60);
+  return min < 60 ? `${min}m${String(sec % 60).padStart(2, "0")}s` : `${Math.floor(min / 60)}h${String(min % 60).padStart(2, "0")}m`;
 }
 
 function ManualTaskSpec({ task }: { task: Task }) {

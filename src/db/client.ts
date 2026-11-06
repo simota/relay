@@ -58,6 +58,7 @@ import {
   type TaskRunRow,
 } from "./queries/edits.js";
 export type { TaskEditSnapshot, TaskRunRow } from "./queries/edits.js";
+export type { RunListRow } from "./queries/runs.js";
 export { closedSnapshots } from "./queries/tasks.js";
 import {
   countForViewFilter as _countForViewFilter,
@@ -121,6 +122,12 @@ import {
   addQueueItem as _addQueueItem,
   clearQueue as _clearQueue,
   deleteQueueItem as _deleteQueueItem,
+  deleteQueueItemsForTask as _deleteQueueItemsForTask,
+  getRun as _getRun,
+  listRuns as _listRuns,
+  moveQueueItem as _moveQueueItem,
+  moveQueueItemToFront as _moveQueueItemToFront,
+  type RunListRow,
   finishRun as _finishRun,
   insertRun as _insertRun,
   lastSuccessfulSyncEndedAt as _lastSuccessfulSyncEndedAt,
@@ -764,8 +771,28 @@ export class RelayDB {
     return _lastSuccessfulSyncEndedAt(this.db, adapter);
   }
 
-  addQueueItem(taskId: number): number | null {
-    return _addQueueItem(this.db, taskId);
+  addQueueItem(taskId: number, opts: { front?: boolean } = {}): number | null {
+    return _addQueueItem(this.db, taskId, opts);
+  }
+
+  moveQueueItem(id: number, direction: "up" | "down"): boolean {
+    return _moveQueueItem(this.db, id, direction);
+  }
+
+  moveQueueItemToFront(id: number): boolean {
+    return _moveQueueItemToFront(this.db, id);
+  }
+
+  deleteQueueItemsForTask(taskId: number): number {
+    return _deleteQueueItemsForTask(this.db, taskId);
+  }
+
+  listRuns(filters: { status?: string; agent?: string; taskId?: number; limit?: number } = {}): RunListRow[] {
+    return _listRuns(this.db, filters);
+  }
+
+  getRun(id: number): RunListRow | null {
+    return _getRun(this.db, id);
   }
 
   listQueueItems(): QueueItem[] {

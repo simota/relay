@@ -15,3 +15,17 @@ export function padEndDisplay(s: string, width: number): string {
   const pad = width - displayWidth(s);
   return pad > 0 ? s + " ".repeat(pad) : s;
 }
+
+/** Cut `s` to at most `width` display columns, ending with "…" when cut. */
+export function truncateDisplay(s: string, width: number): string {
+  if (displayWidth(s) <= width) return s;
+  let out = "";
+  let used = 0;
+  for (const ch of s) {
+    const w = WIDE_CHAR.test(ch) ? 2 : 1;
+    if (used + w > width - 1) break;
+    out += ch;
+    used += w;
+  }
+  return `${out}…`;
+}

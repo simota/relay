@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { RelayDB } from "../db/client.js";
 import { parseWhenInput, WHEN_INPUT_HINT } from "../lib/due-date.js";
 import { parseTaskEdit } from "../lib/task-edit.js";
-import type { Task } from "../types.js";
+import { Assignee, type Task } from "../types.js";
 
 interface BulkBody {
   ids?: unknown;
@@ -56,6 +56,29 @@ export function createTasksApi() {
       });
     }
     return c.json({ ok: true, count });
+  });
+
+  // Assign many tasks to one agent (e.g. hand a batch of TODOs to codex
+  // before queueing them). One undo entry restores every previous assignee.
+  app.post("/bulk/assign", async (c) => {
+    const body = (await c.req.json().catch(() => null)) as (BulkBody & { assignee?: unknown }) | null;
+    const ids = parseIds(body?.ids);
+    if (!ids) return c.json({ error: "ids must be positive integers" }, 400);
+    const assignee = Assignee.safeParse(body?.assignee);
+    if (!assignee.success) {
+      return c.json({ error: `assignee must be one of: ${Assignee.options.join(", ")}` }, 400);
+    }
+    using db = new RelayDB();
+    const tasks = db.getTasksByIds(ids).filter((task) => task.assignee !== assignee.data);
+    for (const task of tasks) db.setAssignee(task.id, assignee.data);
+    if (tasks.length > 0) {
+      db.recordUndo({
+        op_kind: "reassign",
+        payload: { tasks: tasks.map((task) => ({ id: task.id, assignee: assignee.data })) },
+        inverse: { tasks: tasks.map((task) => ({ id: task.id, assignee: task.assignee })) },
+      });
+    }
+    return c.json({ ok: true, count: tasks.length });
   });
 
   // --- Edit ------------------------------------------------------------

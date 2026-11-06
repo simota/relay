@@ -57,8 +57,8 @@ names; on Contexts it matches across repo, branch, hash, and summary.
 | `e` | edit the task inline (title / priority / due / wait on / prompt / files / body). `⌘↵` saves, `Esc` cancels. Edited fields stay across sync |
 | `c` | close (mark done) |
 | `o` | reopen |
-| `a` | add selected task to the run queue |
-| `b` | open the bulk-action bar for the selection (`s` snooze / `c` close / `Esc` cancel) |
+| `a` | add the selected task (or every multi-selected task) to the run queue |
+| `b` | open the bulk-action bar for the selection (`s` snooze / `c` close / `a` queue / `Esc` cancel; the bar's "assign…" menu hands the selection to one agent) |
 | `n` | new task form (repo / title / assignee). Tab to switch field, Enter to create, Esc to cancel |
 
 Assignee is changed by clicking the assignee row in the task detail panel.

@@ -257,3 +257,82 @@ describe("sync SSE streams", () => {
     }
   });
 });
+
+describe("queue, runs, and bulk assign APIs", () => {
+  async function newTask(title: string): Promise<number> {
+    const res = await app.request("http://127.0.0.1:7340/api/tasks", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ repo: "demo", title }),
+    });
+    return ((await res.json()) as { id: number }).id;
+  }
+  const json = (method: string, body: unknown) => ({
+    method,
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  test("bulk queue keeps order, dedupes, and supports front + move", async () => {
+    await app.request("http://127.0.0.1:7340/api/queue", { method: "DELETE" });
+    const a = await newTask("queue a");
+    const b = await newTask("queue b");
+    const c = await newTask("queue c");
+    const res = await app.request("http://127.0.0.1:7340/api/queue/items", json("POST", { task_ids: [a, b, a] }));
+    expect(res.status).toBe(201);
+    expect(((await res.json()) as { count: number }).count).toBe(2);
+    await app.request("http://127.0.0.1:7340/api/queue/items", json("POST", { task_id: c, front: true }));
+    let items = (await (await app.request("http://127.0.0.1:7340/api/queue")).json()) as Array<{ id: number; task_id: number; title: string }>;
+    expect(items.map((item) => item.task_id)).toEqual([c, a, b]);
+    expect(items[0]?.title).toBe("queue c");
+
+    const last = items[2]!;
+    const moved = await app.request(`http://127.0.0.1:7340/api/queue/items/${last.id}/move`, json("POST", { direction: "up" }));
+    expect(moved.status).toBe(200);
+    items = (await (await app.request("http://127.0.0.1:7340/api/queue")).json()) as typeof items;
+    expect(items.map((item) => item.task_id)).toEqual([c, b, a]);
+
+    const bad = await app.request(`http://127.0.0.1:7340/api/queue/items/${last.id}/move`, json("POST", { direction: "sideways" }));
+    expect(bad.status).toBe(400);
+    const missing = await app.request("http://127.0.0.1:7340/api/queue/items", json("POST", { task_ids: ["x"] }));
+    expect(missing.status).toBe(400);
+  });
+
+  test("bulk assign changes every task and is undoable in one step", async () => {
+    const a = await newTask("assign a");
+    const b = await newTask("assign b");
+    const res = await app.request("http://127.0.0.1:7340/api/tasks/bulk/assign", json("POST", { ids: [a, b], assignee: "codex" }));
+    expect(((await res.json()) as { count: number }).count).toBe(2);
+    {
+      using db = new RelayDB();
+      expect(db.getTask(a)?.assignee).toBe("codex");
+      expect(db.getTask(b)?.assignee).toBe("codex");
+    }
+    const undo = await app.request("http://127.0.0.1:7340/api/undo", { method: "POST" });
+    expect(((await undo.json()) as { op_kind: string }).op_kind).toBe("reassign");
+    using db = new RelayDB();
+    expect(db.getTask(a)?.assignee).toBe("self");
+    expect(db.getTask(b)?.assignee).toBe("self");
+
+    const invalid = await app.request("http://127.0.0.1:7340/api/tasks/bulk/assign", json("POST", { ids: [a], assignee: "robot" }));
+    expect(invalid.status).toBe(400);
+  });
+
+  test("runs list joins task info; log 404s when nothing was captured", async () => {
+    const id = await newTask("run history");
+    let runId: number;
+    {
+      using db = new RelayDB();
+      runId = db.insertRun(id, "codex");
+      db.finishRun(runId, "failed", "exit 2");
+    }
+    const res = await app.request(`http://127.0.0.1:7340/api/runs?task_id=${id}`);
+    const rows = (await res.json()) as Array<{ id: number; task_title: string; status: string; has_log: boolean }>;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ id: runId, task_title: "run history", status: "failed", has_log: false });
+    const log = await app.request(`http://127.0.0.1:7340/api/runs/${runId}/log`);
+    expect(log.status).toBe(404);
+    const badStatus = await app.request("http://127.0.0.1:7340/api/runs?status=weird");
+    expect(badStatus.status).toBe(400);
+  });
+});
