@@ -25,6 +25,10 @@ interface TaskListProps {
   onBulkQueue?: (ids: number[]) => void;
   /** Hand the selection to one agent. */
   onBulkAssign?: (ids: number[], assignee: Assignee) => void;
+  /** Add / remove tags on the selection. */
+  onBulkTag?: (ids: number[]) => void;
+  /** task id → open blocker ids (dependency-blocked rows get a ⛓ badge). */
+  blockedMap?: ReadonlyMap<number, number[]>;
   onBulkOpenChange?: (open: boolean) => void;
   showBulkBar?: boolean;
 }
@@ -40,6 +44,8 @@ export function TaskList({
   onBulkClose,
   onBulkQueue,
   onBulkAssign,
+  onBulkTag,
+  blockedMap,
   onBulkOpenChange,
   showBulkBar = true,
 }: TaskListProps) {
@@ -151,7 +157,7 @@ export function TaskList({
   }
 
   return (
-    <div ref={ref} className="relative divide-y divide-[var(--color-border)]/60">
+    <div ref={ref} className="@container relative divide-y divide-[var(--color-border)]/60">
       {showBulkBar && Boolean(onRangeSelect) && (
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[var(--color-border)] bg-[var(--color-bg-elev)] px-4 py-2 text-[12px] text-[var(--color-fg-muted)]">
           <label className="flex min-w-0 items-center gap-2">
@@ -198,6 +204,17 @@ export function TaskList({
                 <Kbd>A</Kbd> queue
               </button>
             )}
+            {onBulkTag && (
+              <button
+                type="button"
+                className="rounded-[var(--radius)] border border-[var(--color-border)] px-2 py-1 hover:bg-[var(--color-bg)]"
+                disabled={bulkIds.length === 0}
+                onClick={() => onBulkTag(bulkIds)}
+                title="Add or remove tags on the selection (⌘Z to undo)"
+              >
+                # tag…
+              </button>
+            )}
             {onBulkAssign && (
               <select
                 aria-label="assign selected tasks to"
@@ -237,6 +254,7 @@ export function TaskList({
           selected={row.task.id === selectedId}
           rangeSelected={selectedSet.has(row.task.id)}
           selectionMode={selectedIds.length > 0 || bulkOpen}
+          blockers={blockedMap?.get(row.task.id)}
           onSelect={onSelect}
           onToggleSelect={onToggleSelect}
         />
@@ -250,6 +268,7 @@ function TaskRow({
   selected,
   rangeSelected,
   selectionMode,
+  blockers,
   onSelect,
   onToggleSelect,
 }: {
@@ -257,6 +276,7 @@ function TaskRow({
   selected: boolean;
   rangeSelected: boolean;
   selectionMode: boolean;
+  blockers?: number[];
   onSelect: (id: number, extend?: boolean) => void;
   onToggleSelect?: (id: number) => void;
 }) {
@@ -321,10 +341,45 @@ function TaskRow({
         aria-label={`priority: ${priorityTone}`}
         className={cn("priority-dot inline-block w-1 h-1 shrink-0", PRIORITY_DOT_CLASS[priorityTone])}
       />
-      <span className={cn("flex-1 truncate min-w-0", selected && "text-[var(--color-fg)]")}>
+      <span className={cn("flex-1 truncate min-w-[96px]", selected && "text-[var(--color-fg)]")}>
         {row.titleIndices.length ? highlight(t.title, row.titleIndices) : t.title}
       </span>
+      {(t.tags?.length ?? 0) > 0 && (
+        // Tags yield space to the title: the strip shrinks first, and chips
+        // that no longer fit wrap onto a clipped second line (whole chips
+        // disappear instead of being squeezed into slivers).
+        // Hidden when the list column is narrow; the detail panel, sidebar
+        // and `tag:` filter still surface tags there.
+        <div className="hidden @[760px]:flex h-[18px] min-w-0 shrink-[2] flex-wrap items-center gap-1 overflow-hidden" aria-label={`tags: ${t.tags!.join(", ")}`}>
+          {t.tags!.slice(0, 2).map((tag) => (
+            <Link
+              key={tag}
+              href={`/tasks?status=open&tag=${encodeURIComponent(tag)}`}
+              onClick={(e) => e.stopPropagation()}
+              title={`show open tasks tagged #${tag}`}
+              className="shrink-0 max-w-[88px] truncate rounded border border-[var(--color-border)] px-1.5 py-0.5 text-[11px] leading-none font-mono text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] hover:border-[var(--color-border-strong)]"
+            >
+              #{tag}
+            </Link>
+          ))}
+          {t.tags!.length > 2 && (
+            <span className="shrink-0 text-[11px] text-[var(--color-fg-dim)]" title={t.tags!.slice(2).map((tag) => `#${tag}`).join(" ")}>
+              +{formatNumber(t.tags!.length - 2)}
+            </span>
+          )}
+        </div>
+      )}
       <div className="flex items-center gap-2 shrink-0">
+        {blockers && blockers.length > 0 && (
+          <span
+            role="img"
+            aria-label={`blocked by ${blockers.map((id) => `task ${id}`).join(", ")}`}
+            title={`waiting on ${blockers.map((id) => `#${id}`).join(" ")} — hidden from Today until done`}
+            className="rounded border border-[var(--color-warm)]/40 bg-[var(--color-warm)]/10 px-1.5 py-0.5 text-[11px] leading-none tabular text-[var(--color-warm)]"
+          >
+            ⛓ {blockers.length === 1 ? `#${blockers[0]}` : formatNumber(blockers.length)}
+          </span>
+        )}
         <Badge source={t.source_type} />
         {age && (
           <span

@@ -6,6 +6,7 @@ import type { Database } from "bun:sqlite";
 import type { SessionRow, SessionType, Task } from "../../types.js";
 import type { TaskStatusSnapshot } from "../types.js";
 import { hydrate, parseAgeFilter } from "../internal.js";
+import { HAS_OPEN_BLOCKER_SQL, TAG_FILTER_SQL } from "./links.js";
 
 // Filesystem-bound source types — these tasks cannot exist meaningfully
 // when the local repo directory is gone. github_issue/pr live on github.com,
@@ -76,6 +77,10 @@ export function listTasks(
     context?: string;
     session?: string;
     age?: string;
+    /** Normalized tag (schema v12). */
+    tag?: string;
+    /** true → only dependency-blocked tasks; false → hide them. */
+    blocked?: boolean;
     /** Free-text search: every whitespace-separated term must appear in
      *  the title, body, prompt, repo, or source_id (case-insensitive). */
     q?: string;
@@ -120,6 +125,12 @@ export function listTasks(
     where.push("session_id = ?");
     args.push(filters.session);
   }
+  if (filters.tag) {
+    where.push(TAG_FILTER_SQL);
+    args.push(filters.tag);
+  }
+  if (filters.blocked === true) where.push(HAS_OPEN_BLOCKER_SQL);
+  if (filters.blocked === false) where.push(`NOT ${HAS_OPEN_BLOCKER_SQL}`);
   const olderThanDays = parseAgeFilter(filters.age);
   if (olderThanDays !== null) {
     where.push("created_at <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?)");

@@ -23,7 +23,7 @@ export function FilterBar({ value, onChange, matched, total, inputRef, onSaveVie
         value={value}
         onChange={(e) => onChange(e.target.value)}
         aria-label="Filter tasks"
-        placeholder="repo:foo status:open age>7 source:code_todo title"
+        placeholder="repo:foo tag:billing is:ready age>7 source:code_todo title"
         className="flex-1 bg-transparent outline-none text-[13px] placeholder:text-[var(--color-fg-dim)] font-mono"
       />
       <span className="text-[11px] text-[var(--color-fg-dim)] whitespace-nowrap">

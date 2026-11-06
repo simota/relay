@@ -196,6 +196,8 @@ function UndoHotkeys() {
           (key.startsWith("/api/tasks") ||
             key.startsWith("/api/today") ||
             key.startsWith("/api/counts") ||
+            key.startsWith("/api/deps") ||
+            key.startsWith("/api/tags") ||
             key.startsWith("/api/undo")),
       );
     } catch (error) {

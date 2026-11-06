@@ -62,6 +62,12 @@ export function runColumnMigrations(db: Database): void {
   if (!taskCols.some((c) => c.name === "user_overrides")) {
     db.exec(`ALTER TABLE tasks ADD COLUMN user_overrides TEXT`);
   }
+  // schema_version 12: tasks.tags. Nullable JSON array of user tags; NULL
+  // (= untagged) for every pre-v12 row. task_deps is a new table created by
+  // SCHEMA_SQL's CREATE TABLE IF NOT EXISTS, so it needs no ALTER here.
+  if (!taskCols.some((c) => c.name === "tags")) {
+    db.exec(`ALTER TABLE tasks ADD COLUMN tags TEXT`);
+  }
 
   // schema_version 4: sessions.status. Pre-v4 DBs already have the sessions
   // table from v3 but no status column; backfill defaults all existing rows

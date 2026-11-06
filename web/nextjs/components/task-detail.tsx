@@ -2,8 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Copy, Check, RotateCcw, ExternalLink, ChevronDown, Pencil, History } from "lucide-react";
-import useSWR from "swr";
+import { Copy, Check, RotateCcw, ExternalLink, ChevronDown, Pencil, History, Link2, X, Hash } from "lucide-react";
+import useSWR, { useSWRConfig } from "swr";
 import { api, type RunListItem } from "@/lib/api";
 import { c, formatNumber } from "@/lib/copy";
 import { cn, timeAgo } from "@/lib/utils";
@@ -15,9 +15,18 @@ import { SnoozeMenu } from "@/components/snooze-menu";
 import { EditedChip, TaskEditForm } from "@/components/task-edit-form";
 import { useHotkeys } from "@/hooks/use-hotkeys";
 import { sourceTypeToSessionType, stripSessionIdPrefix } from "@/lib/session-link";
-import type { EditableField, Task, SourceType } from "@/lib/types";
+import type { DependencyInfo, EditableField, Task, SourceType } from "@/lib/types";
 
-export function TaskDetail({ task, onChange }: { task: Task | null; onChange?: () => void }) {
+export function TaskDetail({
+  task,
+  onChange,
+  onSelectTask,
+}: {
+  task: Task | null;
+  onChange?: () => void;
+  /** Jump to another task (dependency links); falls back to /tasks?selected=. */
+  onSelectTask?: (id: number) => void;
+}) {
   const [busy, setBusy] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [savedNote, setSavedNote] = useState<string | null>(null);
@@ -225,6 +234,9 @@ export function TaskDetail({ task, onChange }: { task: Task | null; onChange?: (
           )}
         </div>
 
+        <TagEditor task={task} onChange={onChange} />
+        <DependencyPanel task={task} onChange={onChange} onSelectTask={onSelectTask} />
+
         {/* Body */}
         {task.source_type === "manual" && (
           <ManualTaskSpec task={task} />
@@ -308,6 +320,278 @@ export function TaskDetail({ task, onChange }: { task: Task | null; onChange?: (
         {runs.length > 0 && <RunHistory runs={runs} />}
         </>)}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Tags: chips with remove buttons plus an inline input (Enter / comma adds).
+ * Tags are user-owned, so they never get overwritten by sync. ⌘Z undoes.
+ */
+function TagEditor({ task, onChange }: { task: Task; onChange?: () => void }) {
+  const [draft, setDraft] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const { mutate } = useSWRConfig();
+  const { data: known = [] } = useSWR("/api/tags", () => api.tags());
+  const tags = task.tags ?? [];
+  const listId = `tag-suggestions-${task.id}`;
+
+  useEffect(() => {
+    setDraft("");
+    setError(null);
+  }, [task.id]);
+
+  const save = async (next: string[]) => {
+    setSaving(true);
+    setError(null);
+    try {
+      await api.setTags(task.id, next);
+      await mutate("/api/tags");
+      onChange?.();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "could not save tags");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const addDraft = () => {
+    const additions = draft
+      .split(/[\s,]+/)
+      .map((t) => t.replace(/^#+/, "").trim().toLowerCase())
+      .filter(Boolean);
+    if (additions.length === 0) return;
+    setDraft("");
+    void save(Array.from(new Set([...tags, ...additions])));
+  };
+
+  return (
+    <section aria-label="Tags" className="flex flex-wrap items-center gap-1.5 text-[12px]">
+      <Hash className="w-3 h-3 text-[var(--color-fg-dim)]" aria-hidden />
+      {tags.map((tag) => (
+        <span
+          key={tag}
+          className="inline-flex items-center gap-1 rounded border border-[var(--color-border)] bg-[var(--color-bg)]/60 pl-1.5 pr-0.5 py-0.5 font-mono text-[11px] text-[var(--color-fg-muted)]"
+        >
+          <Link href={`/tasks?status=open&tag=${encodeURIComponent(tag)}`} className="hover:text-[var(--color-fg)] hover:underline">
+            {tag}
+          </Link>
+          <button
+            type="button"
+            aria-label={`remove tag ${tag}`}
+            disabled={saving}
+            onClick={() => { void save(tags.filter((t) => t !== tag)); }}
+            className="rounded p-0.5 text-[var(--color-fg-dim)] hover:text-[var(--color-critical)] ring-focus"
+          >
+            <X className="w-2.5 h-2.5" aria-hidden />
+          </button>
+        </span>
+      ))}
+      <input
+        value={draft}
+        list={listId}
+        disabled={saving}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === ",") {
+            e.preventDefault();
+            addDraft();
+          }
+          if (e.key === "Escape") (e.target as HTMLInputElement).blur();
+        }}
+        onBlur={() => { if (draft.trim()) addDraft(); }}
+        placeholder={tags.length ? "+ tag" : "add tag…"}
+        aria-label="add tag"
+        className="w-[96px] rounded border border-transparent bg-transparent px-1 py-0.5 font-mono text-[11px] text-[var(--color-fg)] placeholder:text-[var(--color-fg-dim)] hover:border-[var(--color-border)] focus:border-[var(--color-border-strong)] focus:outline-none"
+      />
+      <datalist id={listId}>
+        {known.filter((k) => !tags.includes(k.tag)).slice(0, 30).map((k) => (
+          <option key={k.tag} value={k.tag}>{`${k.open} open`}</option>
+        ))}
+      </datalist>
+      {error && <span role="alert" className="w-full text-[11px] text-[var(--color-critical)]">{error}</span>}
+    </section>
+  );
+}
+
+/**
+ * "Blocked by" / "Blocks" lists. A task with an unfinished blocker is
+ * hidden from Today and deferred by `relay queue run` until the blocker is
+ * done; agents get the blockers listed as prerequisites in their prompt.
+ */
+function DependencyPanel({
+  task,
+  onChange,
+  onSelectTask,
+}: {
+  task: Task;
+  onChange?: () => void;
+  onSelectTask?: (id: number) => void;
+}) {
+  const key = `/api/tasks/${task.id}/deps`;
+  const { data, mutate } = useSWR<DependencyInfo>(key, () => api.deps(task.id));
+  const { mutate: globalMutate } = useSWRConfig();
+  const [adding, setAdding] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setAdding(false);
+    setDraft("");
+    setError(null);
+  }, [task.id]);
+
+  const afterChange = async (next: DependencyInfo) => {
+    await mutate(next, { revalidate: false });
+    await Promise.all([
+      globalMutate("/api/deps/blocked"),
+      globalMutate((k) => typeof k === "string" && (k.startsWith("/api/counts") || k.startsWith("/api/today"))),
+    ]);
+    onChange?.();
+  };
+
+  const add = async () => {
+    const id = Number(draft.trim().replace(/^#/, ""));
+    if (!Number.isInteger(id) || id <= 0) {
+      setError("enter a task id, e.g. 42");
+      return;
+    }
+    setError(null);
+    try {
+      await afterChange(await api.addDependency(task.id, id));
+      setDraft("");
+      setAdding(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "could not add dependency");
+    }
+  };
+
+  const remove = async (id: number) => {
+    setError(null);
+    try {
+      await afterChange(await api.removeDependency(task.id, id));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "could not remove dependency");
+    }
+  };
+
+  const blockedBy = data?.blocked_by ?? [];
+  const blocks = data?.blocks ?? [];
+  const waiting = data?.open_blocker_ids.length ?? 0;
+
+  return (
+    <section aria-label="Dependencies" className="space-y-1.5">
+      <div className="flex items-center gap-1.5 text-[10.5px] uppercase tracking-wider text-[var(--color-fg-dim)] font-medium">
+        <Link2 className="w-3 h-3" aria-hidden />
+        dependencies
+        {waiting > 0 && (
+          <span className="normal-case tracking-normal font-normal text-[var(--color-warm)]">
+            · waiting on {waiting} — hidden from Today
+          </span>
+        )}
+        {blockedBy.length > 0 && waiting === 0 && (
+          <span className="normal-case tracking-normal font-normal text-[var(--color-accent)]">· all blockers done — ready</span>
+        )}
+        {!adding && (
+          <button
+            type="button"
+            onClick={() => setAdding(true)}
+            className="ml-auto normal-case tracking-normal font-normal text-[11px] text-[var(--color-cool)] hover:underline ring-focus rounded-[var(--radius)]"
+          >
+            + blocked by…
+          </button>
+        )}
+      </div>
+      {adding && (
+        <form
+          className="flex items-center gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void add();
+          }}
+        >
+          <input
+            autoFocus
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Escape") setAdding(false); }}
+            inputMode="numeric"
+            placeholder="task id (#42)"
+            aria-label="id of the task this one waits on"
+            className="w-[120px] rounded-[var(--radius)] border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1 font-mono text-[12px] focus:outline-none focus:border-[var(--color-border-strong)]"
+          />
+          <Button size="sm" type="submit">add</Button>
+          <Button size="sm" variant="ghost" type="button" onClick={() => setAdding(false)}>cancel</Button>
+        </form>
+      )}
+      {error && <p role="alert" className="text-[11px] text-[var(--color-critical)]">{error}</p>}
+      {blockedBy.length > 0 && (
+        <DependencyList label="blocked by" tasks={blockedBy} onSelectTask={onSelectTask} onRemove={(id) => { void remove(id); }} />
+      )}
+      {blocks.length > 0 && <DependencyList label="blocks" tasks={blocks} onSelectTask={onSelectTask} />}
+      {blockedBy.length === 0 && blocks.length === 0 && !adding && (
+        <p className="text-[11px] text-[var(--color-fg-dim)]">none — add a blocker to sequence work in Today and the AI queue</p>
+      )}
+    </section>
+  );
+}
+
+function DependencyList({
+  label,
+  tasks,
+  onSelectTask,
+  onRemove,
+}: {
+  label: string;
+  tasks: Task[];
+  onSelectTask?: (id: number) => void;
+  onRemove?: (id: number) => void;
+}) {
+  return (
+    <div className="grid grid-cols-[80px_1fr] gap-x-4 text-[12px]">
+      <span className="text-[var(--color-fg-dim)] pt-0.5">{label}</span>
+      <ul className="space-y-0.5 min-w-0">
+        {tasks.map((t) => (
+          <li key={t.id} className="flex items-center gap-2 min-w-0">
+            <StatusDot status={t.status} className="shrink-0" />
+            {onSelectTask ? (
+              <button
+                type="button"
+                onClick={() => onSelectTask(t.id)}
+                className={cn(
+                  "truncate text-left hover:underline ring-focus rounded-[var(--radius)]",
+                  t.status === "done" ? "text-[var(--color-fg-dim)] line-through" : "text-[var(--color-fg)]",
+                )}
+              >
+                <span className="font-mono text-[var(--color-fg-dim)]">#{t.id}</span> {t.title}
+              </button>
+            ) : (
+              <Link
+                href={`/tasks?status=all&selected=${t.id}`}
+                className={cn(
+                  "truncate hover:underline",
+                  t.status === "done" ? "text-[var(--color-fg-dim)] line-through" : "text-[var(--color-fg)]",
+                )}
+              >
+                <span className="font-mono text-[var(--color-fg-dim)]">#{t.id}</span> {t.title}
+              </Link>
+            )}
+            <span className="shrink-0 font-mono text-[11px] text-[var(--color-cool)]">{t.repo}</span>
+            {onRemove && (
+              <button
+                type="button"
+                aria-label={`remove dependency on task ${t.id}`}
+                title="remove dependency (⌘Z to undo)"
+                onClick={() => onRemove(t.id)}
+                className="ml-auto shrink-0 rounded p-0.5 text-[var(--color-fg-dim)] hover:text-[var(--color-critical)] ring-focus"
+              >
+                <X className="w-3 h-3" aria-hidden />
+              </button>
+            )}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

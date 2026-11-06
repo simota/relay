@@ -1,6 +1,8 @@
 import type {
   AgendaReport,
   Assignee,
+  DependencyInfo,
+  TagCount,
   Task,
   TaskEditInput,
   TaskRun,
@@ -92,6 +94,10 @@ export interface CreateTaskInput {
   prompt?: string;
   files?: string[];
   priority?: number;
+  /** Tags to apply on creation (normalized server-side). */
+  tags?: string[];
+  /** Task ids the new task waits on. */
+  blocked_by?: number[];
 }
 
 export interface SyncHistoryRow {
@@ -124,6 +130,28 @@ export interface ViewFilter {
   repo?: string;
   source?: string;
   age?: string;
+  tag?: string;
+}
+
+/** Error whose message is the server's `{ error }` text (e.g. a dependency cycle). */
+export class ApiError extends Error {
+  constructor(message: string, readonly status: number, readonly code?: string) {
+    super(message);
+  }
+}
+
+async function requestWithServerError<T>(path: string, init: RequestInit): Promise<T> {
+  const r = await fetch(path, {
+    cache: "no-store",
+    ...init,
+    headers: { "content-type": "application/json", ...(init.headers ?? {}) },
+  });
+  const body = (await r.json().catch(() => null)) as { error?: unknown; code?: unknown } | null;
+  if (!r.ok) {
+    const message = typeof body?.error === "string" ? body.error : `${init.method ?? "GET"} ${path} → ${r.status}`;
+    throw new ApiError(message, r.status, typeof body?.code === "string" ? body.code : undefined);
+  }
+  return body as T;
 }
 
 export interface SavedView {
@@ -488,6 +516,24 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ ids, assignee }),
     }),
+  tags: () => request<TagCount[]>("/api/tags"),
+  setTags: (id: number, tags: string[]) =>
+    requestWithServerError<Task>(`/api/tasks/${id}/tags`, { method: "PUT", body: JSON.stringify({ tags }) }),
+  bulkTags: (ids: number[], edit: { add?: string[]; remove?: string[] }) =>
+    requestWithServerError<{ ok: true; count: number }>("/api/tasks/bulk/tags", {
+      method: "POST",
+      body: JSON.stringify({ ids, ...edit }),
+    }),
+  deps: (id: number) => request<DependencyInfo>(`/api/tasks/${id}/deps`),
+  addDependency: (id: number, dependsOn: number) =>
+    requestWithServerError<DependencyInfo>(`/api/tasks/${id}/deps`, {
+      method: "POST",
+      body: JSON.stringify({ depends_on: dependsOn }),
+    }),
+  removeDependency: (id: number, dependsOn: number) =>
+    requestWithServerError<DependencyInfo>(`/api/tasks/${id}/deps/${dependsOn}`, { method: "DELETE" }),
+  /** task id → open blocker ids, for every not-done dependency-blocked task. */
+  blockedMap: () => request<Record<string, number[]>>("/api/deps/blocked"),
   bulk: (input: BulkInput): Promise<{ ok: true; count: number }> => {
     switch (input.action) {
       case "snooze":

@@ -39,6 +39,8 @@ export function NewTaskDialog({ open, onClose }: NewTaskDialogProps) {
   const [prompt, setPrompt] = useState("");
   const [files, setFiles] = useState("");
   const [priority, setPriority] = useState("50");
+  const [tags, setTags] = useState("");
+  const [blockedBy, setBlockedBy] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -61,6 +63,8 @@ export function NewTaskDialog({ open, onClose }: NewTaskDialogProps) {
       setPrompt("");
       setFiles("");
       setPriority("50");
+      setTags("");
+      setBlockedBy("");
       setError(null);
     }
   }, [open]);
@@ -80,6 +84,15 @@ export function NewTaskDialog({ open, onClose }: NewTaskDialogProps) {
       setError("repo and title are required");
       return;
     }
+    const blockerIds = blockedBy
+      .split(/[\s,]+/)
+      .map((v) => v.replace(/^#/, ""))
+      .filter(Boolean)
+      .map(Number);
+    if (blockerIds.some((id) => !Number.isInteger(id) || id <= 0)) {
+      setError("blocked by: use task ids, e.g. 12, 15");
+      return;
+    }
     setSubmitting(true);
     setError(null);
     try {
@@ -91,6 +104,8 @@ export function NewTaskDialog({ open, onClose }: NewTaskDialogProps) {
         prompt: prompt.trim() || undefined,
         files: files.split(",").map((f) => f.trim()).filter(Boolean),
         priority: parsePriority(priority),
+        tags: tags.split(/[\s,]+/).map((t) => t.trim()).filter(Boolean),
+        blocked_by: blockerIds,
       });
       await mutate((key) => typeof key === "string" && key.startsWith("/api/"));
       onClose();
@@ -234,6 +249,26 @@ export function NewTaskDialog({ open, onClose }: NewTaskDialogProps) {
               className="font-mono"
             />
           </Field>
+
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="tags">
+              <Input
+                placeholder="billing, release-v2"
+                value={tags}
+                onChange={(e) => setTags(e.target.value)}
+                className="font-mono"
+              />
+            </Field>
+            <Field label="blocked by">
+              <Input
+                placeholder="task ids, e.g. 12, 15"
+                value={blockedBy}
+                onChange={(e) => setBlockedBy(e.target.value)}
+                inputMode="numeric"
+                className="font-mono"
+              />
+            </Field>
+          </div>
 
           {error && (
             <div className="text-[12px] text-[var(--color-critical)] font-mono">{error}</div>

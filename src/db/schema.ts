@@ -38,6 +38,11 @@ CREATE TABLE IF NOT EXISTS tasks (
   -- re-syncs keep the user's value for these fields instead of overwriting.
   -- ALTERed onto pre-v11 DBs in runColumnMigrations().
   user_overrides TEXT,
+  -- tags: schema v12 JSON array of normalized user tags (lowercase, e.g.
+  -- ["billing","release-v2"]). NULL = untagged. User-owned: adapter
+  -- ingest never writes it, so tags survive every re-sync. ALTERed onto
+  -- pre-v12 DBs in runColumnMigrations().
+  tags          TEXT,
   UNIQUE (source_type, source_id)
 );
 
@@ -56,6 +61,21 @@ CREATE INDEX IF NOT EXISTS idx_tasks_context_hash ON tasks (context_hash)
   WHERE context_hash IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_tasks_session ON tasks (session_id)
   WHERE session_id IS NOT NULL;
+
+-- task_deps: schema v12. "task_id is blocked by depends_on_id". A task
+-- with at least one blocker whose status != 'done' is dependency-blocked:
+-- Today hides it and "relay queue run" defers it until the blocker is
+-- done (or succeeded earlier in the same queue pass). Cycles are rejected
+-- at insert time (queries/links.ts).
+CREATE TABLE IF NOT EXISTS task_deps (
+  task_id        INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  depends_on_id  INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  created_at     TEXT    NOT NULL,
+  PRIMARY KEY (task_id, depends_on_id),
+  CHECK (task_id != depends_on_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_task_deps_depends_on ON task_deps (depends_on_id);
 
 CREATE TABLE IF NOT EXISTS queue_items (
   id        INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -197,6 +217,8 @@ INSERT OR IGNORE INTO schema_version (version, applied_at)
   VALUES (10, datetime('now'));
 INSERT OR IGNORE INTO schema_version (version, applied_at)
   VALUES (11, datetime('now'));
+INSERT OR IGNORE INTO schema_version (version, applied_at)
+  VALUES (12, datetime('now'));
 `;
 
 export interface UndoLogRow {

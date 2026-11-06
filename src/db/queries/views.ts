@@ -6,6 +6,7 @@
 import type { Database } from "bun:sqlite";
 import { ensureViewsSchema } from "../migrations.js";
 import { normalizeViewFilter, parseAgeFilter, parseViewFilter } from "../internal.js";
+import { TAG_FILTER_SQL } from "./links.js";
 import type { SavedView, ViewFilter } from "../types.js";
 
 export function listSavedViews(db: Database): SavedView[] {
@@ -83,6 +84,10 @@ export function countForViewFilter(db: Database, filter: ViewFilter): number {
   if (filter.source) {
     where.push("source_type = ?");
     args.push(filter.source);
+  }
+  if (filter.tag) {
+    where.push(TAG_FILTER_SQL);
+    args.push(filter.tag);
   }
   if (filter.status) {
     where.push("status = ?");

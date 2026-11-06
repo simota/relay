@@ -191,6 +191,76 @@ function task(overrides: Partial<Task>): Task {
   };
 }
 
+describe("processQueue dependencies", () => {
+  test("a dependent queued ahead of its blocker runs after the blocker succeeds", async () => {
+    const blocker = seed("dep-blocker");
+    const dependent = seed("dep-dependent");
+    {
+      using db = new RelayDB();
+      expect(db.addDependency(dependent, blocker)).toEqual({ ok: true, added: true });
+      db.addQueueItem(dependent);
+      db.addQueueItem(blocker);
+    }
+    const fake = fakeExecutor({});
+    const outcomes = await processQueue({}, { cfg, execute: fake.execute, ...quiet });
+    expect(fake.launched).toEqual([blocker, dependent]);
+    expect(outcomes.map((o) => o.kind)).toEqual(["success", "success"]);
+    expect(queueTaskIds()).toEqual([]);
+  });
+
+  test("a dependent whose blocker failed is skipped, not launched", async () => {
+    const blocker = seed("dep-fail-blocker");
+    const dependent = seed("dep-fail-dependent");
+    {
+      using db = new RelayDB();
+      db.addDependency(dependent, blocker);
+      db.addQueueItem(blocker);
+      db.addQueueItem(dependent);
+    }
+    const fake = fakeExecutor({ [blocker]: "failed" });
+    const outcomes = await processQueue({ continueOnError: true }, { cfg, execute: fake.execute, ...quiet });
+    expect(fake.launched).toEqual([blocker]);
+    const skipped = outcomes.find((o) => o.taskId === dependent);
+    expect(skipped?.kind).toBe("skipped");
+    expect(skipped?.reason).toBe(`blocked by #${blocker}`);
+    expect(queueTaskIds()).toEqual([blocker, dependent]);
+  });
+
+  test("a blocker outside the queue that is still open defers the dependent", async () => {
+    const outside = seed("dep-outside");
+    const dependent = seed("dep-outside-dependent");
+    const free = seed("dep-free");
+    {
+      using db = new RelayDB();
+      db.addDependency(dependent, outside);
+      db.addQueueItem(dependent);
+      db.addQueueItem(free);
+    }
+    const fake = fakeExecutor({});
+    const outcomes = await processQueue({}, { cfg, execute: fake.execute, ...quiet });
+    expect(fake.launched).toEqual([free]);
+    expect(outcomes.find((o) => o.taskId === dependent)?.kind).toBe("skipped");
+    // Once the outside blocker is done, the dependent becomes runnable.
+    { using db = new RelayDB(); db.setStatus(outside, "done"); }
+    const again = fakeExecutor({});
+    await processQueue({}, { cfg, execute: again.execute, ...quiet });
+    expect(again.launched).toEqual([dependent]);
+  });
+
+  test("dry-run plans in dependency order", async () => {
+    const blocker = seed("dep-dry-blocker");
+    const dependent = seed("dep-dry-dependent");
+    {
+      using db = new RelayDB();
+      db.addDependency(dependent, blocker);
+      db.addQueueItem(dependent);
+      db.addQueueItem(blocker);
+    }
+    const outcomes = await processQueue({ dryRun: true }, { cfg, ...quiet });
+    expect(outcomes.map((o) => [o.taskId, o.kind])).toEqual([[blocker, "planned"], [dependent, "planned"]]);
+  });
+});
+
 describe("headless commands", () => {
   test("claude -p with extra args and a fallback prompt", () => {
     const t = task({});

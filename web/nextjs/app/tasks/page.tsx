@@ -62,6 +62,7 @@ function TasksInner() {
   const repo = params.get("repo") ?? undefined;
   const source = params.get("source") ?? undefined;
   const age = params.get("age") ?? undefined;
+  const tagParam = params.get("tag") ?? undefined;
   const selectedParam = params.get("selected");
   const selectedFromUrl =
     selectedParam && Number.isInteger(Number(selectedParam)) && Number(selectedParam) > 0
@@ -79,11 +80,12 @@ function TasksInner() {
     [params, router],
   );
 
-  const [filter, setFilter] = useState("");
+  // `?filter=` seeds the DSL box (e.g. Today's "waiting on dependencies" link).
+  const [filter, setFilter] = useState(() => params.get("filter") ?? "");
   const parsedFilter = useMemo(() => parseFilterDsl(filter), [filter]);
   const taskFilter = useMemo(
-    () => compactFilter({ status, repo, source, age, ...parsedFilter.query }),
-    [age, parsedFilter.query, repo, source, status],
+    () => compactFilter({ status, repo, source, age, tag: tagParam, ...parsedFilter.query }),
+    [age, parsedFilter.query, repo, source, status, tagParam],
   );
 
   const key = tasksKey(taskFilter);
@@ -123,9 +125,17 @@ function TasksInner() {
     [taskFilter.status, tasks, inProg],
   );
 
+  // task id → open blocker ids; drives the ⛓ badge and `is:blocked|ready`.
+  const { data: blockedRaw } = useSWR("/api/deps/blocked", () => api.blockedMap());
+  const blockedMap = useMemo(() => {
+    const map = new Map<number, number[]>();
+    for (const [id, blockers] of Object.entries(blockedRaw ?? {})) map.set(Number(id), blockers);
+    return map;
+  }, [blockedRaw]);
+
   const rows = useMemo(
-    () => filterTasks(allTasks, parsedFilter.ast, parsedFilter.titleQuery),
-    [allTasks, parsedFilter.ast, parsedFilter.titleQuery],
+    () => filterTasks(allTasks, parsedFilter.ast, parsedFilter.titleQuery, blockedMap),
+    [allTasks, parsedFilter.ast, parsedFilter.titleQuery, blockedMap],
   );
   const selected = useMemo(() => {
     if (selectedId !== null) {
@@ -138,7 +148,7 @@ function TasksInner() {
   useEffect(() => {
     setSelectedId(null);
     setSelectedIds([]);
-  }, [taskFilter.status, taskFilter.repo, taskFilter.source, taskFilter.age]);
+  }, [taskFilter.status, taskFilter.repo, taskFilter.source, taskFilter.age, taskFilter.tag]);
 
   useEffect(() => {
     if (selectedFromUrl === null) return;
@@ -191,6 +201,8 @@ function TasksInner() {
         await Promise.all([
           refresh(),
           swrMutate((key) => typeof key === "string" && key.startsWith("/api/counts")),
+          // Closing a blocker can unblock dependents.
+          swrMutate("/api/deps/blocked"),
         ]);
       } catch (e) {
         console.warn(`${action} failed`, e);
@@ -209,6 +221,38 @@ function TasksInner() {
       // permissions blocked — best effort
     }
   }, [selected]);
+
+  const refreshAfterLinks = useCallback(async () => {
+    await Promise.all([
+      refresh(),
+      swrMutate("/api/deps/blocked"),
+      swrMutate("/api/tags"),
+      swrMutate((key) => typeof key === "string" && (key.startsWith("/api/counts") || key.startsWith("/api/views"))),
+    ]);
+  }, [refresh, swrMutate]);
+
+  const bulkTag = useCallback(
+    async (ids: number[]) => {
+      if (!ids.length) return;
+      const input = window.prompt(
+        `Tag ${ids.length} task(s) — space-separated; prefix with - to remove (e.g. "billing -later")`,
+      );
+      if (!input?.trim()) return;
+      const add: string[] = [];
+      const remove: string[] = [];
+      for (const token of input.split(/[\s,]+/).filter(Boolean)) {
+        if (token.startsWith("-") || token.startsWith("^")) remove.push(token.slice(1));
+        else add.push(token.replace(/^\+/, ""));
+      }
+      try {
+        await api.bulkTags(ids, { add, remove });
+        await refreshAfterLinks();
+      } catch (e) {
+        pushError(e instanceof Error ? e.message : c("toast.actionFailed", { action: "bulk tag" }));
+      }
+    },
+    [pushError, refreshAfterLinks],
+  );
 
   const bulkMutate = useCallback(
     async (action: "snooze" | "close" | "queue" | "assign", ids: number[], assignee?: Assignee) => {
@@ -232,6 +276,7 @@ function TasksInner() {
           refresh(),
           swrMutate((key) => typeof key === "string" && key.startsWith("/api/counts")),
           swrMutate("/api/queue"),
+          swrMutate("/api/deps/blocked"),
         ]);
       } catch (e) {
         console.warn(`bulk ${action} failed`, e);
@@ -373,14 +418,23 @@ function TasksInner() {
               onRangeSelect={setSelectedIds}
               onBulkSnooze={(ids) => { void bulkMutate("snooze", ids); }}
               onBulkClose={(ids) => { void bulkMutate("close", ids); }}
-                        onBulkQueue={(ids) => { void bulkMutate("queue", ids); }}
-                        onBulkAssign={(ids, assignee) => { void bulkMutate("assign", ids, assignee); }}
+              onBulkQueue={(ids) => { void bulkMutate("queue", ids); }}
+              onBulkAssign={(ids, assignee) => { void bulkMutate("assign", ids, assignee); }}
+              onBulkTag={(ids) => { void bulkTag(ids); }}
+              blockedMap={blockedMap}
               onBulkOpenChange={setBulkOpen}
             />
           )}
         </div>
         <div className="overflow-hidden bg-[var(--color-bg-elev)]/30">
-          <TaskDetail task={selected} onChange={() => refresh()} />
+          <TaskDetail
+            task={selected}
+            onChange={() => { void refreshAfterLinks(); }}
+            onSelectTask={(id) => {
+              setSelectedId(id);
+              setSelectedIds([]);
+            }}
+          />
         </div>
       </div>
     </div>
@@ -393,6 +447,7 @@ function tasksKey(filter: ViewFilter & { limit?: number }): string {
   if (filter.repo) params.set("repo", filter.repo);
   if (filter.source) params.set("source", filter.source);
   if (filter.age) params.set("age", filter.age);
+  if (filter.tag) params.set("tag", filter.tag);
   params.set("limit", String(filter.limit ?? 500));
   return `/api/tasks?${params.toString()}`;
 }
@@ -403,6 +458,7 @@ function compactFilter(filter: ViewFilter): ViewFilter {
   if (filter.repo) compact.repo = filter.repo;
   if (filter.source) compact.source = filter.source;
   if (filter.age) compact.age = filter.age;
+  if (filter.tag) compact.tag = filter.tag;
   return compact;
 }
 
@@ -412,6 +468,7 @@ function viewDefaultName(filter: ViewFilter): string {
     filter.repo ? `repo:${filter.repo}` : "",
     filter.source ? `source:${filter.source}` : "",
     filter.age ? filter.age.replace("older-", "older than ") : "",
+    filter.tag ? `#${filter.tag}` : "",
   ].filter(Boolean);
   return parts.join(" · ");
 }
@@ -421,16 +478,22 @@ function scopeDescription(filter: ViewFilter): string {
     filter.repo ? `repo: ${filter.repo}` : "",
     filter.source ? `source: ${filter.source}` : "",
     filter.age ? `age: ${filter.age.replace("older-", "older than ")}d` : "",
+    filter.tag ? `tag: #${filter.tag}` : "",
   ].filter(Boolean);
   return parts.join(" · ");
 }
 
-function filterTasks(tasks: Task[], ast: FilterDslAst, titleQuery: string): Filtered<Task>[] {
+function filterTasks(
+  tasks: Task[],
+  ast: FilterDslAst,
+  titleQuery: string,
+  blockedMap: ReadonlyMap<number, number[]>,
+): Filtered<Task>[] {
   const fieldTerms = ast.terms.filter((term) => term.type === "field");
   const matched: Filtered<Task>[] = [];
 
   for (const task of tasks) {
-    if (!fieldTerms.every((term) => matchesFieldTerm(task, term))) continue;
+    if (!fieldTerms.every((term) => matchesFieldTerm(task, term, blockedMap))) continue;
 
     const titleMatch = fuzzyMatchMulti(titleQuery, task.title);
     if (!titleMatch) continue;
@@ -446,10 +509,22 @@ function filterTasks(tasks: Task[], ast: FilterDslAst, titleQuery: string): Filt
   return matched;
 }
 
-function matchesFieldTerm(task: Task, term: FilterDslAst["terms"][number]): boolean {
+function matchesFieldTerm(
+  task: Task,
+  term: FilterDslAst["terms"][number],
+  blockedMap: ReadonlyMap<number, number[]>,
+): boolean {
   if (term.type !== "field") return true;
 
   if (term.key === "age") return matchesAgeTerm(task, term.operator, term.value);
+  if (term.key === "tag") {
+    const tags = task.tags ?? [];
+    return term.values.some((value) => tags.includes(value.replace(/^#+/, "").toLowerCase()));
+  }
+  if (term.key === "is") {
+    const blocked = blockedMap.has(task.id);
+    return term.values.some((value) => (value === "blocked" ? blocked : value === "ready" ? !blocked : false));
+  }
 
   const candidate = term.key === "source" ? task.source_type : task[term.key];
   if (term.operator === ":" || term.operator === "=") return term.values.includes(candidate);

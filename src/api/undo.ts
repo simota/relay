@@ -154,6 +154,35 @@ export function applyUndo(db: RelayDB, redo: boolean): UndoOutcome {
     return { ok: true, id: row.id, op_kind: row.op_kind, count, undone: !redo, redone: redo };
   }
 
+  // tags rows carry `{ tasks: [{ id, tags }] }` — the full tag list to
+  // restore, so undo/redo are exact regardless of add/remove semantics.
+  if (row.op_kind === "tags") {
+    const lists = parseTagListPayload(redo ? row.payload : row.inverse);
+    if (!lists) {
+      return { error: "undo payload is invalid" };
+    }
+    const count = db.applyTagLists(lists);
+    db.markUndoStatus(row.id, redo ? "active" : "undone");
+    return { ok: true, id: row.id, op_kind: row.op_kind, count, undone: !redo, redone: redo };
+  }
+
+  // deps rows carry `{ add: [edge], remove: [edge] }`; the inverse swaps
+  // the two lists. Edges whose tasks were deleted since are skipped.
+  if (row.op_kind === "deps") {
+    const change = parseDepsPayload(redo ? row.payload : row.inverse);
+    if (!change) {
+      return { error: "undo payload is invalid" };
+    }
+    let count = 0;
+    for (const edge of change.remove) if (db.removeDependency(edge.task_id, edge.depends_on_id)) count++;
+    for (const edge of change.add) {
+      const added = db.addDependency(edge.task_id, edge.depends_on_id);
+      if (added.ok && added.added) count++;
+    }
+    db.markUndoStatus(row.id, redo ? "active" : "undone");
+    return { ok: true, id: row.id, op_kind: row.op_kind, count, undone: !redo, redone: redo };
+  }
+
   const payload = parseUndoPayload(redo ? row.payload : row.inverse);
   if (!payload) {
     return { error: "undo payload is invalid" };
@@ -288,6 +317,60 @@ function parseEditPayload(value: string): TaskEditSnapshot[] | null {
       out.push({ id, fields: editable as TaskEditSnapshot["fields"], user_overrides: overrides });
     }
     return out;
+  } catch {
+    return null;
+  }
+}
+
+function parseTagListPayload(value: string): Array<{ id: number; tags: string[] }> | null {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    const tasks = (parsed as Record<string, unknown>).tasks;
+    if (!Array.isArray(tasks)) return null;
+    const out: Array<{ id: number; tags: string[] }> = [];
+    for (const item of tasks) {
+      if (!item || typeof item !== "object") return null;
+      const record = item as Record<string, unknown>;
+      if (typeof record.id !== "number" || !Number.isInteger(record.id) || record.id <= 0) return null;
+      if (!Array.isArray(record.tags)) return null;
+      out.push({ id: record.id, tags: record.tags.filter((tag): tag is string => typeof tag === "string") });
+    }
+    return out;
+  } catch {
+    return null;
+  }
+}
+
+interface DepEdge {
+  task_id: number;
+  depends_on_id: number;
+}
+
+function parseDepsPayload(value: string): { add: DepEdge[]; remove: DepEdge[] } | null {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    const record = parsed as Record<string, unknown>;
+    const edges = (list: unknown): DepEdge[] | null => {
+      if (list === undefined) return [];
+      if (!Array.isArray(list)) return null;
+      const out: DepEdge[] = [];
+      for (const item of list) {
+        if (!item || typeof item !== "object") return null;
+        const edge = item as Record<string, unknown>;
+        const taskId = edge.task_id;
+        const dependsOn = edge.depends_on_id;
+        if (typeof taskId !== "number" || !Number.isInteger(taskId) || taskId <= 0) return null;
+        if (typeof dependsOn !== "number" || !Number.isInteger(dependsOn) || dependsOn <= 0) return null;
+        out.push({ task_id: taskId, depends_on_id: dependsOn });
+      }
+      return out;
+    };
+    const add = edges(record.add);
+    const remove = edges(record.remove);
+    if (!add || !remove) return null;
+    return { add, remove };
   } catch {
     return null;
   }

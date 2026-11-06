@@ -1,6 +1,6 @@
 import type { ViewFilter } from "@/lib/api";
 
-export type FilterDslKey = "repo" | "status" | "age" | "source";
+export type FilterDslKey = "repo" | "status" | "age" | "source" | "tag" | "is";
 export type FilterDslOperator = "=" | ">" | "<" | ":";
 
 export interface FilterDslFieldTerm {
@@ -29,7 +29,7 @@ export interface FilterDslResult {
   titleQuery: string;
 }
 
-const FIELD_KEYS = new Set<FilterDslKey>(["repo", "status", "age", "source"]);
+const FIELD_KEYS = new Set<FilterDslKey>(["repo", "status", "age", "source", "tag", "is"]);
 
 export function parseFilterDsl(input: string): FilterDslResult {
   const terms = tokenize(input).map(parseToken);
@@ -64,6 +64,8 @@ export function astToQuery(ast: FilterDslAst): ViewFilter {
     if (term.key === "repo") query.repo = value;
     if (term.key === "status") query.status = value;
     if (term.key === "source") query.source = value;
+    if (term.key === "tag") query.tag = value.replace(/^#+/, "").toLowerCase();
+    // `is:blocked` / `is:ready` filter client-side against /api/deps/blocked.
   }
 
   return query;

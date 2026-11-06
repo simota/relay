@@ -153,12 +153,17 @@ program
   .option("--status <name>")
   .option("--agent <name>")
   .option("-q, --grep <text>", "search title / body / prompt / repo / source id (all statuses unless --status)")
+  .option("-t, --tag <tag>", "only tasks carrying this tag")
+  .option("--blocked", "only tasks waiting on an unfinished dependency")
+  .option("--ready", "hide tasks waiting on an unfinished dependency")
   .option("-n, --limit <n>")
   .description("List tasks with filters.")
   .action(async (opts) => {
     const { runList } = await import("./commands/list.js");
     runList({
       q: opts.grep,
+      tag: typeof opts.tag === "string" ? opts.tag : undefined,
+      blocked: opts.blocked ? true : opts.ready ? false : undefined,
       repo: opts.repo,
       source: opts.source,
       status: opts.status,
@@ -328,10 +333,53 @@ program
   .option("--due <date>", "YYYY-MM-DD, ISO datetime, tomorrow, next-week, mon..sun, +3d")
   .option("--wait-on <who>", "self | reviewer | external | scheduled")
   .option("--priority <n>", "0-100", "50")
+  .option("--tags <list>", "comma-separated tags, e.g. billing,release-v2")
+  .option("--blocked-by <ids>", "comma-separated task ids this task waits on")
   .description("Add a manual task (interactive when flags are missing).")
   .action(async (opts) => {
     const { runAdd } = await import("./commands/add.js");
     await runAdd(opts);
+  });
+
+program
+  .command("tag <id> [tags...]")
+  .option("--ids <list>", "apply to these extra comma-separated task ids too (bulk)")
+  .option("--clear", "remove every tag")
+  .description("Show, add (tag / +tag) or remove (^tag, or -- -tag) tags. Tags survive sync; undo with `relay undo`.")
+  .action(async (id, tags: string[], opts) => {
+    const { runTag } = await import("./commands/links.js");
+    const extra = typeof opts.ids === "string" ? opts.ids.split(",").map((v: string) => Number(v.trim().replace(/^#/, ""))) : [];
+    const ids = [Number(id), ...extra];
+    if (ids.some((v) => !Number.isInteger(v) || v <= 0)) {
+      console.log("ids must be positive integers");
+      process.exit(1);
+    }
+    runTag([...new Set(ids)], { tokens: tags ?? [], clear: Boolean(opts.clear) });
+  });
+
+program
+  .command("tags")
+  .option("--json", "machine-readable output")
+  .description("List every tag with open / total task counts.")
+  .action(async (opts) => {
+    const { runTags } = await import("./commands/links.js");
+    runTags({ json: Boolean(opts.json) });
+  });
+
+program
+  .command("block <id> <blockers...>")
+  .description("Mark <id> as blocked by other tasks: hidden from today and deferred by `relay queue run` until they are done.")
+  .action(async (id, blockers: string[]) => {
+    const { runBlock } = await import("./commands/links.js");
+    runBlock(Number(id), parseIdList(blockers));
+  });
+
+program
+  .command("unblock <id> [blockers...]")
+  .description("Drop dependencies of <id> (all of them when no blocker ids are given).")
+  .action(async (id, blockers: string[]) => {
+    const { runUnblock } = await import("./commands/links.js");
+    runUnblock(Number(id), parseIdList(blockers ?? []));
   });
 
 program
@@ -592,3 +640,12 @@ program.parseAsync(process.argv).catch((e) => {
   console.error(chalk.red(e instanceof Error ? e.message : String(e)));
   process.exit(1);
 });
+
+function parseIdList(values: string[]): number[] {
+  const ids = values.flatMap((v) => v.split(",")).map((v) => v.trim().replace(/^#/, "")).filter(Boolean).map(Number);
+  if (ids.some((v) => !Number.isInteger(v) || v <= 0)) {
+    console.log(`invalid task id list: ${values.join(" ")}`);
+    process.exit(1);
+  }
+  return ids;
+}

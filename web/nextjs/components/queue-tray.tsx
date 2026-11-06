@@ -17,6 +17,8 @@ export function QueueTray() {
   const trayRef = useRef<HTMLDivElement>(null);
   useFocusTrap(trayRef, expanded);
   const { data: items = [], mutate } = useSWR<QueueItem[]>(QUEUE_KEY, () => api.queue.list());
+  // `relay queue run` defers items whose blockers are unfinished; say so here.
+  const { data: blocked = {} } = useSWR("/api/deps/blocked", () => api.blockedMap());
 
   // Agents with a headless mode; the rest only run interactively.
   const headlessReady = useMemo(
@@ -88,6 +90,14 @@ export function QueueTray() {
                       <span className="truncate text-[var(--color-fg)]" title={item.title}>
                         {item.title}
                         {item.status === "done" && <span className="ml-2 text-[11px] text-[var(--color-fg-dim)]">(done — skipped)</span>}
+                        {item.status !== "done" && blocked[String(item.task_id)] && (
+                          <span
+                            className="ml-2 text-[11px] text-[var(--color-warm)]"
+                            title="queue run starts this after its blockers succeed (or skips it if they fail)"
+                          >
+                            ⛓ after {blocked[String(item.task_id)]!.map((id) => `#${id}`).join(" ")}
+                          </span>
+                        )}
                       </span>
                       <span className="flex items-center">
                         <Button

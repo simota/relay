@@ -11,6 +11,8 @@ export interface RunOptions {
   antigravityBin?: string;
   contextPreamble?: string;  // prepended to the prompt when no resume is available
   repoTemplate?: string;     // body of <repo>/.agents/RELAY_PROMPT.md, prepended before context
+  /** "Prerequisite tasks" section listing the task's dependencies (schema v12). */
+  prerequisites?: string;
   /**
    * Force a fresh prompt-based launch even when the task has a `session_id`.
    * Useful when the CLI's resume command is broken, or the user wants to
@@ -63,7 +65,7 @@ export function resolveCommand(
     case "claude-code": {
       const bin = opts.claudeBin ?? "claude";
       if (canResume) return { bin, args: ["--resume", task.session_id as string] };
-      const prompt = buildPrompt(task.prompt, opts.contextPreamble, opts.repoTemplate);
+      const prompt = buildPrompt(task.prompt, opts.contextPreamble, opts.repoTemplate, opts.prerequisites);
       return { bin, args: prompt ? [prompt] : [] };
     }
     case "codex": {
@@ -76,7 +78,7 @@ export function resolveCommand(
         if (task.prompt) args.push(task.prompt);
         return { bin, args };
       }
-      const prompt = buildPrompt(task.prompt, opts.contextPreamble, opts.repoTemplate);
+      const prompt = buildPrompt(task.prompt, opts.contextPreamble, opts.repoTemplate, opts.prerequisites);
       return { bin, args: prompt ? [prompt] : [] };
     }
     case "antigravity": {
@@ -87,7 +89,7 @@ export function resolveCommand(
       // conversationId from outside, so we degrade to a fresh prompt with
       // context preamble (same behavior as if `session_id` were null).
       // #TODO(agent): if `agy` adds `agy resume <id>`, wire it here.
-      const prompt = buildPrompt(task.prompt, opts.contextPreamble, opts.repoTemplate);
+      const prompt = buildPrompt(task.prompt, opts.contextPreamble, opts.repoTemplate, opts.prerequisites);
       return { bin, args: prompt ? [prompt] : [] };
     }
     case "self": {
@@ -133,11 +135,29 @@ export function buildPrompt(
   prompt: string | null,
   preamble?: string,
   repoTemplate?: string,
+  prerequisites?: string,
 ): string | null {
-  if (!prompt && !preamble && !repoTemplate) return null;
+  if (!prompt && !preamble && !repoTemplate && !prerequisites) return null;
   const parts: string[] = [];
   if (repoTemplate) parts.push(repoTemplate);
   if (preamble) parts.push(`# Resuming from previous session\n\n${preamble}`);
+  if (prerequisites) parts.push(`# Prerequisite tasks\n\n${prerequisites}`);
   if (prompt) parts.push(prompt);
   return parts.join("\n\n---\n\n");
+}
+
+/**
+ * Render a task's dependencies for the agent prompt: what this task builds
+ * on and whether that work is finished. Empty string when there are none.
+ */
+export function formatPrerequisites(
+  blockers: ReadonlyArray<Pick<Task, "id" | "title" | "repo" | "status">>,
+  taskRepo: string,
+): string {
+  if (blockers.length === 0) return "";
+  const lines = blockers.map((b) => {
+    const where = b.repo === taskRepo ? "" : ` (repo: ${b.repo})`;
+    return `- #${b.id} [${b.status === "done" ? "done" : `not done: ${b.status}`}] ${b.title}${where}`;
+  });
+  return `This task depends on the following tasks. Build on their results; if one is not done yet, check its state before relying on it.\n\n${lines.join("\n")}`;
 }

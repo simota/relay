@@ -59,6 +59,23 @@ export interface Task {
   closed_at: string | null;
   /** Fields edited by hand; adapter re-syncs keep these values. */
   user_overrides?: EditableField[];
+  /** User tags (lowercase); never overwritten by sync. */
+  tags?: string[];
+}
+
+export interface TagCount {
+  tag: string;
+  open: number;
+  total: number;
+}
+
+export interface DependencyInfo {
+  /** Tasks this one waits on. */
+  blocked_by: Task[];
+  /** Tasks waiting on this one. */
+  blocks: Task[];
+  /** blocked_by ids that are not done yet. */
+  open_blocker_ids: number[];
 }
 
 export type EditableField =
@@ -131,6 +148,8 @@ export interface Counts {
   open: number;
   snoozed: number;
   done: number;
+  /** Open tasks waiting on an unfinished dependency (hidden from Today). */
+  dep_blocked?: number;
   repos: number;
   contexts: number;
   sources: Partial<Record<SourceType, number>>;

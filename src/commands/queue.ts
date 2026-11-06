@@ -44,6 +44,18 @@ function formatQueueRow(item: QueueItem, index: number): string {
   );
 }
 
+/**
+ * Blockers of `taskId` that still gate it: not done and not satisfied in
+ * this pass. A task that is itself done has none (it is dropped anyway).
+ */
+function unmetBlockers(db: RelayDB, taskId: number, satisfied: ReadonlySet<number>): number[] {
+  const blockers = db.blockerIdsOf(taskId);
+  if (blockers.length === 0) return [];
+  if (db.getTask(taskId)?.status === "done") return [];
+  const statusById = new Map(db.getTasksByIds(blockers).map((task) => [task.id, task.status]));
+  return blockers.filter((id) => !satisfied.has(id) && statusById.has(id) && statusById.get(id) !== "done");
+}
+
 export interface QueueAddOptions {
   front?: boolean;
   assign?: string;
@@ -158,6 +170,9 @@ export async function processQueue(
   const headless = Boolean(options.headless);
   const limit = options.limit && options.limit > 0 ? options.limit : Infinity;
   const attempted = new Set<number>();
+  // Task ids that succeeded (or, in a dry run, were planned) earlier in this
+  // pass: they satisfy dependents even when the run did not close them.
+  const satisfied = new Set<number>();
   const outcomes: QueueOutcome[] = [];
   let launches = 0;
   let stopRequested = false;
@@ -175,8 +190,23 @@ export async function processQueue(
       let prep: ReturnType<typeof prepareRun>;
       {
         using db = new RelayDB();
-        item = db.listQueueItems().find((candidate) => !attempted.has(candidate.id));
-        if (!item) break;
+        const pending = db.listQueueItems().filter((candidate) => !attempted.has(candidate.id));
+        if (pending.length === 0) break;
+        // Dependency-aware pick: the first item whose blockers are all done
+        // (or satisfied earlier in this pass). A dependent queued ahead of
+        // its blocker simply waits; the scan restarts from the head after
+        // every launch, so it runs as soon as the blocker succeeds.
+        item = pending.find((candidate) => unmetBlockers(db, candidate.task_id, satisfied).length === 0);
+        if (!item) {
+          for (const candidate of pending) {
+            attempted.add(candidate.id);
+            const unmet = unmetBlockers(db, candidate.task_id, satisfied);
+            const reason = `blocked by ${unmet.map((id) => `#${id}`).join(" ")}`;
+            outcomes.push({ taskId: candidate.task_id, title: candidate.title, kind: "skipped", reason });
+            log(chalk.yellow(`– #${candidate.task_id} skipped: ${reason}`));
+          }
+          break;
+        }
         attempted.add(item.id);
         task = db.getTask(item.task_id);
         if (!task) {
@@ -213,6 +243,7 @@ export async function processQueue(
         const prompt = previewPrompt(prep.prepared, headless, options.noResume);
         log(chalk.gray(prompt ? `   prompt: ${oneLine(prompt, 100)}` : "   (no prompt)"));
         outcomes.push({ taskId: task.id, title: task.title, kind: "planned" });
+        satisfied.add(task.id);
         launches += 1;
         continue;
       }
@@ -234,6 +265,7 @@ export async function processQueue(
         reason: result.status === "success" ? undefined : result.summary ?? `exit ${result.exitCode}`,
       });
       if (result.status === "success") {
+        satisfied.add(task.id);
         if (!options.keep) {
           using db = new RelayDB();
           db.deleteQueueItem(item.id);
