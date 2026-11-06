@@ -1,37 +1,8 @@
 #!/usr/bin/env bun
 import { Command } from "commander";
 import chalk from "chalk";
-import { runInit } from "./commands/init.js";
-import { runSetup } from "./commands/setup.js";
-import { runSync } from "./commands/sync.js";
-import { runQuickstart } from "./commands/quickstart.js";
-import { runToday, runList, runShow } from "./commands/list.js";
-import { runStandup } from "./commands/standup.js";
-import { runDigest } from "./commands/digest.js";
-import { runAgenda } from "./commands/agenda.js";
-import { runRun } from "./commands/run.js";
-import { runFocus } from "./commands/focus.js";
-import { runQueueAdd, runQueueClear, runQueueList, runQueueRemove, runQueueRun } from "./commands/queue.js";
-import { runRuns } from "./commands/runs.js";
-import { runAdd } from "./commands/add.js";
-import { runBackfill } from "./commands/backfill.js";
-import { runExport } from "./commands/export.js";
-import { runForget } from "./commands/forget.js";
-import { runImport, type ImportKind } from "./commands/import.js";
-import { runPrune } from "./commands/prune.js";
-import { runMaintain } from "./commands/maintain.js";
-import { runAssign, runClose, runReopen } from "./commands/mutate.js";
-import { runEdit, runSnoozeUntil, runUndo } from "./commands/edit.js";
-import {
-  runContextEdit,
-  runContextList,
-  runContextSave,
-  runContextShow,
-  runContextSummarize,
-} from "./commands/context.js";
-import { runHookInstall, runHookUninstall, runHookStatus } from "./commands/hook.js";
-import { DOCTOR_STRICT_FLAG, runDoctor } from "./commands/doctor.js";
-import { parseInterval, runWatch } from "./commands/watch.js";
+import type { ImportKind } from "./commands/import.js";
+import { DOCTOR_STRICT_FLAG } from "./commands/doctor-flags.js";
 
 const program = new Command();
 
@@ -64,7 +35,8 @@ program
   .command("init")
   .option("--force", "overwrite existing config")
   .description("Create ~/.relay/, write default config, apply schema.")
-  .action((opts) => {
+  .action(async (opts) => {
+    const { runInit } = await import("./commands/init.js");
     runInit({ force: Boolean(opts.force) });
   });
 
@@ -77,6 +49,7 @@ program
     "Install root + web/nextjs deps and build the Web UI static export in one shot.",
   )
   .action(async (opts) => {
+    const { runSetup } = await import("./commands/setup.js");
     await runSetup({
       skipInstall: Boolean(opts.skipInstall),
       skipBuild: Boolean(opts.skipBuild),
@@ -88,6 +61,7 @@ program.command("quickstart")
   .option("--no-sync", "skip initial sync")
   .description("Initialize relay if needed, sync tasks, and show today's top items.")
   .action(async (opts) => {
+    const { runQuickstart } = await import("./commands/quickstart.js");
     await runQuickstart({ noSync: opts.sync === false });
   });
 
@@ -99,6 +73,7 @@ program
   .option("--resume", "skip adapters that already finished ok within the last hour")
   .description("Ingest tasks from all configured sources.")
   .action(async (opts) => {
+    const { runSync } = await import("./commands/sync.js");
     const sigintHandler = () => {
       console.log(chalk.yellow("\n⏹ interrupted — completed adapters are saved. Re-run with `relay sync --resume` to skip them."));
       process.exit(130);
@@ -122,7 +97,8 @@ program
   .command("today")
   .option("-n, --limit <n>", "max items")
   .description("Show today's top items across all repos.")
-  .action((opts) => {
+  .action(async (opts) => {
+    const { runToday } = await import("./commands/list.js");
     runToday({ limit: opts.limit ? Number(opts.limit) : undefined });
   });
 
@@ -130,7 +106,8 @@ program
   .command("standup")
   .option("--since <window>", "lookback window: 24h | 48h | 7d | 14d | 30d", "24h")
   .description("Show yesterday's closed work, today's self-driven tasks, and current blockers.")
-  .action((opts) => {
+  .action(async (opts) => {
+    const { runStandup } = await import("./commands/standup.js");
     runStandup({ since: typeof opts.since === "string" ? opts.since : undefined });
   });
 
@@ -141,6 +118,7 @@ program
     "Show a calendar of upcoming due_at + scheduled tasks, plus an Overdue section.",
   )
   .action(async (opts) => {
+    const { runAgenda } = await import("./commands/agenda.js");
     const parsed = typeof opts.days === "string" ? Number(opts.days) : undefined;
     await runAgenda({
       days: Number.isFinite(parsed) ? parsed : undefined,
@@ -159,7 +137,8 @@ program
   .description(
     "Summarize closed tasks, agent runs, and context highlights for the window as Markdown or JSON.",
   )
-  .action((opts) => {
+  .action(async (opts) => {
+    const { runDigest } = await import("./commands/digest.js");
     runDigest({
       since: typeof opts.since === "string" ? opts.since : undefined,
       out: typeof opts.out === "string" ? opts.out : undefined,
@@ -176,7 +155,8 @@ program
   .option("-q, --grep <text>", "search title / body / prompt / repo / source id (all statuses unless --status)")
   .option("-n, --limit <n>")
   .description("List tasks with filters.")
-  .action((opts) => {
+  .action(async (opts) => {
+    const { runList } = await import("./commands/list.js");
     runList({
       q: opts.grep,
       repo: opts.repo,
@@ -190,7 +170,8 @@ program
 program
   .command("show <id>")
   .description("Show task detail.")
-  .action((id) => {
+  .action(async (id) => {
+    const { runShow } = await import("./commands/list.js");
     runShow(Number(id));
   });
 
@@ -206,6 +187,7 @@ program
   .option("--timeout <min>", "headless: kill the agent after N minutes (default agents.headless_timeout_min)")
   .option("--close-on-success", "close the task when the agent exits 0")
   .action(async (id, opts) => {
+    const { runRun } = await import("./commands/run.js");
     await runRun(Number(id), {
       noTemplate: opts.template === false,
       ask: Boolean(opts.ask),
@@ -221,13 +203,15 @@ program
 const queue = program
   .command("queue")
   .description("AI job queue: line up tasks and run them in order (shared with the Web UI tray).")
-  .action(() => {
+  .action(async () => {
+    const { runQueueList } = await import("./commands/queue.js");
     runQueueList();
   });
 queue
   .command("ls")
   .description("List queued tasks in run order.")
-  .action(() => {
+  .action(async () => {
+    const { runQueueList } = await import("./commands/queue.js");
     runQueueList();
   });
 queue
@@ -235,19 +219,22 @@ queue
   .option("--front", "put the tasks at the head of the queue")
   .option("--assign <agent>", "also assign them (claude-code | codex | antigravity | self | human-review)")
   .description("Queue tasks by id (re-adding a queued task does not duplicate it).")
-  .action((ids: string[], opts) => {
+  .action(async (ids: string[], opts) => {
+    const { runQueueAdd } = await import("./commands/queue.js");
     runQueueAdd(parseIds(ids), { front: Boolean(opts.front), assign: opts.assign });
   });
 queue
   .command("rm <ids...>")
   .description("Remove tasks (by task id) from the queue.")
-  .action((ids: string[]) => {
+  .action(async (ids: string[]) => {
+    const { runQueueRemove } = await import("./commands/queue.js");
     runQueueRemove(parseIds(ids));
   });
 queue
   .command("clear")
   .description("Empty the queue.")
-  .action(() => {
+  .action(async () => {
+    const { runQueueClear } = await import("./commands/queue.js");
     runQueueClear();
   });
 queue
@@ -263,6 +250,7 @@ queue
   .option("--no-resume", "build fresh prompts instead of resuming prior sessions")
   .description("Run queued tasks in order; successful ones leave the queue.")
   .action(async (opts) => {
+    const { runQueueRun } = await import("./commands/queue.js");
     await runQueueRun({
       headless: Boolean(opts.headless),
       dryRun: Boolean(opts.dryRun),
@@ -285,7 +273,8 @@ program
   .option("--log <runId>", "print the captured output of a headless run")
   .option("--json", "machine-readable output")
   .description("Agent run history across tasks; --log shows a headless run's output.")
-  .action((opts) => {
+  .action(async (opts) => {
+    const { runRuns } = await import("./commands/runs.js");
     runRuns({
       task: opts.task ? parseIds([opts.task])[0] : undefined,
       status: opts.status,
@@ -300,7 +289,8 @@ program
   .command("focus [id]")
   .option("--clear", "clear the current focus")
   .description("Focus a single task across CLI/Web. `relay focus` shows current; `--clear` removes it.")
-  .action((id, opts) => {
+  .action(async (id, opts) => {
+    const { runFocus } = await import("./commands/focus.js");
     const parsed = id === undefined ? undefined : Number(id);
     if (parsed !== undefined && !Number.isFinite(parsed)) {
       console.error(chalk.red(`invalid task id: ${id}`));
@@ -340,13 +330,15 @@ program
   .option("--priority <n>", "0-100", "50")
   .description("Add a manual task (interactive when flags are missing).")
   .action(async (opts) => {
+    const { runAdd } = await import("./commands/add.js");
     await runAdd(opts);
   });
 
 program
   .command("close <id>")
   .description("Mark a task as done.")
-  .action((id) => {
+  .action(async (id) => {
+    const { runClose } = await import("./commands/mutate.js");
     runClose(Number(id));
   });
 
@@ -354,7 +346,8 @@ program
   .command("snooze <id>")
   .option("--until <when>", "wake date: YYYY-MM-DD, tomorrow, next-week, mon..sun, +3d, +4h")
   .description("Snooze a task (indefinitely, or until a date — it reopens on its own).")
-  .action((id, opts) => {
+  .action(async (id, opts) => {
+    const { runSnoozeUntil } = await import("./commands/edit.js");
     runSnoozeUntil(Number(id), opts.until);
   });
 
@@ -372,7 +365,8 @@ program
   .option("--repo <name>", "move a manual task to another repo")
   .option("--reset <fields>", "comma-separated fields to hand back to the adapter on next sync")
   .description("Edit a task. Edited fields survive `relay sync`; undo with `relay undo`.")
-  .action((id, opts) => {
+  .action(async (id, opts) => {
+    const { runEdit } = await import("./commands/edit.js");
     runEdit(Number(id), opts);
   });
 
@@ -383,20 +377,23 @@ program
   .option("-n, --limit <n>", "rows for --list", "10")
   .description("Undo the last task change (close / snooze / reopen / assign / edit / bulk / prune).")
   .action(async (opts) => {
+    const { runUndo } = await import("./commands/edit.js");
     await runUndo({ redo: Boolean(opts.redo), list: Boolean(opts.list), limit: Number(opts.limit) || 10 });
   });
 
 program
   .command("reopen <id>")
   .description("Re-open a snoozed or closed task.")
-  .action((id) => {
+  .action(async (id) => {
+    const { runReopen } = await import("./commands/mutate.js");
     runReopen(Number(id));
   });
 
 program
   .command("assign <id> <agent>")
   .description("Reassign a task. agent: claude-code | codex | antigravity | self | human-review")
-  .action((id, agent) => {
+  .action(async (id, agent) => {
+    const { runAssign } = await import("./commands/mutate.js");
     runAssign(Number(id), agent);
   });
 
@@ -405,7 +402,8 @@ program
   .option("--source <name>", "source type to forget", "claude_session_todo")
   .option("--yes", "skip confirmation prompt (destructive)")
   .description("Forget (delete) tasks ingested from a specific Claude session.")
-  .action((sessionId, opts) => {
+  .action(async (sessionId, opts) => {
+    const { runForget } = await import("./commands/forget.js");
     runForget({ source: opts.source, sessionId, yes: Boolean(opts.yes) });
   });
 
@@ -423,7 +421,8 @@ program
     "for --from relay: mark this machine as a read-only mirror (informational)",
   )
   .description("Bulk-import tasks from external tools or another relay machine.")
-  .action((opts) => {
+  .action(async (opts) => {
+    const { runImport } = await import("./commands/import.js");
     runImport({
       from: opts.from as ImportKind,
       file: opts.file,
@@ -437,7 +436,8 @@ program
   .command("export")
   .requiredOption("--file <path>", "destination .json path")
   .description("Export all tasks as a relay-snapshot file (for cross-machine sync).")
-  .action((opts) => {
+  .action(async (opts) => {
+    const { runExport } = await import("./commands/export.js");
     runExport({ file: opts.file });
   });
 
@@ -449,7 +449,8 @@ program
   .option("--include-done", "also delete done tasks whose repo is gone (physical delete)")
   .option("--yes", "skip confirmation prompt")
   .description("Tidy up tasks pointing at gone repos. Closes are undoable in `relay web` (⌘Z).")
-  .action((opts) => {
+  .action(async (opts) => {
+    const { runPrune } = await import("./commands/prune.js");
     runPrune({
       missingRepos: Boolean(opts.missingRepos),
       source: opts.source,
@@ -468,6 +469,7 @@ context
   .option("--session-type <type>", "session family: claude | codex | antigravity | cursor")
   .description("Save a context snapshot from the current repo.")
   .action(async (opts) => {
+    const { runContextSave } = await import("./commands/context.js");
     await runContextSave({
       auto: Boolean(opts.auto),
       repo: opts.repo,
@@ -479,27 +481,31 @@ context
   .command("list")
   .option("--repo <name>")
   .description("List saved contexts.")
-  .action((opts) => {
+  .action(async (opts) => {
+    const { runContextList } = await import("./commands/context.js");
     runContextList({ repo: opts.repo });
   });
 context
   .command("show <hash>")
   .description("Show a context snapshot.")
-  .action((hash) => {
+  .action(async (hash) => {
+    const { runContextShow } = await import("./commands/context.js");
     runContextShow(hash);
   });
 context
   .command("summarize <hash>")
   .option("--llm", "shell out to agents.claude_bin for an AI-generated cue")
   .description("Generate a one-line memory cue for a saved context.")
-  .action((hash, opts) => {
+  .action(async (hash, opts) => {
+    const { runContextSummarize } = await import("./commands/context.js");
     runContextSummarize(hash, { llm: Boolean(opts.llm) });
   });
 context
   .command("edit <hash>")
   .requiredOption("--summary <text>", "new one-line summary")
   .description("Manually overwrite the summary for a context.")
-  .action((hash, opts) => {
+  .action(async (hash, opts) => {
+    const { runContextEdit } = await import("./commands/context.js");
     runContextEdit(hash, opts.summary);
   });
 
@@ -507,19 +513,22 @@ const hook = program.command("hook").description("Manage the Claude Code Stop ho
 hook
   .command("install")
   .description("Add `relay context save --auto` to ~/.claude/settings.json hooks.Stop.")
-  .action(() => {
+  .action(async () => {
+    const { runHookInstall } = await import("./commands/hook.js");
     runHookInstall();
   });
 hook
   .command("uninstall")
   .description("Remove the relay hook from ~/.claude/settings.json.")
-  .action(() => {
+  .action(async () => {
+    const { runHookUninstall } = await import("./commands/hook.js");
     runHookUninstall();
   });
 hook
   .command("status")
   .description("Show whether the Stop hook is installed.")
-  .action(() => {
+  .action(async () => {
+    const { runHookStatus } = await import("./commands/hook.js");
     runHookStatus();
   });
 
@@ -529,7 +538,8 @@ program
   .option("--only <name>", "run only the named backfill")
   .option("--list", "list available backfills")
   .description("Run idempotent data fixups (e.g. legacy context.session_id from tasks).")
-  .action((opts) => {
+  .action(async (opts) => {
+    const { runBackfill } = await import("./commands/backfill.js");
     runBackfill({
       dryRun: Boolean(opts.dryRun),
       only: opts.only,
@@ -540,7 +550,8 @@ program
 program
   .command("maintain")
   .description("Reclaim DB file size (VACUUM). Run after large prune operations.")
-  .action(() => {
+  .action(async () => {
+    const { runMaintain } = await import("./commands/maintain.js");
     runMaintain();
   });
 
@@ -548,7 +559,8 @@ program
   .command("doctor")
   .option(DOCTOR_STRICT_FLAG, "exit non-zero if any check fails")
   .description("Check environment (rg, gh, claude, git).")
-  .action((opts) => {
+  .action(async (opts) => {
+    const { runDoctor } = await import("./commands/doctor.js");
     runDoctor({ strict: Boolean(opts.strict) });
   });
 
@@ -561,6 +573,7 @@ program
   )
   .description("Tail new / updated / closed tasks for one repo in realtime.")
   .action(async (repo, opts) => {
+    const { parseInterval, runWatch } = await import("./commands/watch.js");
     const parsed = parseInterval(
       typeof opts.interval === "string" ? opts.interval : undefined,
     );
