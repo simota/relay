@@ -1,6 +1,8 @@
 import { spawn } from "node:child_process";
 import type { Adapter, AdapterContext, ResolvedSource, TaskInput } from "../types.js";
 import { ghAuthStatus } from "./gh-auth.js";
+import { memoizedScan } from "./scan-memo.js";
+import { mapLimit } from "../lib/map-limit.js";
 
 /**
  * Ingest GitHub Project v2 (the boards under `https://github.com/users/<u>/projects/<n>`
@@ -52,6 +54,8 @@ const MAX_PROJECT_PAGES = 5;
 // pathological 5000-card board doesn't dominate the sync budget.
 const ITEMS_PAGE_SIZE = 100;
 const MAX_ITEMS_PAGES = 10;
+// Projects whose item pages are fetched at once (one `gh api` each).
+const PROJECT_ITEMS_CONCURRENCY = 4;
 
 // Title truncation matches `cursor_session` (120 chars) — long enough
 // to hold a meaningful DraftIssue title, short enough to fit a list view
@@ -376,24 +380,34 @@ function hasProjectScope(authStatus: string): boolean {
 
 // -- GraphQL plumbing --------------------------------------------------
 
-async function fetchAllProjectItems(ctx: AdapterContext): Promise<ProjectItem[]> {
+// fetch() and fetchResolved() read the same project snapshot within one
+// sync run (src/adapters/scan-memo.ts), so the GraphQL sweep runs once.
+function fetchAllProjectItems(ctx: AdapterContext): Promise<ProjectItem[]> {
+  return memoizedScan(ctx, "gh_project_card", () => scanAllProjectItems(ctx));
+}
+
+async function scanAllProjectItems(ctx: AdapterContext): Promise<ProjectItem[]> {
   const projects = await fetchAllProjects(ctx);
   if (projects.length === 0) return [];
 
-  const all: ProjectItem[] = [];
-  for (const project of projects) {
+  // Projects are independent: page through a few at a time. mapLimit keeps
+  // project order (so items concatenate exactly as the sequential loop did)
+  // and its first-failure semantics.
+  const perProject = await mapLimit(projects, PROJECT_ITEMS_CONCURRENCY, async (project) => {
+    const items: ProjectItem[] = [];
     let cursor: string | null = null;
     for (let page = 0; page < MAX_ITEMS_PAGES; page++) {
       const result = await fetchProjectItemsPage(project.id, cursor);
       for (const node of result.nodes) {
         const item = normaliseItem(node, project);
-        if (item) all.push(item);
+        if (item) items.push(item);
       }
       if (!result.hasNext || !result.endCursor) break;
       cursor = result.endCursor;
     }
-  }
-  return all;
+    return items;
+  });
+  return perProject.flat();
 }
 
 interface ProjectMeta {
