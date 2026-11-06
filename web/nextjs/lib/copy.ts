@@ -53,6 +53,8 @@ const messages = {
   "nav.pinnedViews": "Pinned Views",
   "nav.browse": "Browse",
   "nav.sources": "Sources",
+  "nav.tags": "Tags",
+  "today.hero.depBlocked": "⛓ {count} waiting on dependencies",
   "nav.today": "Today",
   "nav.open": "Open",
   "nav.openTasks": "Open tasks",

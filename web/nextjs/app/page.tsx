@@ -306,6 +306,18 @@ export default function TodayPage() {
               {tasks.length > 0
                 ? c("common.itemCount", { count: formatNumber(tasks.length) })
                 : c("today.hero.empty")}
+              {(counts?.dep_blocked ?? 0) > 0 && (
+                <>
+                  {" · "}
+                  <Link
+                    href="/tasks?status=open&filter=is%3Ablocked"
+                    className="text-[var(--color-warm)] hover:underline"
+                    title="hidden from Today until their blockers are done"
+                  >
+                    {c("today.hero.depBlocked", { count: formatNumber(counts?.dep_blocked ?? 0) })}
+                  </Link>
+                </>
+              )}
             </p>
           </div>
           <div className="text-[11px] text-[var(--color-fg-dim)] font-mono tabular">

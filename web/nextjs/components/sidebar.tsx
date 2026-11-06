@@ -5,14 +5,14 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import useSWR from "swr";
 import {
-  Home, Inbox, Pause, Check, Box, Clock, Activity, MessagesSquare, Pin, CalendarDays,
+  Home, Inbox, Pause, Check, Box, Clock, Activity, MessagesSquare, Pin, CalendarDays, Hash,
 } from "lucide-react";
 import { useTheme } from "@/components/theme-provider";
 import { getThemeMeta, ThemePicker, useThemeMenuId } from "@/components/theme-picker";
 import { api } from "@/lib/api";
 import { c, formatNumber } from "@/lib/copy";
 import { cn } from "@/lib/utils";
-import type { Counts } from "@/lib/types";
+import type { Counts, TagCount } from "@/lib/types";
 import type { SavedView, ViewFilter } from "@/lib/api";
 
 type NavStatus = "open" | "snoozed" | "done";
@@ -85,6 +85,10 @@ export function Sidebar() {
     refreshInterval: 30_000,
   });
   const pinnedViews = views.filter((view) => view.pinned);
+  const { data: tags = [] } = useSWR<TagCount[]>("/api/tags", () => api.tags(), {
+    refreshInterval: 30_000,
+  });
+  const openTags = tags.filter((t) => t.open > 0).slice(0, 12);
 
   return (
     <aside className="h-full w-[220px] shrink-0 border-r border-[var(--color-border)] flex flex-col">
@@ -136,6 +140,22 @@ export function Sidebar() {
             </NavLink>
           ))}
         </Section>
+
+        {openTags.length > 0 && (
+          <Section title={c("nav.tags")}>
+            {openTags.map((t) => (
+              <NavLink
+                key={t.tag}
+                href={viewHref({ status: "open", tag: t.tag })}
+                active={isViewActive(path, searchParams, { status: "open", tag: t.tag })}
+                icon={<Hash className="w-3.5 h-3.5" />}
+                count={t.open}
+              >
+                {t.tag}
+              </NavLink>
+            ))}
+          </Section>
+        )}
 
         <Section title={c("nav.sources")}>
           {SOURCES.map((s) => (
@@ -317,6 +337,7 @@ function viewHref(filter: ViewFilter): string {
   if (filter.repo) params.set("repo", filter.repo);
   if (filter.source) params.set("source", filter.source);
   if (filter.age) params.set("age", filter.age);
+  if (filter.tag) params.set("tag", filter.tag);
   const qs = params.toString();
   return `/tasks${qs ? `?${qs}` : ""}`;
 }
@@ -336,8 +357,9 @@ function isViewActive(
   if (filter.repo) a.set("repo", filter.repo);
   if (filter.source) a.set("source", filter.source);
   if (filter.age) a.set("age", filter.age);
+  if (filter.tag) a.set("tag", filter.tag);
   const b = new URLSearchParams();
-  for (const k of ["status", "repo", "source", "age"]) {
+  for (const k of ["status", "repo", "source", "age", "tag"]) {
     const v = current.get(k);
     if (v) b.set(k, v);
   }

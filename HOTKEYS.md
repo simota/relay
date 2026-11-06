@@ -47,6 +47,19 @@ Single-key aliases:
 Filter is available on **every tab**. On Repos it matches repo
 names; on Contexts it matches across repo, branch, hash, and summary.
 
+On the Tasks tab the filter also understands field terms, which combine
+with fuzzy title text:
+
+| Term | Matches |
+|---|---|
+| `repo:x` / `source:code_todo` / `status:open` | exact field |
+| `age>7` / `age<3` | created more / fewer than N days ago |
+| `tag:billing` (`tag:a,b` = either) | tasks carrying the tag |
+| `is:blocked` / `is:ready` | waiting / not waiting on an unfinished dependency |
+
+`?filter=` in the URL pre-fills the box (Today's "⛓ N waiting on
+dependencies" link uses `is:blocked`).
+
 ## Selected-task actions
 
 | Key | Action |
