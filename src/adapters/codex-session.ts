@@ -10,7 +10,7 @@ import {
   toSessionRow,
   truncate,
 } from "../lib/session-helpers.js";
-import { distinctSkillNames, extractCodexSkills } from "../lib/session-skills.js";
+import { createCodexSkillCollector, distinctSkillNames } from "../lib/session-skills.js";
 import { detectCodexSessionStatus } from "../lib/session-status.js";
 import type { Adapter, AdapterContext, SessionStatus, TaskInput } from "../types.js";
 
@@ -270,6 +270,8 @@ async function parseCodexSession(path: string): Promise<CodexParsed> {
   // show "what's happening" without re-reading the JSONL per row.
   let lastMessageText: string | null = null;
   let parentSessionId: string | null = null;
+  // Skill detection rides the same JSON.parse pass.
+  const skillCollector = createCodexSkillCollector();
 
   for (const line of lines) {
     if (!line) continue;
@@ -282,6 +284,7 @@ async function parseCodexSession(path: string): Promise<CodexParsed> {
     }
     if (!evt || typeof evt !== "object") continue;
     const obj = evt as Record<string, unknown>;
+    skillCollector.add(obj);
     const payload = (obj.payload ?? {}) as Record<string, unknown>;
 
     if (obj.type === "session_meta") {
@@ -323,7 +326,7 @@ async function parseCodexSession(path: string): Promise<CodexParsed> {
   // Status detection reuses the same text we just walked — single readFile,
   // single status pass, kept symmetric with the Claude adapter's parseSession.
   const status = detectCodexSessionStatus(text);
-  const skillsUsed = distinctSkillNames(extractCodexSkills(text));
+  const skillsUsed = distinctSkillNames(skillCollector.finish());
 
   return {
     cwd,

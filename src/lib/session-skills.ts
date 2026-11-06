@@ -761,87 +761,97 @@ function collectClaudeSkillEvents(
 
 const CODEX_SKILL_PATH_RE = /(?:^|[\s'"`(])(?:~\/|\$HOME\/|\.)?\.codex\/skills\/(?:\.system\/)?([a-z][a-z0-9-]{2,40})\/SKILL\.md/g;
 
-export function extractCodexSkills(text: string): SessionSkillUse[] {
+/**
+ * Incremental form of `extractCodexSkills` (same contract as
+ * `createClaudeSkillCollector`).
+ */
+export interface CodexSkillCollector {
+  add(obj: Record<string, unknown>): void;
+  finish(): SessionSkillUse[];
+}
+
+export function createCodexSkillCollector(): CodexSkillCollector {
   const events: SkillEvent[] = [];
-  for (const line of text.split("\n")) {
-    if (!line) continue;
-    let obj: Record<string, unknown>;
-    try {
-      const parsed = JSON.parse(line);
-      if (!parsed || typeof parsed !== "object") continue;
-      obj = parsed as Record<string, unknown>;
-    } catch {
-      continue;
-    }
-    const ts = typeof obj.timestamp === "string" ? obj.timestamp : "";
-    const payload = (obj.payload ?? {}) as Record<string, unknown>;
+  return {
+    add(obj) {
+      const ts = typeof obj.timestamp === "string" ? obj.timestamp : "";
+      const payload = (obj.payload ?? {}) as Record<string, unknown>;
 
-    if (obj.type === "session_meta") {
-      // Whole session is a skill subagent: source.subagent === "<skill>".
-      // Older session_meta variants used a nested thread_spawn block too.
-      const source = payload.source;
-      if (source && typeof source === "object") {
-        const s = source as Record<string, unknown>;
-        if (typeof s.subagent === "string") {
-          events.push({ name: s.subagent, source: "session_meta", ts });
-        } else if (s.subagent && typeof s.subagent === "object") {
-          const sub = s.subagent as Record<string, unknown>;
-          if (typeof sub.name === "string") {
-            events.push({ name: sub.name, source: "session_meta", ts });
+      if (obj.type === "session_meta") {
+        // Whole session is a skill subagent: source.subagent === "<skill>".
+        // Older session_meta variants used a nested thread_spawn block too.
+        const source = payload.source;
+        if (source && typeof source === "object") {
+          const s = source as Record<string, unknown>;
+          if (typeof s.subagent === "string") {
+            events.push({ name: s.subagent, source: "session_meta", ts });
+          } else if (s.subagent && typeof s.subagent === "object") {
+            const sub = s.subagent as Record<string, unknown>;
+            if (typeof sub.name === "string") {
+              events.push({ name: sub.name, source: "session_meta", ts });
+            }
+          }
+        }
+        return;
+      }
+
+      // Codex slash commands appear unmolested in user_message text — they
+      // aren't expanded the way Claude wraps them in <command-name> tags.
+      // Match both `/<name>` and `$<name>` (Codex's recent slash-prefix
+      // variants surface as `$nexus`, `$apex`, …). Anchored at start of the
+      // message body so casual `/foo` / `$foo` mentions in pasted file paths
+      // or shell snippets don't false-positive.
+      if (
+        obj.type === "event_msg" &&
+        (payload as Record<string, unknown>).type === "user_message"
+      ) {
+        const msg = (payload as Record<string, unknown>).message;
+        if (typeof msg === "string") {
+          const match = msg.trimStart().match(/^[/$]([a-z][a-z0-9-]{2,40})\b/);
+          if (match?.[1]) {
+            events.push({ name: match[1], source: "slash_command", ts });
           }
         }
       }
-      continue;
-    }
 
-    // Codex slash commands appear unmolested in user_message text — they
-    // aren't expanded the way Claude wraps them in <command-name> tags.
-    // Match both `/<name>` and `$<name>` (Codex's recent slash-prefix
-    // variants surface as `$nexus`, `$apex`, …). Anchored at start of the
-    // message body so casual `/foo` / `$foo` mentions in pasted file paths
-    // or shell snippets don't false-positive.
-    if (
-      obj.type === "event_msg" &&
-      (payload as Record<string, unknown>).type === "user_message"
-    ) {
-      const msg = (payload as Record<string, unknown>).message;
-      if (typeof msg === "string") {
-        const match = msg.trimStart().match(/^[/$]([a-z][a-z0-9-]{2,40})\b/);
-        if (match?.[1]) {
-          events.push({ name: match[1], source: "slash_command", ts });
-        }
-      }
-    }
-
-    if (obj.type === "response_item" && payload.type === "function_call") {
-      const name = typeof payload.name === "string" ? payload.name : "";
-      if (name === "spawn_agent") {
-        // Args is a JSON-encoded string. Pull the SKILL.md reference out,
-        // or fall back to the persona declarations (registry-validated).
-        const args = typeof payload.arguments === "string" ? payload.arguments : "";
-        const found = new Set<string>();
-        for (const match of args.matchAll(CODEX_SKILL_PATH_RE)) {
-          const skillName = match[1];
-          if (skillName) {
-            found.add(skillName);
-            events.push({ name: skillName, source: "subagent", ts });
+      if (obj.type === "response_item" && payload.type === "function_call") {
+        const name = typeof payload.name === "string" ? payload.name : "";
+        if (name === "spawn_agent") {
+          // Args is a JSON-encoded string. Pull the SKILL.md reference out,
+          // or fall back to the persona declarations (registry-validated).
+          const args = typeof payload.arguments === "string" ? payload.arguments : "";
+          const found = new Set<string>();
+          for (const match of args.matchAll(CODEX_SKILL_PATH_RE)) {
+            const skillName = match[1];
+            if (skillName) {
+              found.add(skillName);
+              events.push({ name: skillName, source: "subagent", ts });
+            }
           }
-        }
-        if (found.size === 0) {
-          for (const re of [CLAUDE_AGENT_PERSONA_JA_RE, CLAUDE_AGENT_PERSONA_EN_RE]) {
-            for (const match of args.matchAll(re)) {
-              const skillName = match[1];
-              if (skillName && !found.has(skillName.toLowerCase())) {
-                found.add(skillName.toLowerCase());
-                events.push({ name: skillName, source: "subagent", ts });
+          if (found.size === 0) {
+            for (const re of [CLAUDE_AGENT_PERSONA_JA_RE, CLAUDE_AGENT_PERSONA_EN_RE]) {
+              for (const match of args.matchAll(re)) {
+                const skillName = match[1];
+                if (skillName && !found.has(skillName.toLowerCase())) {
+                  found.add(skillName.toLowerCase());
+                  events.push({ name: skillName, source: "subagent", ts });
+                }
               }
             }
           }
         }
       }
-    }
-  }
-  return aggregate(events);
+    },
+    finish() {
+      return aggregate(events);
+    },
+  };
+}
+
+export function extractCodexSkills(text: string): SessionSkillUse[] {
+  const collector = createCodexSkillCollector();
+  forEachJsonObjectLine(text, (obj) => collector.add(obj));
+  return collector.finish();
 }
 
 // ---------------------------------------------------------------------------

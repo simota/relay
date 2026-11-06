@@ -3,12 +3,13 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { extractPromiseLedger } from "../lib/promise-ledger.js";
 import { resolveRepoForCwd } from "../lib/repo-from-cwd.js";
-import { distinctSkillNames, extractCodexSkills } from "../lib/session-skills.js";
+import { createCodexSkillCollector, distinctSkillNames } from "../lib/session-skills.js";
 import { detectCodexSessionStatus } from "../lib/session-status.js";
 import type { GetSessionOptions } from "./index.js";
 import type {
   SessionDetail,
   SessionMessage,
+  SessionSkillUse,
   SessionSummary,
   SessionToolCall,
 } from "./types.js";
@@ -67,14 +68,18 @@ async function collectRecentJsonl(root: string, cutoffMs: number): Promise<Jsonl
   return out;
 }
 
-async function readCodexSummary(
-  path: string,
+/**
+ * Session summary plus the full skill aggregate from one JSON.parse pass
+ * over `text`; `readCodexDetail` reuses `skills` instead of re-scanning.
+ */
+function summarizeCodexText(
+  text: string,
   roots: string[],
   mtimeMs: number,
-): Promise<SessionSummary | null> {
-  const text = await readFile(path, "utf8").catch(() => "");
+): { summary: SessionSummary; skills: SessionSkillUse[] } | null {
   if (!text) return null;
   const lines = text.split("\n");
+  const skillCollector = createCodexSkillCollector();
 
   let cwd: string | null = null;
   let sessionId: string | null = null;
@@ -92,6 +97,7 @@ async function readCodexSummary(
     }
     if (!evt || typeof evt !== "object") continue;
     const obj = evt as Record<string, unknown>;
+    skillCollector.add(obj);
     const payload = (obj.payload ?? {}) as Record<string, unknown>;
 
     if (obj.type === "session_meta") {
@@ -116,8 +122,9 @@ async function readCodexSummary(
   // Live status detection — re-runs on each SSE detail tick so the UI flips
   // to active/waiting_for_user/ended without waiting for the next sync.
   const status = detectCodexSessionStatus(text);
-  const skills_used = distinctSkillNames(extractCodexSkills(text));
-  return {
+  const skills = skillCollector.finish();
+  const skills_used = distinctSkillNames(skills);
+  const summary: SessionSummary = {
     type: "codex",
     id: sessionId,
     repo: cwd ? resolveRepoForCwd(cwd, roots) : null,
@@ -130,6 +137,7 @@ async function readCodexSummary(
     status,
     ...(skills_used.length > 0 ? { skills_used } : {}),
   };
+  return { summary, skills };
 }
 
 async function readCodexDetail(
@@ -138,10 +146,12 @@ async function readCodexDetail(
   mtimeMs: number,
   opts: GetSessionOptions,
 ): Promise<SessionDetail | null> {
-  const summary = await readCodexSummary(path, roots, mtimeMs);
-  if (!summary) return null;
-
+  // One read serves both the summary and the detail scan (same snapshot).
   const text = await readFile(path, "utf8").catch(() => "");
+  const summarized = summarizeCodexText(text, roots, mtimeMs);
+  if (!summarized) return null;
+  const { summary, skills } = summarized;
+
   const lines = text.split("\n");
   const messages: SessionMessage[] = [];
   const toolCalls: SessionToolCall[] = [];
@@ -179,7 +189,6 @@ async function readCodexDetail(
     }
   }
 
-  const skills = extractCodexSkills(text);
   const promise_ledger = opts.promiseLedger
     ? extractPromiseLedger(messages, toolCalls)
     : undefined;
