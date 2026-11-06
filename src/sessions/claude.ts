@@ -5,15 +5,16 @@ import { join } from "node:path";
 import { extractPromiseLedger } from "../lib/promise-ledger.js";
 import { resolveRepoForCwd } from "../lib/repo-from-cwd.js";
 import {
+  createClaudeSkillChainCollector,
+  createClaudeSkillCollector,
   distinctSkillNames,
-  extractClaudeSkillChains,
-  extractClaudeSkills,
 } from "../lib/session-skills.js";
 import { detectClaudeSessionStatus } from "../lib/session-status.js";
 import type { GetSessionOptions } from "./index.js";
 import type {
   SessionDetail,
   SessionMessage,
+  SessionSkillUse,
   SessionSummary,
   SessionTodo,
   SessionToolCall,
@@ -121,14 +122,20 @@ async function readClaudeSubagentDetail(
   };
 }
 
-async function readClaudeSummary(
+/**
+ * Session summary plus the full skill aggregate, both computed from one
+ * JSON.parse pass over `text`. `readClaudeDetail` reuses `skills` instead
+ * of scanning the file again.
+ */
+function summarizeClaudeText(
+  text: string,
   path: string,
   projectDir: string,
   roots: string[],
-): Promise<SessionSummary | null> {
-  const text = await readFile(path, "utf8").catch(() => "");
+): { summary: SessionSummary; skills: SessionSkillUse[] } | null {
   if (!text) return null;
   const lines = text.split("\n");
+  const skillCollector = createClaudeSkillCollector();
 
   const baseName = path.split("/").pop() ?? "";
   const sessionId = baseName.replace(/\.jsonl$/, "");
@@ -149,6 +156,7 @@ async function readClaudeSummary(
     }
     if (!evt || typeof evt !== "object") continue;
     const obj = evt as Record<string, unknown>;
+    skillCollector.add(obj);
 
     if (!cwd && typeof obj.cwd === "string" && obj.cwd) cwd = obj.cwd;
     if (typeof obj.timestamp === "string") lastTs = obj.timestamp;
@@ -184,10 +192,10 @@ async function readClaudeSummary(
   // UI flips to "waiting_for_user" in real time, well before the next sync
   // tick would update the DB-backed list view's status field.
   const status = detectClaudeSessionStatus(text);
-  const skills = extractClaudeSkills(text);
+  const skills = skillCollector.finish();
   const skills_used = distinctSkillNames(skills);
 
-  return {
+  const summary: SessionSummary = {
     type: "claude",
     id: sessionId,
     repo,
@@ -200,6 +208,7 @@ async function readClaudeSummary(
     status,
     ...(skills_used.length > 0 ? { skills_used } : {}),
   };
+  return { summary, skills };
 }
 
 async function readClaudeDetail(
@@ -208,11 +217,15 @@ async function readClaudeDetail(
   roots: string[],
   opts: GetSessionOptions,
 ): Promise<SessionDetail | null> {
-  const summary = await readClaudeSummary(path, projectDir, roots);
-  if (!summary) return null;
-
+  // One read serves both the summary and the detail scan, so they always
+  // describe the same snapshot of a file that may still be growing.
   const text = await readFile(path, "utf8").catch(() => "");
+  const summarized = summarizeClaudeText(text, path, projectDir, roots);
+  if (!summarized) return null;
+  const { summary, skills } = summarized;
+
   const lines = text.split("\n");
+  const chainCollector = createClaudeSkillChainCollector();
   const messages: SessionMessage[] = [];
   const todoMap = new Map<string, SessionTodo>();
   const toolCalls: SessionToolCall[] = [];
@@ -228,6 +241,7 @@ async function readClaudeDetail(
     }
     if (!evt || typeof evt !== "object") continue;
     const obj = evt as Record<string, unknown>;
+    chainCollector.add(obj);
     const ts = typeof obj.timestamp === "string" ? obj.timestamp : "";
 
     const role = extractRole(obj);
@@ -273,8 +287,7 @@ async function readClaudeDetail(
     }
   }
 
-  const skills = extractClaudeSkills(text);
-  const skill_chains = extractClaudeSkillChains(text);
+  const skill_chains = chainCollector.finish();
   const promise_ledger = opts.promiseLedger
     ? extractPromiseLedger(messages, toolCalls)
     : undefined;

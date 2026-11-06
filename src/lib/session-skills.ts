@@ -476,17 +476,16 @@ function recordToolResultStatuses(
 }
 
 /**
- * Walk the same Claude JSONL but only emit parent→child edges. A "parent"
- * is whichever skill is in conversational scope when the model spawns an
- * Agent/Task tool. Scope is set by either an explicit `<command-name>`
- * user invocation or an assistant `Skill(...)` call, and reset on each
- * user turn that doesn't carry a `<command-name>`.
- *
- * Returns edges in chronological order. Duplicate (parent, child) pairs
- * are preserved so a chain that fans-out twice shows two edges (each with
- * its own ts) — downstream UIs can dedup if they want to.
+ * Incremental form of `extractClaudeSkillChains` (same contract as
+ * `createClaudeSkillCollector`): `add` each parsed event in file order,
+ * then `finish`.
  */
-export function extractClaudeSkillChains(text: string): SessionSkillChainEdge[] {
+export interface ClaudeSkillChainCollector {
+  add(obj: Record<string, unknown>): void;
+  finish(): SessionSkillChainEdge[];
+}
+
+export function createClaudeSkillChainCollector(): ClaudeSkillChainCollector {
   const known = getKnownSkills();
   const edges: SessionSkillChainEdge[] = [];
   let currentSkill: string | null = null;
@@ -498,104 +497,116 @@ export function extractClaudeSkillChains(text: string): SessionSkillChainEdge[] 
     return n;
   };
 
-  for (const line of text.split("\n")) {
-    if (!line) continue;
-    let obj: Record<string, unknown>;
-    try {
-      const parsed = JSON.parse(line);
-      if (!parsed || typeof parsed !== "object") continue;
-      obj = parsed as Record<string, unknown>;
-    } catch {
-      continue;
-    }
-    const ts = typeof obj.timestamp === "string" ? obj.timestamp : "";
-    const wrapper = (obj.message as Record<string, unknown> | undefined) ?? obj;
-    const role = (wrapper as Record<string, unknown>).role;
-    const content = (wrapper as Record<string, unknown>).content;
+  return {
+    add(obj) {
+      const ts = typeof obj.timestamp === "string" ? obj.timestamp : "";
+      const wrapper = (obj.message as Record<string, unknown> | undefined) ?? obj;
+      const role = (wrapper as Record<string, unknown>).role;
+      const content = (wrapper as Record<string, unknown>).content;
 
-    if (role === "user") {
-      // Only switch scope on an explicit `<command-name>` slash command.
-      // Natural-language follow-ups (the user collaborating with the
-      // in-flight skill) and tool_result injections both keep the
-      // current scope intact — losing it on every user word would defeat
-      // the chain detector for any /nexus session with mid-flight
-      // clarification turns. Switching to a new built-in (init/clear/…)
-      // is treated as "back to plain mode" (currentSkill = null).
-      let scanText = "";
-      if (typeof content === "string") {
-        scanText = content;
-      } else if (Array.isArray(content)) {
-        for (const block of content) {
-          if (!block || typeof block !== "object") continue;
-          const b = block as Record<string, unknown>;
-          if (b.type === "text" && typeof b.text === "string") {
-            scanText += b.text + "\n";
-          }
-        }
-      }
-      const m = scanText.match(/<command-name>\s*\/?([a-z][a-z0-9-]{2,40})\s*<\/command-name>/i);
-      let detected: string | null = null;
-      if (m?.[1]) {
-        detected = m[1].toLowerCase();
-      } else {
-        // Bare `/<name>` fallback when the CLI didn't wrap the command —
-        // anchored at start-of-text so the scope detector doesn't drift on
-        // a casual mention deep in a paragraph.
-        const bare = scanText.match(CLAUDE_BARE_SLASH_RE);
-        if (bare?.[1]) detected = bare[1].toLowerCase();
-      }
-      if (detected) {
-        const valid = isValid(detected);
-        if (valid) {
-          currentSkill = valid;
-        } else if (BUILTIN_SLASH_COMMANDS.has(detected)) {
-          // /init, /clear, /compact … return us to plain mode.
-          currentSkill = null;
-        }
-      }
-      continue;
-    }
-
-    if (role !== "assistant" || !Array.isArray(content)) continue;
-    for (const block of content) {
-      if (!block || typeof block !== "object") continue;
-      const b = block as Record<string, unknown>;
-      if (b.type !== "tool_use" || typeof b.name !== "string") continue;
-      const input =
-        b.input && typeof b.input === "object"
-          ? (b.input as Record<string, unknown>)
-          : {};
-      if (b.name === "Skill" && typeof input.skill === "string") {
-        const valid = isValid(input.skill);
-        if (valid) currentSkill = valid;
-      } else if (b.name === "Agent" || b.name === "Task") {
-        if (!currentSkill) continue;
-        const prompt = typeof input.prompt === "string" ? input.prompt : "";
-        const childrenFound = new Set<string>();
-        for (const m of prompt.matchAll(CLAUDE_SKILL_PATH_RE)) {
-          const child = isValid(m[1] ?? "");
-          if (child) childrenFound.add(child);
-        }
-        if (childrenFound.size === 0) {
-          for (const re of [CLAUDE_AGENT_PERSONA_JA_RE, CLAUDE_AGENT_PERSONA_EN_RE]) {
-            for (const m of prompt.matchAll(re)) {
-              const child = isValid(m[1] ?? "");
-              if (child) childrenFound.add(child);
+      if (role === "user") {
+        // Only switch scope on an explicit `<command-name>` slash command.
+        // Natural-language follow-ups (the user collaborating with the
+        // in-flight skill) and tool_result injections both keep the
+        // current scope intact — losing it on every user word would defeat
+        // the chain detector for any /nexus session with mid-flight
+        // clarification turns. Switching to a new built-in (init/clear/…)
+        // is treated as "back to plain mode" (currentSkill = null).
+        let scanText = "";
+        if (typeof content === "string") {
+          scanText = content;
+        } else if (Array.isArray(content)) {
+          for (const block of content) {
+            if (!block || typeof block !== "object") continue;
+            const b = block as Record<string, unknown>;
+            if (b.type === "text" && typeof b.text === "string") {
+              scanText += b.text + "\n";
             }
           }
         }
-        if (childrenFound.size === 0 && typeof input.subagent_type === "string") {
-          const child = isValid(input.subagent_type);
-          if (child) childrenFound.add(child);
+        const m = scanText.match(/<command-name>\s*\/?([a-z][a-z0-9-]{2,40})\s*<\/command-name>/i);
+        let detected: string | null = null;
+        if (m?.[1]) {
+          detected = m[1].toLowerCase();
+        } else {
+          // Bare `/<name>` fallback when the CLI didn't wrap the command —
+          // anchored at start-of-text so the scope detector doesn't drift on
+          // a casual mention deep in a paragraph.
+          const bare = scanText.match(CLAUDE_BARE_SLASH_RE);
+          if (bare?.[1]) detected = bare[1].toLowerCase();
         }
-        for (const child of childrenFound) {
-          if (child === currentSkill) continue; // self-loop suppressed
-          edges.push({ parent: currentSkill, child, ts });
+        if (detected) {
+          const valid = isValid(detected);
+          if (valid) {
+            currentSkill = valid;
+          } else if (BUILTIN_SLASH_COMMANDS.has(detected)) {
+            // /init, /clear, /compact … return us to plain mode.
+            currentSkill = null;
+          }
+        }
+        return;
+      }
+
+      if (role !== "assistant" || !Array.isArray(content)) return;
+      for (const block of content) {
+        if (!block || typeof block !== "object") continue;
+        const b = block as Record<string, unknown>;
+        if (b.type !== "tool_use" || typeof b.name !== "string") continue;
+        const input =
+          b.input && typeof b.input === "object"
+            ? (b.input as Record<string, unknown>)
+            : {};
+        if (b.name === "Skill" && typeof input.skill === "string") {
+          const valid = isValid(input.skill);
+          if (valid) currentSkill = valid;
+        } else if (b.name === "Agent" || b.name === "Task") {
+          if (!currentSkill) continue;
+          const prompt = typeof input.prompt === "string" ? input.prompt : "";
+          const childrenFound = new Set<string>();
+          for (const m of prompt.matchAll(CLAUDE_SKILL_PATH_RE)) {
+            const child = isValid(m[1] ?? "");
+            if (child) childrenFound.add(child);
+          }
+          if (childrenFound.size === 0) {
+            for (const re of [CLAUDE_AGENT_PERSONA_JA_RE, CLAUDE_AGENT_PERSONA_EN_RE]) {
+              for (const m of prompt.matchAll(re)) {
+                const child = isValid(m[1] ?? "");
+                if (child) childrenFound.add(child);
+              }
+            }
+          }
+          if (childrenFound.size === 0 && typeof input.subagent_type === "string") {
+            const child = isValid(input.subagent_type);
+            if (child) childrenFound.add(child);
+          }
+          for (const child of childrenFound) {
+            if (child === currentSkill) continue; // self-loop suppressed
+            edges.push({ parent: currentSkill, child, ts });
+          }
         }
       }
-    }
-  }
-  return edges;
+    },
+    finish() {
+      return edges;
+    },
+  };
+}
+
+/**
+ * Walk the same Claude JSONL but only emit parent→child edges. A "parent"
+ * is whichever skill is in conversational scope when the model spawns an
+ * Agent/Task tool. Scope is set by either an explicit `<command-name>`
+ * user invocation or an assistant `Skill(...)` call, and reset on each
+ * user turn that doesn't carry a `<command-name>`.
+ *
+ * Returns edges in chronological order. Duplicate (parent, child) pairs
+ * are preserved so a chain that fans-out twice shows two edges (each with
+ * its own ts) — downstream UIs can dedup if they want to.
+ */
+export function extractClaudeSkillChains(text: string): SessionSkillChainEdge[] {
+  const collector = createClaudeSkillChainCollector();
+  forEachJsonObjectLine(text, (obj) => collector.add(obj));
+  return collector.finish();
 }
 
 /**
