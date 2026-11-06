@@ -6,6 +6,7 @@ import type { Database } from "bun:sqlite";
 import type { TaskStatusSnapshot } from "../types.js";
 import { recordUndo } from "./runs.js";
 import { closedSnapshots } from "./tasks.js";
+import { byteOrderSafe } from "../internal.js";
 
 /**
  * WFR (Workflow Flow Rate) over the trailing N weeks. Returns one row
@@ -217,19 +218,27 @@ export function insightsFlowTimeseries(
   days: number,
 ): Array<{ day: string; opened: number; closed: number }> {
   const rows: Array<{ day: string; opened: number; closed: number }> = [];
-  const openedStmt = db.prepare(
-    `SELECT COUNT(*) AS n FROM tasks WHERE date(created_at) = ?`,
-  );
-  const closedStmt = db.prepare(
-    `SELECT COUNT(*) AS n FROM tasks WHERE date(closed_at) = ?`,
-  );
+  // One GROUP BY per column instead of two COUNT(*) scans per day. The
+  // grouping key is the same date(...) text the per-day `= ?` compared
+  // against (BINARY equality either way); NULL dates match no day.
+  const countsByDay = (column: "created_at" | "closed_at"): Map<string, number> => {
+    const grouped = db
+      .prepare(`SELECT date(${column}) AS d, COUNT(*) AS n FROM tasks NOT INDEXED GROUP BY d`)
+      .all() as Array<{ d: string | null; n: number }>;
+    const out = new Map<string, number>();
+    for (const g of grouped) if (g.d !== null) out.set(g.d, g.n);
+    return out;
+  };
+  const openedByDay = countsByDay("created_at");
+  const closedByDay = countsByDay("closed_at");
+  const dayStmt = db.prepare(`SELECT date('now', ?) AS d`);
   for (let i = days - 1; i >= 0; i--) {
-    const dayRow = db
-      .prepare(`SELECT date('now', ?) AS d`)
-      .get(`-${i} days`) as { d: string };
-    const opened = (openedStmt.get(dayRow.d) as { n: number | null }).n ?? 0;
-    const closed = (closedStmt.get(dayRow.d) as { n: number | null }).n ?? 0;
-    rows.push({ day: dayRow.d, opened, closed });
+    const dayRow = dayStmt.get(`-${i} days`) as { d: string };
+    rows.push({
+      day: dayRow.d,
+      opened: openedByDay.get(dayRow.d) ?? 0,
+      closed: closedByDay.get(dayRow.d) ?? 0,
+    });
   }
   return rows;
 }
@@ -436,11 +445,92 @@ export function insightsOrphans(
  * Each row answers: "how many tasks were open/in_progress at end of that day?"
  * A task counts as open on day D if created_at <= D and (closed_at IS NULL OR closed_at > D).
  */
-export function insightsBurndown(
-  db: Database,
-  days: number,
-): Array<{ date: string; open: number; in_progress: number; done: number }> {
-  const rows: Array<{ date: string; open: number; in_progress: number; done: number }> = [];
+type BurndownRow = { date: string; open: number; in_progress: number; done: number };
+
+export function insightsBurndown(db: Database, days: number): BurndownRow[] {
+  return insightsBurndownSinglePass(db, days) ?? insightsBurndownPerDay(db, days);
+}
+
+/** Each day's "<date>T23:59:59" boundary, computed exactly as the per-day query does. */
+function burndownDays(db: Database, days: number): Array<{ d: string; end: unknown }> {
+  const dayStmt = db.prepare(`SELECT date('now', ?) AS d`);
+  const endStmt = db.prepare(`SELECT strftime('%Y-%m-%dT%H:%M:%fZ', ?, '23:59:59') AS e`);
+  const out: Array<{ d: string; end: unknown }> = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const { d } = dayStmt.get(`-${i} days`) as { d: string };
+    out.push({ d, end: (endStmt.get(d) as { e: unknown }).e });
+  }
+  return out;
+}
+
+/**
+ * Same result as insightsBurndownPerDay from one scan of tasks instead of
+ * one full scan per day. A task counts on every day whose end boundary E
+ * satisfies created_at <= E < closed_at (or closed_at IS NULL); with the
+ * boundaries ascending that is one contiguous run of days, found by binary
+ * search and added via a difference array. Returns null — and the caller
+ * falls back to the per-day SQL — whenever a value could compare
+ * differently in JS than under SQLite's rules (non-text or non-byte-order-
+ * safe values, unordered boundaries).
+ */
+function insightsBurndownSinglePass(db: Database, days: number): BurndownRow[] | null {
+  const dayList = burndownDays(db, days);
+  const ends: string[] = [];
+  for (const { end } of dayList) {
+    if (!byteOrderSafe(end)) return null;
+    if (ends.length > 0 && !(ends[ends.length - 1]! < end)) return null;
+    ends.push(end);
+  }
+  const n = ends.length;
+  // First day index whose boundary is >= value (n when none).
+  const firstEndAtLeast = (value: string): number => {
+    let lo = 0;
+    let hi = n;
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1;
+      if (ends[mid]! < value) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo;
+  };
+  const deltas = {
+    open: new Array<number>(n + 1).fill(0),
+    in_progress: new Array<number>(n + 1).fill(0),
+    done: new Array<number>(n + 1).fill(0),
+  };
+  const rows = db
+    .prepare(`SELECT status, created_at, closed_at FROM tasks NOT INDEXED`)
+    .values() as Array<[unknown, unknown, unknown]>;
+  for (const [status, createdAt, closedAt] of rows) {
+    // Rows outside the three statuses add to no column.
+    if (status !== "open" && status !== "in_progress" && status !== "done") continue;
+    // NULL created_at: `NULL <= E` is never true.
+    if (createdAt === null) continue;
+    if (!byteOrderSafe(createdAt)) return null;
+    if (closedAt !== null && !byteOrderSafe(closedAt)) return null;
+    const from = firstEndAtLeast(createdAt);
+    const to = closedAt === null ? n : firstEndAtLeast(closedAt);
+    if (from >= to) continue;
+    const delta = deltas[status];
+    delta[from]! += 1;
+    delta[to]! -= 1;
+  }
+  const out: BurndownRow[] = [];
+  let open = 0;
+  let inProgress = 0;
+  let done = 0;
+  for (let k = 0; k < n; k++) {
+    open += deltas.open[k]!;
+    inProgress += deltas.in_progress[k]!;
+    done += deltas.done[k]!;
+    out.push({ date: dayList[k]!.d, open, in_progress: inProgress, done });
+  }
+  return out;
+}
+
+/** Reference implementation: one aggregate scan per day. */
+export function insightsBurndownPerDay(db: Database, days: number): BurndownRow[] {
+  const rows: BurndownRow[] = [];
 
   // Prepare day-end boundary: each iteration resolves "date('now', -i days)"
   const dayStmt = db.prepare(`SELECT date('now', ?) AS d`);
@@ -523,13 +613,27 @@ function normalizeTitle(title: string): Set<string> {
   return new Set(words);
 }
 
-function jaccardSimilarity(a: Set<string>, b: Set<string>): number {
-  if (a.size === 0 && b.size === 0) return 1;
+/**
+ * Jaccard similarity of two word sets given as sorted, duplicate-free word
+ * ids (see insightsDuplicates). Same counts — and so the same float — as
+ * |A∩B| / |A∪B| over the original Set<string>s; two empty sets are 1.
+ */
+function jaccardSimilarity(a: Int32Array, b: Int32Array): number {
+  if (a.length === 0 && b.length === 0) return 1;
   let intersect = 0;
-  for (const w of a) {
-    if (b.has(w)) intersect++;
+  let i = 0;
+  let j = 0;
+  while (i < a.length && j < b.length) {
+    const x = a[i]!;
+    const y = b[j]!;
+    if (x === y) {
+      intersect++;
+      i++;
+      j++;
+    } else if (x < y) i++;
+    else j++;
   }
-  const union = a.size + b.size - intersect;
+  const union = a.length + b.length - intersect;
   return union === 0 ? 0 : intersect / union;
 }
 
@@ -585,10 +689,32 @@ export function insightsDuplicates(
 
   // O(N²) within each repo
   for (const group of byRepo.values()) {
-    const wordSets = group.map((t) => ({ id: t.id, words: normalizeTitle(t.title) }));
+    // Intern each repo's words as integers so a pair's intersection is a
+    // merge of two short sorted arrays instead of string-hash lookups.
+    const vocab = new Map<string, number>();
+    const wordSets = group.map((t) => {
+      const ids: number[] = [];
+      for (const w of normalizeTitle(t.title)) {
+        let id = vocab.get(w);
+        if (id === undefined) {
+          id = vocab.size;
+          vocab.set(w, id);
+        }
+        ids.push(id);
+      }
+      return { id: t.id, words: Int32Array.from(ids).sort() };
+    });
     for (let i = 0; i < wordSets.length; i++) {
+      const a = wordSets[i]!.words;
       for (let j = i + 1; j < wordSets.length; j++) {
-        const sim = jaccardSimilarity(wordSets[i]!.words, wordSets[j]!.words);
+        const b = wordSets[j]!.words;
+        // |A∩B|/|A∪B| <= min(|A|,|B|)/max(|A|,|B|), and float division is
+        // monotonic, so a pair whose size ratio is already below the
+        // threshold cannot reach it: skip the intersection. Pairs are still
+        // visited (and unioned) in the same order.
+        const big = Math.max(a.length, b.length);
+        if (big > 0 && Math.min(a.length, b.length) / big < minSimilarity) continue;
+        const sim = jaccardSimilarity(a, b);
         if (sim >= minSimilarity) {
           union(wordSets[i]!.id, wordSets[j]!.id);
         }
