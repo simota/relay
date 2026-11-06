@@ -85,6 +85,8 @@ export interface QueueRunnerOptions {
   close_on_success?: boolean;
   continue_on_error?: boolean;
   limit?: number;
+  /** Run only these tasks now (front-queued; picked up next if a run is active). */
+  task_ids?: number[];
 }
 
 /** GET /api/queue/runner: the Web server's headless queue runner. */

@@ -173,6 +173,8 @@ export interface QueueRunOptions {
   verify?: boolean;
   /** Headless: extra attempts per failed task, with the failure fed back as a note. */
   retries?: number;
+  /** Only work these tasks' queue items (Web "run now"); others stay queued. */
+  taskIds?: number[];
 }
 
 export type QueueOutcomeKind = "success" | "failed" | "interrupted" | "skipped" | "planned";
@@ -264,7 +266,10 @@ export async function processQueue(
       let prep: ReturnType<typeof prepareRun>;
       {
         using db = new RelayDB();
-        const pending = db.listQueueItems().filter((candidate) => !attempted.has(candidate.id));
+        const only = options.taskIds && options.taskIds.length > 0 ? new Set(options.taskIds) : null;
+        const pending = db
+          .listQueueItems()
+          .filter((candidate) => !attempted.has(candidate.id) && (!only || only.has(candidate.task_id)));
         if (pending.length === 0) break;
         // Dependency-aware pick: the first item whose blockers are all done
         // (or satisfied earlier in this pass). A dependent queued ahead of

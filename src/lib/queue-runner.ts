@@ -18,6 +18,8 @@ export interface QueueRunnerStartOptions {
   continueOnError?: boolean;
   limit?: number;
   timeoutMin?: number;
+  /** Only run these tasks (they must be queued); the rest of the queue waits. */
+  taskIds?: number[];
 }
 
 export interface QueueRunnerState {
@@ -87,6 +89,8 @@ export class QueueRunner {
     const run = this.deps.process ?? processQueue;
     const abort = new AbortController();
     this.abort = abort;
+    // One mutable taskIds array shared with processQueue (see include()).
+    options = { ...options, taskIds: options.taskIds ? [...options.taskIds] : undefined };
     this.state = {
       ...idleState(),
       status: "running",
@@ -112,6 +116,7 @@ export class QueueRunner {
             continueOnError: options.continueOnError,
             limit: options.limit,
             timeoutMin: options.timeoutMin,
+            taskIds: options.taskIds,
           },
           {
             cfg,
@@ -148,6 +153,16 @@ export class QueueRunner {
       }
     })();
     return this.snapshot();
+  }
+
+  /**
+   * Let a running, task-limited run (a previous "run now") also pick up
+   * these tasks. processQueue re-reads `taskIds` before every launch.
+   */
+  include(taskIds: number[]): void {
+    const only = this.state.options?.taskIds;
+    if (!this.running || !only) return;
+    for (const id of taskIds) if (!only.includes(id)) only.push(id);
   }
 
   /** Stop after the task that is running now. */

@@ -203,3 +203,39 @@ describe("server wiring", () => {
     expect(state.status).toBe(200);
   });
 });
+
+describe("run now (task_ids)", () => {
+  test("runs only the requested tasks, front-queued; a running task-limited run picks up more", async () => {
+    const other = seed("leave me queued");
+    const first = seed("run me now");
+    const second = seed("and me too");
+    const human = seed("human");
+    {
+      using db = new RelayDB();
+      db.addQueueItem(other);
+      // an assignee without a headless mode is refused up front
+      db.setAssignee(human, "human-review");
+    }
+    const exec = gatedExecutor();
+    const runner = new QueueRunner({ cfg: () => cfg, execute: exec.execute });
+    const api = createQueueApi({ runner, isLocalRequest: () => true });
+    const refused = await api.request("/runner", { method: "POST", body: JSON.stringify({ task_ids: [human] }) });
+    expect(refused.status).toBe(409);
+
+    const res = await api.request("/runner", { method: "POST", body: JSON.stringify({ task_ids: [first] }) });
+    expect(res.status).toBe(202);
+    await until(() => exec.launched.length === 1);
+    expect(exec.launched).toEqual([first]);
+
+    const more = await api.request("/runner", { method: "POST", body: JSON.stringify({ task_ids: [second] }) });
+    expect(more.status).toBe(202);
+    expect(((await more.json()) as { queued: number[] }).queued).toEqual([second]);
+    exec.release();
+    await until(() => exec.launched.length === 2);
+    exec.release();
+    await runner.wait();
+    expect(exec.launched).toEqual([first, second]);
+    using db = new RelayDB();
+    expect(db.listQueueItems().map((i) => i.task_id)).toEqual([other]);
+  });
+});

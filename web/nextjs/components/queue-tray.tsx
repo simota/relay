@@ -69,7 +69,7 @@ export function QueueTray() {
         close_on_success: runClose,
         continue_on_error: true,
       });
-      await mutateRunner(state, { revalidate: false });
+      await mutateRunner(state);
     } catch (error) {
       setRunError(error instanceof ApiError || error instanceof Error ? error.message : String(error));
     } finally {
@@ -80,7 +80,7 @@ export function QueueTray() {
   async function stopRunner() {
     try {
       const state = await api.queue.stopRunner();
-      await mutateRunner(state, { revalidate: false });
+      await mutateRunner(state);
     } catch (error) {
       setRunError(error instanceof Error ? error.message : String(error));
     }

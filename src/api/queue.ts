@@ -38,11 +38,15 @@ export function createQueueApi(opts: QueueApiOptions = {}) {
   // GET reports this server's runner plus any other process holding the
   // queue lock (a terminal `relay queue run`), so the tray can say why the
   // run button is disabled.
-  app.get("/runner", (c) => {
-    const state = runner.snapshot();
-    const holder = runner.running ? null : readQueueLock();
-    return c.json({ ...state, external: holder, can_start: isLocal(c) });
+  // Every runner endpoint answers with the same shape, so a client can
+  // put any response straight into its cache.
+  const status = (c: Context) => ({
+    ...runner.snapshot(),
+    external: runner.running ? null : readQueueLock(),
+    can_start: isLocal(c),
   });
+
+  app.get("/runner", (c) => c.json(status(c)));
 
   app.post("/runner", async (c) => {
     if (!isLocal(c)) {
@@ -57,19 +61,42 @@ export function createQueueApi(opts: QueueApiOptions = {}) {
     if (limit !== undefined && (!Number.isInteger(limit) || limit <= 0)) {
       return c.json({ error: "limit must be a positive integer" }, 400);
     }
+    // `task_ids`: "run these now". They go to the head of the queue; if the
+    // runner is already working the queue it simply picks them up next.
+    let taskIds: number[] | undefined;
+    if (body.task_ids !== undefined) {
+      const ids = Array.isArray(body.task_ids) ? parseTaskIds(body.task_ids) : null;
+      if (!ids || ids.length > 50) return c.json({ error: "task_ids must be 1-50 positive integers" }, 400);
+      using db = new RelayDB();
+      for (const id of [...ids].reverse()) {
+        const task = db.getTask(id);
+        if (!task) return c.json({ error: `task #${id} not found` }, 404);
+        if (task.status === "done") return c.json({ error: `task #${id} is done` }, 409);
+        if (task.assignee !== "claude-code" && task.assignee !== "codex") {
+          return c.json({ error: `#${id} is assigned to ${task.assignee}, which has no headless mode` }, 409);
+        }
+      }
+      for (const id of [...ids].reverse()) db.addQueueItem(id, { front: true });
+      taskIds = ids;
+      if (runner.running) {
+        runner.include(ids);
+        return c.json({ ...status(c), queued: ids }, 202);
+      }
+    }
     {
       using db = new RelayDB();
       if (db.listQueueItems().length === 0) return c.json({ error: "queue is empty" }, 409);
     }
     try {
-      const state = runner.start({
+      runner.start({
+        taskIds,
         verify: typeof body.verify === "boolean" ? body.verify : undefined,
         retries,
         closeOnSuccess: body.close_on_success === true,
         continueOnError: body.continue_on_error !== false,
         limit,
       });
-      return c.json(state, 202);
+      return c.json(status(c), 202);
     } catch (e) {
       if (e instanceof QueueBusyError) return c.json({ error: e.message, holder: e.holder }, 409);
       throw e;
@@ -80,7 +107,7 @@ export function createQueueApi(opts: QueueApiOptions = {}) {
   app.post("/runner/stop", (c) => {
     if (!isLocal(c)) return c.json({ error: "only from this machine (loopback)" }, 403);
     const stopped = runner.stop();
-    return c.json({ ok: stopped, ...runner.snapshot() });
+    return c.json({ ok: stopped, ...status(c) });
   });
 
   app.get("/", (c) => {
