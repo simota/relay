@@ -6,6 +6,7 @@ import type { Database } from "bun:sqlite";
 import type { TaskStatusSnapshot } from "../types.js";
 import { recordUndo } from "./runs.js";
 import { closedSnapshots } from "./tasks.js";
+import { byteOrderSafe } from "../internal.js";
 
 /**
  * WFR (Workflow Flow Rate) over the trailing N weeks. Returns one row
@@ -13,32 +14,83 @@ import { closedSnapshots } from "./tasks.js";
  * the 0.0-1.0 ratio (closed / (closed + opened) * active_repos /
  * repos_with_open).
  */
-export function insightsWfr(
-  db: Database,
-  periodWeeks: number,
-): Array<{
+type WfrRow = {
   wk: string;
   active_repos: number;
   repos_with_open: number;
   closed_n: number;
   opened_n: number;
-}> {
-  const rows: Array<{
-    wk: string;
-    active_repos: number;
-    repos_with_open: number;
-    closed_n: number;
-    opened_n: number;
-  }> = [];
+};
+
+export function insightsWfr(db: Database, periodWeeks: number): WfrRow[] {
+  const weeks = wfrWeeks(db, periodWeeks);
+  const reposWithOpen =
+    (db.prepare(`SELECT COUNT(DISTINCT repo) AS n FROM tasks WHERE status = 'open'`).get() as {
+      n: number | null;
+    }).n ?? 0;
+  return wfrSinglePass(db, weeks, reposWithOpen) ?? wfrPerWeek(db, weeks, reposWithOpen);
+}
+
+type WfrWeek = { d: string; start_at: unknown; end_at: unknown };
+
+function wfrWeeks(db: Database, periodWeeks: number): WfrWeek[] {
+  const weekStmt = db.prepare(
+    `SELECT date('now', ?) AS d, strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?) AS start_at, strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?) AS end_at`,
+  );
+  const weeks: WfrWeek[] = [];
+  for (let i = periodWeeks - 1; i >= 0; i--) {
+    const startExpr = `-${(i + 1) * 7} days`;
+    const endExpr = `-${i * 7} days`;
+    weeks.push(weekStmt.get(startExpr, startExpr, endExpr) as WfrWeek);
+  }
+  return weeks;
+}
+
+/**
+ * Same counts as wfrPerWeek from one scan of tasks instead of three per
+ * week: every row is tested against each week's own [start, end) bounds.
+ * Returns null (caller falls back to SQL) whenever a bound, repo or
+ * timestamp could compare or dedupe differently in JS than in SQLite.
+ */
+function wfrSinglePass(db: Database, weeks: WfrWeek[], reposWithOpen: number): WfrRow[] | null {
+  const bounds: Array<{ start: string; end: string }> = [];
+  for (const w of weeks) {
+    if (!byteOrderSafe(w.start_at) || !byteOrderSafe(w.end_at)) return null;
+    bounds.push({ start: w.start_at, end: w.end_at });
+  }
+  const active = bounds.map(() => new Set<string>());
+  const closed = bounds.map(() => 0);
+  const opened = bounds.map(() => 0);
+  const rows = db
+    .prepare(`SELECT repo, updated_at, closed_at, created_at FROM tasks NOT INDEXED`)
+    .values() as Array<[unknown, unknown, unknown, unknown]>;
+  for (const [repo, updatedAt, closedAt, createdAt] of rows) {
+    if (!byteOrderSafe(repo) || !byteOrderSafe(updatedAt) || !byteOrderSafe(createdAt)) return null;
+    if (closedAt !== null && !byteOrderSafe(closedAt)) return null;
+    for (let k = 0; k < bounds.length; k++) {
+      const { start, end } = bounds[k]!;
+      if (updatedAt >= start && updatedAt < end) active[k]!.add(repo);
+      if (closedAt !== null && closedAt >= start && closedAt < end) closed[k]!++;
+      if (createdAt >= start && createdAt < end) opened[k]!++;
+    }
+  }
+  return weeks.map((w, k) => ({
+    wk: w.d,
+    active_repos: active[k]!.size,
+    repos_with_open: reposWithOpen,
+    closed_n: closed[k]!,
+    opened_n: opened[k]!,
+  }));
+}
+
+/** Reference implementation: three aggregate queries per week. */
+function wfrPerWeek(db: Database, weeks: WfrWeek[], reposWithOpen: number): WfrRow[] {
   // NOT INDEXED: without it the planner walks idx_tasks_repo for the
   // DISTINCT and fetches every row out of order (several times slower on a
   // DB larger than the page cache). A count is order-independent.
   const activeStmt = db.prepare(
     `SELECT COUNT(DISTINCT repo) AS n FROM tasks NOT INDEXED
       WHERE updated_at >= ? AND updated_at < ?`,
-  );
-  const openReposStmt = db.prepare(
-    `SELECT COUNT(DISTINCT repo) AS n FROM tasks WHERE status = 'open'`,
   );
   const closedStmt = db.prepare(
     `SELECT COUNT(*) AS n FROM tasks
@@ -48,33 +100,22 @@ export function insightsWfr(
     `SELECT COUNT(*) AS n FROM tasks
       WHERE created_at >= ? AND created_at < ?`,
   );
+  return weeks.map((w) => ({
+    wk: w.d,
+    active_repos: (activeStmt.get(w.start_at as string, w.end_at as string) as { n: number | null }).n ?? 0,
+    repos_with_open: reposWithOpen,
+    closed_n: (closedStmt.get(w.start_at as string, w.end_at as string) as { n: number | null }).n ?? 0,
+    opened_n: (openedStmt.get(w.start_at as string, w.end_at as string) as { n: number | null }).n ?? 0,
+  }));
+}
+
+/** Test hook: the per-week SQL reference for insightsWfr. */
+export function insightsWfrPerWeek(db: Database, periodWeeks: number): WfrRow[] {
   const reposWithOpen =
-    (openReposStmt.get() as { n: number | null }).n ?? 0;
-  for (let i = periodWeeks - 1; i >= 0; i--) {
-    const startExpr = `-${(i + 1) * 7} days`;
-    const endExpr = `-${i * 7} days`;
-    const weekStartRow = db
-      .prepare(`SELECT date('now', ?) AS d, strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?) AS start_at, strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?) AS end_at`)
-      .get(startExpr, startExpr, endExpr) as {
-      d: string;
-      start_at: string;
-      end_at: string;
-    };
-    const active =
-      (activeStmt.get(weekStartRow.start_at, weekStartRow.end_at) as { n: number | null }).n ?? 0;
-    const closed =
-      (closedStmt.get(weekStartRow.start_at, weekStartRow.end_at) as { n: number | null }).n ?? 0;
-    const opened =
-      (openedStmt.get(weekStartRow.start_at, weekStartRow.end_at) as { n: number | null }).n ?? 0;
-    rows.push({
-      wk: weekStartRow.d,
-      active_repos: active,
-      repos_with_open: reposWithOpen,
-      closed_n: closed,
-      opened_n: opened,
-    });
-  }
-  return rows;
+    (db.prepare(`SELECT COUNT(DISTINCT repo) AS n FROM tasks WHERE status = 'open'`).get() as {
+      n: number | null;
+    }).n ?? 0;
+  return wfrPerWeek(db, wfrWeeks(db, periodWeeks), reposWithOpen);
 }
 
 export function insightsThroughput(
@@ -217,19 +258,27 @@ export function insightsFlowTimeseries(
   days: number,
 ): Array<{ day: string; opened: number; closed: number }> {
   const rows: Array<{ day: string; opened: number; closed: number }> = [];
-  const openedStmt = db.prepare(
-    `SELECT COUNT(*) AS n FROM tasks WHERE date(created_at) = ?`,
-  );
-  const closedStmt = db.prepare(
-    `SELECT COUNT(*) AS n FROM tasks WHERE date(closed_at) = ?`,
-  );
+  // One GROUP BY per column instead of two COUNT(*) scans per day. The
+  // grouping key is the same date(...) text the per-day `= ?` compared
+  // against (BINARY equality either way); NULL dates match no day.
+  const countsByDay = (column: "created_at" | "closed_at"): Map<string, number> => {
+    const grouped = db
+      .prepare(`SELECT date(${column}) AS d, COUNT(*) AS n FROM tasks NOT INDEXED GROUP BY d`)
+      .all() as Array<{ d: string | null; n: number }>;
+    const out = new Map<string, number>();
+    for (const g of grouped) if (g.d !== null) out.set(g.d, g.n);
+    return out;
+  };
+  const openedByDay = countsByDay("created_at");
+  const closedByDay = countsByDay("closed_at");
+  const dayStmt = db.prepare(`SELECT date('now', ?) AS d`);
   for (let i = days - 1; i >= 0; i--) {
-    const dayRow = db
-      .prepare(`SELECT date('now', ?) AS d`)
-      .get(`-${i} days`) as { d: string };
-    const opened = (openedStmt.get(dayRow.d) as { n: number | null }).n ?? 0;
-    const closed = (closedStmt.get(dayRow.d) as { n: number | null }).n ?? 0;
-    rows.push({ day: dayRow.d, opened, closed });
+    const dayRow = dayStmt.get(`-${i} days`) as { d: string };
+    rows.push({
+      day: dayRow.d,
+      opened: openedByDay.get(dayRow.d) ?? 0,
+      closed: closedByDay.get(dayRow.d) ?? 0,
+    });
   }
   return rows;
 }
@@ -436,11 +485,92 @@ export function insightsOrphans(
  * Each row answers: "how many tasks were open/in_progress at end of that day?"
  * A task counts as open on day D if created_at <= D and (closed_at IS NULL OR closed_at > D).
  */
-export function insightsBurndown(
-  db: Database,
-  days: number,
-): Array<{ date: string; open: number; in_progress: number; done: number }> {
-  const rows: Array<{ date: string; open: number; in_progress: number; done: number }> = [];
+type BurndownRow = { date: string; open: number; in_progress: number; done: number };
+
+export function insightsBurndown(db: Database, days: number): BurndownRow[] {
+  return insightsBurndownSinglePass(db, days) ?? insightsBurndownPerDay(db, days);
+}
+
+/** Each day's "<date>T23:59:59" boundary, computed exactly as the per-day query does. */
+function burndownDays(db: Database, days: number): Array<{ d: string; end: unknown }> {
+  const dayStmt = db.prepare(`SELECT date('now', ?) AS d`);
+  const endStmt = db.prepare(`SELECT strftime('%Y-%m-%dT%H:%M:%fZ', ?, '23:59:59') AS e`);
+  const out: Array<{ d: string; end: unknown }> = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const { d } = dayStmt.get(`-${i} days`) as { d: string };
+    out.push({ d, end: (endStmt.get(d) as { e: unknown }).e });
+  }
+  return out;
+}
+
+/**
+ * Same result as insightsBurndownPerDay from one scan of tasks instead of
+ * one full scan per day. A task counts on every day whose end boundary E
+ * satisfies created_at <= E < closed_at (or closed_at IS NULL); with the
+ * boundaries ascending that is one contiguous run of days, found by binary
+ * search and added via a difference array. Returns null — and the caller
+ * falls back to the per-day SQL — whenever a value could compare
+ * differently in JS than under SQLite's rules (non-text or non-byte-order-
+ * safe values, unordered boundaries).
+ */
+function insightsBurndownSinglePass(db: Database, days: number): BurndownRow[] | null {
+  const dayList = burndownDays(db, days);
+  const ends: string[] = [];
+  for (const { end } of dayList) {
+    if (!byteOrderSafe(end)) return null;
+    if (ends.length > 0 && !(ends[ends.length - 1]! < end)) return null;
+    ends.push(end);
+  }
+  const n = ends.length;
+  // First day index whose boundary is >= value (n when none).
+  const firstEndAtLeast = (value: string): number => {
+    let lo = 0;
+    let hi = n;
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1;
+      if (ends[mid]! < value) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo;
+  };
+  const deltas = {
+    open: new Array<number>(n + 1).fill(0),
+    in_progress: new Array<number>(n + 1).fill(0),
+    done: new Array<number>(n + 1).fill(0),
+  };
+  const rows = db
+    .prepare(`SELECT status, created_at, closed_at FROM tasks NOT INDEXED`)
+    .values() as Array<[unknown, unknown, unknown]>;
+  for (const [status, createdAt, closedAt] of rows) {
+    // Rows outside the three statuses add to no column.
+    if (status !== "open" && status !== "in_progress" && status !== "done") continue;
+    // NULL created_at: `NULL <= E` is never true.
+    if (createdAt === null) continue;
+    if (!byteOrderSafe(createdAt)) return null;
+    if (closedAt !== null && !byteOrderSafe(closedAt)) return null;
+    const from = firstEndAtLeast(createdAt);
+    const to = closedAt === null ? n : firstEndAtLeast(closedAt);
+    if (from >= to) continue;
+    const delta = deltas[status];
+    delta[from]! += 1;
+    delta[to]! -= 1;
+  }
+  const out: BurndownRow[] = [];
+  let open = 0;
+  let inProgress = 0;
+  let done = 0;
+  for (let k = 0; k < n; k++) {
+    open += deltas.open[k]!;
+    inProgress += deltas.in_progress[k]!;
+    done += deltas.done[k]!;
+    out.push({ date: dayList[k]!.d, open, in_progress: inProgress, done });
+  }
+  return out;
+}
+
+/** Reference implementation: one aggregate scan per day. */
+export function insightsBurndownPerDay(db: Database, days: number): BurndownRow[] {
+  const rows: BurndownRow[] = [];
 
   // Prepare day-end boundary: each iteration resolves "date('now', -i days)"
   const dayStmt = db.prepare(`SELECT date('now', ?) AS d`);
@@ -523,13 +653,27 @@ function normalizeTitle(title: string): Set<string> {
   return new Set(words);
 }
 
-function jaccardSimilarity(a: Set<string>, b: Set<string>): number {
-  if (a.size === 0 && b.size === 0) return 1;
+/**
+ * Jaccard similarity of two word sets given as sorted, duplicate-free word
+ * ids (see insightsDuplicates). Same counts — and so the same float — as
+ * |A∩B| / |A∪B| over the original Set<string>s; two empty sets are 1.
+ */
+function jaccardSimilarity(a: Int32Array, b: Int32Array): number {
+  if (a.length === 0 && b.length === 0) return 1;
   let intersect = 0;
-  for (const w of a) {
-    if (b.has(w)) intersect++;
+  let i = 0;
+  let j = 0;
+  while (i < a.length && j < b.length) {
+    const x = a[i]!;
+    const y = b[j]!;
+    if (x === y) {
+      intersect++;
+      i++;
+      j++;
+    } else if (x < y) i++;
+    else j++;
   }
-  const union = a.size + b.size - intersect;
+  const union = a.length + b.length - intersect;
   return union === 0 ? 0 : intersect / union;
 }
 
@@ -585,10 +729,32 @@ export function insightsDuplicates(
 
   // O(N²) within each repo
   for (const group of byRepo.values()) {
-    const wordSets = group.map((t) => ({ id: t.id, words: normalizeTitle(t.title) }));
+    // Intern each repo's words as integers so a pair's intersection is a
+    // merge of two short sorted arrays instead of string-hash lookups.
+    const vocab = new Map<string, number>();
+    const wordSets = group.map((t) => {
+      const ids: number[] = [];
+      for (const w of normalizeTitle(t.title)) {
+        let id = vocab.get(w);
+        if (id === undefined) {
+          id = vocab.size;
+          vocab.set(w, id);
+        }
+        ids.push(id);
+      }
+      return { id: t.id, words: Int32Array.from(ids).sort() };
+    });
     for (let i = 0; i < wordSets.length; i++) {
+      const a = wordSets[i]!.words;
       for (let j = i + 1; j < wordSets.length; j++) {
-        const sim = jaccardSimilarity(wordSets[i]!.words, wordSets[j]!.words);
+        const b = wordSets[j]!.words;
+        // |A∩B|/|A∪B| <= min(|A|,|B|)/max(|A|,|B|), and float division is
+        // monotonic, so a pair whose size ratio is already below the
+        // threshold cannot reach it: skip the intersection. Pairs are still
+        // visited (and unioned) in the same order.
+        const big = Math.max(a.length, b.length);
+        if (big > 0 && Math.min(a.length, b.length) / big < minSimilarity) continue;
+        const sim = jaccardSimilarity(a, b);
         if (sim >= minSimilarity) {
           union(wordSets[i]!.id, wordSets[j]!.id);
         }

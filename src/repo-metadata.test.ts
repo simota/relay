@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readRepoMetadata } from "./repo-metadata.js";
+import { prefetchRepoMetadata, readRepoMetadata } from "./repo-metadata.js";
 
 function git(cwd: string, ...args: string[]): string {
   const res = spawnSync("git", args, {
@@ -62,5 +62,59 @@ describe("readRepoMetadata", () => {
       lastCommitSha: null,
       lastCommitAt: null,
     });
+  });
+});
+
+describe("prefetchRepoMetadata", () => {
+  // Builds byte-identical repos at two paths (fixed dates and author), so
+  // the sync reader and the async prefetch can each see an uncached path.
+  type Variant = "remote-head" | "branch-fallback" | "no-commits" | "not-git";
+  function makeRepo(variant: Variant): string {
+    const dir = mkdtempSync(join(tmpdir(), "relay-prefetch-"));
+    if (variant === "not-git") return dir;
+    git(dir, "init", "-q", "-b", "feature");
+    if (variant === "no-commits") return dir;
+    git(dir, "remote", "add", "origin", "https://github.com/acme/gadgets.git");
+    writeFileSync(join(dir, "a.txt"), "a\n");
+    git(dir, "add", ".");
+    git(dir, "-c", "user.email=a@b", "-c", "user.name=a", "commit", "-qm", "init");
+    if (variant === "remote-head") {
+      git(dir, "update-ref", "refs/remotes/origin/main", "HEAD");
+      git(dir, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main");
+    }
+    return dir;
+  }
+
+  for (const variant of ["remote-head", "branch-fallback", "no-commits", "not-git"] as const) {
+    test(`warms the cache with what readRepoMetadata reads (${variant})`, async () => {
+      const syncDir = makeRepo(variant);
+      const asyncDir = makeRepo(variant);
+      try {
+        const expected = readRepoMetadata(syncDir);
+        await prefetchRepoMetadata([asyncDir, null, asyncDir]);
+        expect(readRepoMetadata(asyncDir)).toEqual(expected);
+        if (variant === "remote-head") expect(expected.defaultBranch).toBe("main");
+        if (variant === "branch-fallback") expect(expected.defaultBranch).toBe("feature");
+      } finally {
+        rmSync(syncDir, { recursive: true, force: true });
+        rmSync(asyncDir, { recursive: true, force: true });
+      }
+    });
+  }
+
+  test("a missing directory resolves to empty metadata instead of rejecting", async () => {
+    const gone = join(tmpdir(), `relay-prefetch-missing-${process.pid}`);
+    await prefetchRepoMetadata([gone]);
+    expect(readRepoMetadata(gone)).toEqual(readRepoMetadata(null));
+  });
+
+  test("many repos at once all resolve (bounded concurrency)", async () => {
+    const dirs = Array.from({ length: 12 }, () => makeRepo("branch-fallback"));
+    try {
+      await prefetchRepoMetadata(dirs);
+      for (const d of dirs) expect(readRepoMetadata(d).defaultBranch).toBe("feature");
+    } finally {
+      for (const d of dirs) rmSync(d, { recursive: true, force: true });
+    }
   });
 });

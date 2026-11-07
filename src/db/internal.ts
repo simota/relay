@@ -65,6 +65,16 @@ export function serialize(t: TaskInput, now: string) {
   };
 }
 
+// Any UTF-16 code unit at or above U+D800 (surrogates, U+E000–U+FFFF, and
+// the U+FFFD that undecodable bytes turn into). Below it, JS's UTF-16
+// code-unit order equals SQLite's BINARY (UTF-8 byte) order and string
+// equality equals byte equality, so comparisons can move out of SQL.
+const NOT_BYTE_ORDER_SAFE = /[\uD800-\uFFFF]/;
+
+export function byteOrderSafe(value: unknown): value is string {
+  return typeof value === "string" && !NOT_BYTE_ORDER_SAFE.test(value);
+}
+
 export function lastNDays(count: number): string[] {
   const days: string[] = [];
   const today = new Date();

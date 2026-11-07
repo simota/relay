@@ -229,34 +229,96 @@ export type {
 // `new RelayDB()` (the server opens+closes a connection per request).
 const SCHEMA_APPLIED = new Set<string>();
 
+// Memory-mapped read window for the shared server connection. SQLite maps at
+// most min(this, file size); pages past it are read with pread as before.
+const SHARED_MMAP_BYTES = 256 * 1024 * 1024;
+
+/**
+ * Process-wide connection reused by every `new RelayDB(path)` for the same
+ * path while enabled (see enableSharedConnection). null = one connection per
+ * RelayDB, the default for CLI commands and tests.
+ */
+let sharedConnection: { path: string; db: Database } | null = null;
+
+function openConnection(path: string): Database {
+  // bun:sqlite creates the file but not its parent dir — ensure RELAY_HOME
+  // exists so callers (web server, hooks) don't fail before `relay init`.
+  mkdirSync(dirname(path), { recursive: true });
+  const db = new Database(path, { create: true });
+  db.exec("PRAGMA journal_mode = WAL");
+  db.exec("PRAGMA foreign_keys = ON");
+  if (!SCHEMA_APPLIED.has(path)) {
+    const hadTasksTable =
+      db
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'tasks' LIMIT 1")
+        .get() !== undefined;
+    db.exec(SCHEMA_SQL);
+    runColumnMigrations(db);
+    if (!hadTasksTable) {
+      console.warn(`[relay] auto-applied schema (was empty) at ${path}`);
+    }
+    SCHEMA_APPLIED.add(path);
+  }
+  return db;
+}
+
+/**
+ * Let a long-lived process (`relay web`) reuse one SQLite connection for
+ * every `new RelayDB(path)` instead of opening and closing one per request.
+ * A fresh connection starts with an empty page cache and re-parses the
+ * schema, so each request re-read every page it touched; the shared one
+ * keeps both, and memory-maps the file so full-table scans skip the
+ * per-page pread copy (a per-connection mmap would cost more than it saves
+ * on small requests, so it is only enabled here).
+ *
+ * Safe because bun:sqlite is synchronous and single-threaded: every
+ * transaction (`db.transaction`) runs to completion without yielding, so
+ * interleaved async handlers never share an open transaction. Other
+ * processes (CLI `relay sync`) still see/commit through WAL as before.
+ */
+export function enableSharedConnection(path: string = DB_PATH): void {
+  if (sharedConnection?.path === path) return;
+  disableSharedConnection();
+  const db = openConnection(path);
+  db.exec(`PRAGMA mmap_size = ${SHARED_MMAP_BYTES}`);
+  sharedConnection = { path, db };
+}
+
+/** Close the shared connection; later RelayDBs open their own again. */
+export function disableSharedConnection(): void {
+  const conn = sharedConnection;
+  sharedConnection = null;
+  conn?.db.close();
+}
+
 /**
  * One SQLite connection. Request handlers open one per request; declare it
  * with `using db = new RelayDB()` so the connection is closed on every exit
  * path (early return or a thrown query error), not only the happy path.
- * `close()` is idempotent, so an explicit early close stays safe.
+ * `close()` is idempotent, so an explicit early close stays safe. While a
+ * shared connection is enabled for `path`, the RelayDB borrows it and
+ * `close()` only ends this borrow.
  */
 export class RelayDB {
-  private db: Database;
+  private readonly conn: Database;
   private closed = false;
+  private readonly borrowed: boolean;
 
   constructor(path: string = DB_PATH) {
-    // bun:sqlite creates the file but not its parent dir — ensure RELAY_HOME
-    // exists so callers (web server, hooks) don't fail before `relay init`.
-    mkdirSync(dirname(path), { recursive: true });
-    this.db = new Database(path, { create: true });
-    this.db.exec("PRAGMA journal_mode = WAL");
-    this.db.exec("PRAGMA foreign_keys = ON");
-    if (!SCHEMA_APPLIED.has(path)) {
-      const hadTasksTable =
-        this.db
-          .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'tasks' LIMIT 1")
-          .get() !== undefined;
-      this.applySchema();
-      if (!hadTasksTable) {
-        console.warn(`[relay] auto-applied schema (was empty) at ${path}`);
-      }
-      SCHEMA_APPLIED.add(path);
+    if (sharedConnection?.path === path) {
+      this.conn = sharedConnection.db;
+      this.borrowed = true;
+    } else {
+      this.conn = openConnection(path);
+      this.borrowed = false;
     }
+  }
+
+  // A closed borrow must fail like a closed own connection does, so a
+  // RelayDB used after its `using` scope never silently keeps working.
+  private get db(): Database {
+    if (this.closed && this.borrowed) throw new RangeError("Cannot use a closed database");
+    return this.conn;
   }
 
   applySchema(): void {
@@ -267,7 +329,7 @@ export class RelayDB {
   close(): void {
     if (this.closed) return;
     this.closed = true;
-    this.db.close();
+    if (!this.borrowed) this.conn.close();
   }
 
   [Symbol.dispose](): void {

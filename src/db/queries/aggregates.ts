@@ -5,7 +5,7 @@ import type { Database } from "bun:sqlite";
 import { effectivePrioritySqlExpr } from "../../lib/priority.js";
 import type { SourceType, Task } from "../../types.js";
 import type { HeatmapData, ReviewTasks } from "../types.js";
-import { hydrate, lastNDays } from "../internal.js";
+import { byteOrderSafe, hydrate, lastNDays } from "../internal.js";
 import { HAS_OPEN_BLOCKER_SQL } from "./links.js";
 
 /**
@@ -214,16 +214,6 @@ export function repoStats(db: Database): Array<{
     lastTouched: r.last_touched,
     dailyEventCounts: eventDays.map((day) => eventsByRepo.get(r.name)?.get(day) ?? 0),
   }));
-}
-
-// Any UTF-16 code unit at or above U+D800 (surrogates, U+E000–U+FFFF, and
-// the U+FFFD that undecodable bytes turn into). Below it, JS's UTF-16
-// code-unit order equals SQLite's BINARY (UTF-8 byte) order and string
-// equality equals byte equality, so comparisons can move out of SQL.
-const NOT_BYTE_ORDER_SAFE = /[\uD800-\uFFFF]/;
-
-function byteOrderSafe(value: unknown): value is string {
-  return typeof value === "string" && !NOT_BYTE_ORDER_SAFE.test(value);
 }
 
 export function heatmap(

@@ -2,6 +2,7 @@ import { Database } from "bun:sqlite";
 import chalk from "chalk";
 import { spawn } from "node:child_process";
 import { migrateLegacyConfig } from "../config.js";
+import { enableSharedConnection } from "../db/client.js";
 import { DB_PATH } from "../paths.js";
 import { buildApp } from "../web/server.js";
 
@@ -16,6 +17,8 @@ export async function runWeb(opts: WebOptions = {}): Promise<void> {
   const host = opts.host ?? "127.0.0.1";
   migrateLegacyConfig();
   preflightDatabase();
+  // One long-lived connection for every request (see enableSharedConnection).
+  enableSharedConnection(DB_PATH);
   const app = buildApp({ host });
 
   // Bun.serve directly when available; Hono provides `fetch` adapter.

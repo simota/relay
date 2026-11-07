@@ -16,6 +16,7 @@ import { RelayDB, closedSnapshots } from "../db/client.js";
 import type {
   Adapter,
   AdapterContext,
+  ResolvedSource,
   SourceType,
   SyncReport,
   TaskInput,
@@ -422,29 +423,44 @@ function autoCloseMissingRepoTasks(
 // For each adapter that reports `fetchResolved`, sweep merged/closed remote
 // items and auto-close matching DB tasks. Mirrors the missing-repo flow:
 // reversible via the Web undo, no-op when nothing matches.
-async function autoCloseResolvedRemoteTasks(
+//
+// The sweeps are independent (mostly `gh` round-trips), so they run
+// concurrently like the open sweeps above instead of one after another;
+// results and failure logs are still consumed in adapter order, so the
+// closed set, the undo payload and the log lines are the same as a
+// sequential run. Exported for tests.
+export async function autoCloseResolvedRemoteTasks(
   adapters: Adapter[],
   ctx: AdapterContext,
   db: RelayDB,
   log: (msg: string) => void,
 ): Promise<void> {
+  const sweeps = adapters.map(
+    async (adapter): Promise<{ resolved: ResolvedSource[] } | { error: string } | null> => {
+      if (!adapter.fetchResolved) return null;
+      try {
+        // Inject the same per-adapter cursor used in the open sweep so the
+        // closed sweep also benefits from incremental fetch when supported.
+        const resolvedCtx: AdapterContext = {
+          ...ctx,
+          lastSyncCursor: db.lastSuccessfulSyncEndedAt(adapter.name) ?? undefined,
+        };
+        return { resolved: await adapter.fetchResolved(resolvedCtx) };
+      } catch (e) {
+        return { error: e instanceof Error ? e.message : String(e) };
+      }
+    },
+  );
+  const outcomes = await Promise.all(sweeps);
   const items: Array<{ source_type: string; source_id: string }> = [];
-  for (const adapter of adapters) {
-    if (!adapter.fetchResolved) continue;
-    try {
-      // Inject the same per-adapter cursor used in the open sweep so the
-      // closed sweep also benefits from incremental fetch when supported.
-      const resolvedCtx: AdapterContext = {
-        ...ctx,
-        lastSyncCursor: db.lastSuccessfulSyncEndedAt(adapter.name) ?? undefined,
-      };
-      const resolved = await adapter.fetchResolved(resolvedCtx);
-      for (const r of resolved) items.push({ source_type: r.source_type, source_id: r.source_id });
-    } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
-      log(chalk.gray(`  (resolved sweep for ${adapter.name} failed: ${message})`));
+  outcomes.forEach((outcome, i) => {
+    if (!outcome) return;
+    if ("error" in outcome) {
+      log(chalk.gray(`  (resolved sweep for ${adapters[i]!.name} failed: ${outcome.error})`));
+      return;
     }
-  }
+    for (const r of outcome.resolved) items.push({ source_type: r.source_type, source_id: r.source_id });
+  });
   if (items.length === 0) return;
 
   const inverses = db.closeTasksBySourceIds(items);
